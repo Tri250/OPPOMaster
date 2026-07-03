@@ -1075,6 +1075,58 @@ Alcedo will use %1 instead.</translation>
         <source>Using %1 acceleration.</source>
         <translation>Using %1 acceleration.</translation>
     </message>
+    <message>
+        <source>Camera</source>
+        <translation>Camera</translation>
+    </message>
+    <message>
+        <source>Lens</source>
+        <translation>Lens</translation>
+    </message>
+    <message>
+        <source>Aperture / Shutter</source>
+        <translation>Aperture / Shutter</translation>
+    </message>
+    <message>
+        <source>Description</source>
+        <translation>Description</translation>
+    </message>
+    <message>
+        <source>Rating Reason</source>
+        <translation>Rating Reason</translation>
+    </message>
+    <message>
+        <source>No AI description yet</source>
+        <translation>No AI description yet</translation>
+    </message>
+    <message>
+        <source>No rating reason yet</source>
+        <translation>No rating reason yet</translation>
+    </message>
+    <message>
+        <source>Manual edit</source>
+        <translation>Manual edit</translation>
+    </message>
+    <message>
+        <source>Description cannot be empty.</source>
+        <translation>Description cannot be empty.</translation>
+    </message>
+    <message>
+        <source>Rating reason cannot be empty.</source>
+        <translation>Rating reason cannot be empty.</translation>
+    </message>
+    <message>
+        <source>Description saved.</source>
+        <translation>Description saved.</translation>
+    </message>
+    <message>
+        <source>Rating reason saved.</source>
+        <translation>Rating reason saved.</translation>
+    </message>
+    <message>
+        <source>Failed to save rating reason.</source>
+        <translation>Failed to save rating reason.</translation>
+    </message>
 </context>
 <context>
     <name>Alcedo.Main</name>
@@ -1174,6 +1226,84 @@ Alcedo will use %1 instead.</translation>
     </message>
 </context>
 <context>
+    <name>AlbumInspectorPanel</name>
+    <message>
+        <source>LIBRARY OVERVIEW</source>
+        <translation>LIBRARY OVERVIEW</translation>
+    </message>
+    <message>
+        <source>Total Photos</source>
+        <translation>Total Photos</translation>
+    </message>
+    <message>
+        <source>By Capture Date</source>
+        <translation>By Capture Date</translation>
+    </message>
+    <message>
+        <source>By Camera Model</source>
+        <translation>By Camera Model</translation>
+    </message>
+    <message>
+        <source>By Labels</source>
+        <translation>By Labels</translation>
+    </message>
+    <message>
+        <source>By Lens</source>
+        <translation>By Lens</translation>
+    </message>
+    <message>
+        <source>SEARCH FILTER</source>
+        <translation>SEARCH FILTER</translation>
+    </message>
+    <message>
+        <source>Filtered by search</source>
+        <translation>Filtered by search</translation>
+    </message>
+</context>
+<context>
+    <name>ImageInspectorPanel</name>
+    <message>
+        <source>No Image Focused</source>
+        <translation>No Image Focused</translation>
+    </message>
+    <message>
+        <source>Focus a photo to inspect its camera, lens, exposure, description, and rating here.</source>
+        <translation>Focus a photo to inspect its camera, lens, exposure, description, and rating here.</translation>
+    </message>
+    <message>
+        <source>IMAGE</source>
+        <translation>IMAGE</translation>
+    </message>
+    <message>
+        <source>(unnamed)</source>
+        <translation>(unnamed)</translation>
+    </message>
+    <message>
+        <source>Save description</source>
+        <translation>Save description</translation>
+    </message>
+    <message>
+        <source>Edit description</source>
+        <translation>Edit description</translation>
+    </message>
+    <message>
+        <source>No description yet.</source>
+        <translation>No description yet.</translation>
+    </message>
+    <message>
+        <source>Save rating reason</source>
+        <translation>Save rating reason</translation>
+    </message>
+    <message>
+        <source>Edit rating reason</source>
+        <translation>Edit rating reason</translation>
+    </message>
+    <message>
+        <source>No rating reason yet.</source>
+        <translation>No rating reason yet.</translation>
+    </message>
+</context>
+<context>
     <name>InspectorPanel</name>
     <message>
         <location filename="../qml/InspectorPanel.qml" line="35"/>
@@ -1199,6 +1329,14 @@ Alcedo will use %1 instead.</translation>
         <location filename="../qml/InspectorPanel.qml" line="109"/>
         <source>By Lens</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Album</source>
+        <translation>Album</translation>
+    </message>
+    <message>
+        <source>Image</source>
+        <translation>Image</translation>
     </message>
 </context>
 <context>

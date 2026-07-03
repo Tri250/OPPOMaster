@@ -1624,6 +1624,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/SemanticGenerationDialog.qml
         ui/alcedo_main/qml/AdvancedContentAnalysisDialog.qml
         ui/alcedo_main/qml/DialogActionButton.qml
+        ui/alcedo_main/qml/IconButton.qml
         ui/alcedo_main/qml/ActivateModelDialog.qml
         ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
         ui/alcedo_main/qml/AiProviderSettingsPanel.qml

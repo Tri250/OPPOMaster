@@ -1974,6 +1974,58 @@ Alcedo 将改用 %1。</translation>
         <source>Using %1 acceleration.</source>
         <translation>正在使用 %1 加速。</translation>
     </message>
+    <message>
+        <source>Camera</source>
+        <translation>相机</translation>
+    </message>
+    <message>
+        <source>Lens</source>
+        <translation>镜头</translation>
+    </message>
+    <message>
+        <source>Aperture / Shutter</source>
+        <translation>光圈 / 快门</translation>
+    </message>
+    <message>
+        <source>Description</source>
+        <translation>描述</translation>
+    </message>
+    <message>
+        <source>Rating Reason</source>
+        <translation>评分理由</translation>
+    </message>
+    <message>
+        <source>No AI description yet</source>
+        <translation>暂无 AI 描述</translation>
+    </message>
+    <message>
+        <source>No rating reason yet</source>
+        <translation>暂无评分理由</translation>
+    </message>
+    <message>
+        <source>Manual edit</source>
+        <translation>手动编辑</translation>
+    </message>
+    <message>
+        <source>Description cannot be empty.</source>
+        <translation>描述不能为空。</translation>
+    </message>
+    <message>
+        <source>Rating reason cannot be empty.</source>
+        <translation>评分理由不能为空。</translation>
+    </message>
+    <message>
+        <source>Description saved.</source>
+        <translation>描述已保存。</translation>
+    </message>
+    <message>
+        <source>Rating reason saved.</source>
+        <translation>评分理由已保存。</translation>
+    </message>
+    <message>
+        <source>Failed to save rating reason.</source>
+        <translation>保存评分理由失败。</translation>
+    </message>
 </context>
 <context>
     <name>Alcedo.Main</name>
@@ -2089,6 +2141,84 @@ Alcedo 将改用 %1。</translation>
     </message>
 </context>
 <context>
+    <name>AlbumInspectorPanel</name>
+    <message>
+        <source>LIBRARY OVERVIEW</source>
+        <translation>图库概览</translation>
+    </message>
+    <message>
+        <source>Total Photos</source>
+        <translation>照片总数</translation>
+    </message>
+    <message>
+        <source>By Capture Date</source>
+        <translation>按拍摄日期</translation>
+    </message>
+    <message>
+        <source>By Camera Model</source>
+        <translation>按相机型号</translation>
+    </message>
+    <message>
+        <source>By Labels</source>
+        <translation>按标签</translation>
+    </message>
+    <message>
+        <source>By Lens</source>
+        <translation>按镜头</translation>
+    </message>
+    <message>
+        <source>SEARCH FILTER</source>
+        <translation>搜索筛选</translation>
+    </message>
+    <message>
+        <source>Filtered by search</source>
+        <translation>按搜索筛选</translation>
+    </message>
+</context>
+<context>
+    <name>ImageInspectorPanel</name>
+    <message>
+        <source>No Image Focused</source>
+        <translation>未聚焦图像</translation>
+    </message>
+    <message>
+        <source>Focus a photo to inspect its camera, lens, exposure, description, and rating here.</source>
+        <translation>聚焦一张照片后，可在这里查看相机、镜头、曝光、描述和评分。</translation>
+    </message>
+    <message>
+        <source>IMAGE</source>
+        <translation>图像</translation>
+    </message>
+    <message>
+        <source>(unnamed)</source>
+        <translation>（未命名）</translation>
+    </message>
+    <message>
+        <source>Save description</source>
+        <translation>保存描述</translation>
+    </message>
+    <message>
+        <source>Edit description</source>
+        <translation>编辑描述</translation>
+    </message>
+    <message>
+        <source>No description yet.</source>
+        <translation>暂无描述。</translation>
+    </message>
+    <message>
+        <source>Save rating reason</source>
+        <translation>保存评分理由</translation>
+    </message>
+    <message>
+        <source>Edit rating reason</source>
+        <translation>编辑评分理由</translation>
+    </message>
+    <message>
+        <source>No rating reason yet.</source>
+        <translation>暂无评分理由。</translation>
+    </message>
+</context>
+<context>
     <name>InspectorPanel</name>
     <message>
         <source>Photo Library</source>
@@ -2118,6 +2248,14 @@ Alcedo 将改用 %1。</translation>
         <location filename="../qml/InspectorPanel.qml" line="109"/>
         <source>By Lens</source>
         <translation>按镜头</translation>
+    </message>
+    <message>
+        <source>Album</source>
+        <translation>相册</translation>
+    </message>
+    <message>
+        <source>Image</source>
+        <translation>图像</translation>
     </message>
 </context>
 <context>
@@ -3321,6 +3459,10 @@ Original source files on disk will be kept.</source>
         <translation>跟随应用语言</translation>
     </message>
     <message>
+        <source>Move task to background</source>
+        <translation>将任务移至后台</translation>
+    </message>
+    <message>
         <source>评价严苛程度</source>
         <translation>评价严苛程度</translation>
     </message>
@@ -3516,6 +3658,10 @@ Original source files on disk will be kept.</source>
         <translation>输出语言</translation>
     </message>
     <message>
+        <source>Provider settings</source>
+        <translation>提供商设置</translation>
+    </message>
+    <message>
         <source>Add</source>
         <translation>添加</translation>
     </message>
@@ -3540,8 +3686,8 @@ Original source files on disk will be kept.</source>
         <translation>暂无提供商配置</translation>
     </message>
     <message>
-        <source>Use the Add button to create one.</source>
-        <translation>点击“添加”按钮创建一个。</translation>
+        <source>Use the + button above to create one.</source>
+        <translation>点击上方的“+”按钮创建一个。</translation>
     </message>
     <message>
         <source>Add provider</source>
@@ -3726,6 +3872,10 @@ Original source files on disk will be kept.</source>
         <source>Generate</source>
         <translation>生成</translation>
     </message>
+    <message>
+        <source>Move task to background</source>
+        <translation>将任务移至后台</translation>
+    </message>
 </context>
 <context>
     <name>SemanticGenerationSettingsPanel</name>
@@ -3780,6 +3930,10 @@ Original source files on disk will be kept.</source>
     <message>
         <source>Regenerate</source>
         <translation>重新生成</translation>
+    </message>
+    <message>
+        <source>Move task to background</source>
+        <translation>将任务移至后台</translation>
     </message>
     <message>
         <source>Model</source>

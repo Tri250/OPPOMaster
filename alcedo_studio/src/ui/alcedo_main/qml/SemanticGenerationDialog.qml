@@ -287,11 +287,21 @@ Popup {
                 }
             }
 
-            AiButton {
+            IconButton {
                 visible: root.showingGeneration
-                Layout.preferredWidth: 172
-                text: qsTr("Run in Background")
-                primary: true
+                buttonWidth: 54
+                buttonHeight: 48
+                buttonRadius: 10
+                iconSize: 18
+                kind: "accent"
+                accentColor: root.accentColor
+                bordered: true
+                borderColor: Qt.rgba(root.accentColor.r,
+                                     root.accentColor.g,
+                                     root.accentColor.b,
+                                     0.20)
+                iconSrc: "qrc:/panel_icons/to_bg.svg"
+                tooltipText: qsTr("Move task to background")
                 enabled: root.generationRunning
                 onClicked: root.runInBackground()
             }
@@ -314,6 +324,10 @@ Popup {
         property bool primary: false
 
         Layout.preferredHeight: 48
+        topInset: 0
+        bottomInset: 0
+        leftInset: 0
+        rightInset: 0
         font.pixelSize: 15
         font.weight: 800
         hoverEnabled: true

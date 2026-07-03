@@ -982,9 +982,15 @@ Dialog {
                             elide: Text.ElideRight
                         }
 
-                        DialogActionButton {
+                        IconButton {
                             kind: "normal"
-                            text: qsTr("Run in Background")
+                            buttonWidth: 52
+                            buttonHeight: 46
+                            buttonRadius: 10
+                            iconSize: 18
+                            bordered: false
+                            iconSrc: "qrc:/panel_icons/to_bg.svg"
+                            tooltipText: qsTr("Move task to background")
                             enabled: root.canRunInBackground
                             onClicked: root.runInBackground()
                         }

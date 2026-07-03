@@ -192,149 +192,190 @@ SwipeView {
                 Layout.fillWidth: true
                 title: qsTr("Output language")
 
-                RowLayout {
+                ComboBox {
                     Layout.fillWidth: true
-                    spacing: 12
-
-                    ComboBox {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 42
-                        enabled: panel.hasProfilesController && panel.canChangeProvider
-                        model: panel.languageModel
-                        textRole: "label"
-                        currentIndex: panel.languageIndexFor(panel.hasProfilesController ? panel.profileController.outputLanguage : "follow")
-                        onActivated: function(index) {
-                            if (panel.hasProfilesController) {
-                                panel.profileController.SetOutputLanguage(model[index].value)
-                            }
+                    Layout.preferredHeight: 42
+                    enabled: panel.hasProfilesController && panel.canChangeProvider
+                    model: panel.languageModel
+                    textRole: "label"
+                    currentIndex: panel.languageIndexFor(panel.hasProfilesController ? panel.profileController.outputLanguage : "follow")
+                    onActivated: function(index) {
+                        if (panel.hasProfilesController) {
+                            panel.profileController.SetOutputLanguage(model[index].value)
                         }
-                    }
-
-                    AiButton {
-                        id: addButton
-                        Layout.preferredHeight: 42
-                        primary: true
-                        iconSrc: "qrc:/panel_icons/plus.svg"
-                        text: qsTr("Add")
-                        enabled: panel.hasProfilesController && panel.canChangeProvider
-                        onClicked: addDialog.open()
                     }
                 }
             }
 
-            Item {
+            // Provider settings — manual header so the icon-only Add button
+            // sits inline with the title. SettingsSection has no header slot,
+            // and routing an icon button through a Loader would break the
+            // square Layout sizing, so the header is built in place.
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                spacing: 12
 
-                ListView {
-                    id: cardList
-                    anchors.fill: parent
-                    clip: true
-                    spacing: 12
-                    boundsBehavior: Flickable.StopAtBounds
-                    model: panel.profiles
-
-                    delegate: Rectangle {
-                        width: ListView.view.width
-                        height: 92
-                        radius: 8
-                        color: modelData.active
-                               ? Qt.rgba(panel.primaryAccent.r, panel.primaryAccent.g, panel.primaryAccent.b, 0.14)
-                               : (cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.16))
-                        border.width: 1
-                        border.color: modelData.active
-                                      ? Qt.rgba(panel.secondaryAccent.r, panel.secondaryAccent.g, panel.secondaryAccent.b, 0.72)
-                                      : Qt.rgba(1, 1, 1, 0.08)
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 18
-                            anchors.rightMargin: 14
-                            spacing: 14
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 5
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: modelData.displayName
-                                    color: panel.textColor
-                                    font.pixelSize: 16
-                                    font.weight: 800
-                                    elide: Text.ElideRight
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: modelData.baseUrl
-                                    color: panel.mutedTextColor
-                                    font.family: panel.dataFontFamily
-                                    font.pixelSize: 12
-                                    elide: Text.ElideMiddle
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: modelData.modelDisplayName && modelData.modelDisplayName.length > 0
-                                          ? modelData.modelDisplayName : modelData.modelId
-                                    color: panel.secondaryAccent
-                                    font.family: panel.dataFontFamily
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            AiButton {
-                                Layout.preferredHeight: 38
-                                primary: true
-                                iconSrc: modelData.active
-                                         ? "qrc:/panel_icons/stop.svg"
-                                         : "qrc:/panel_icons/play.svg"
-                                text: modelData.active ? qsTr("In use") : qsTr("Use")
-                                enabled: !modelData.active && panel.hasProfilesController
-                                         && panel.canChangeProvider
-                                onClicked: panel.profileController.SetActiveProfile(modelData.uuid)
-                            }
-
-                            AiButton {
-                                Layout.preferredHeight: 38
-                                text: qsTr("Edit")
-                                enabled: panel.hasProfilesController && panel.canChangeProvider
-                                onClicked: panel.openEditor(modelData.uuid)
-                            }
-                        }
-
-                        MouseArea {
-                            id: cardMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.NoButton
-                        }
-                    }
-                }
-
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    width: Math.min(parent.width - 40, 420)
-                    visible: panel.profiles.length === 0
-                    spacing: 8
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
 
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("No provider profiles")
+                        text: qsTr("Provider settings")
                         color: panel.textColor
                         font.pixelSize: 18
                         font.weight: 800
-                        horizontalAlignment: Text.AlignHCenter
                     }
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("Use the Add button to create one.")
-                        color: panel.mutedTextColor
-                        font.pixelSize: 13
-                        horizontalAlignment: Text.AlignHCenter
+                    IconButton {
+                        buttonSize: 40
+                        iconSize: 16
+                        kind: "accent"
+                        accentColor: panel.primaryAccent
+                        bordered: true
+                        borderColor: Qt.rgba(panel.secondaryAccent.r,
+                                             panel.secondaryAccent.g,
+                                             panel.secondaryAccent.b, 0.18)
+                        iconSrc: "qrc:/panel_icons/plus.svg"
+                        tooltipText: qsTr("Add provider")
+                        enabled: panel.hasProfilesController && panel.canChangeProvider
+                        onClicked: addDialog.open()
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: panel.dividerColor
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
+                    ListView {
+                        id: cardList
+                        anchors.fill: parent
+                        clip: true
+                        spacing: 12
+                        boundsBehavior: Flickable.StopAtBounds
+                        model: panel.profiles
+
+                        delegate: Rectangle {
+                            width: ListView.view.width
+                            height: 92
+                            radius: 8
+                            color: modelData.active
+                                   ? Qt.rgba(panel.primaryAccent.r, panel.primaryAccent.g, panel.primaryAccent.b, 0.14)
+                                   : (cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(0, 0, 0, 0.16))
+                            border.width: 1
+                            border.color: modelData.active
+                                          ? Qt.rgba(panel.secondaryAccent.r, panel.secondaryAccent.g, panel.secondaryAccent.b, 0.72)
+                                          : Qt.rgba(1, 1, 1, 0.08)
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 18
+                                anchors.rightMargin: 14
+                                spacing: 14
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.displayName
+                                        color: panel.textColor
+                                        font.pixelSize: 16
+                                        font.weight: 800
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.baseUrl
+                                        color: panel.mutedTextColor
+                                        font.family: panel.dataFontFamily
+                                        font.pixelSize: 12
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData.modelDisplayName && modelData.modelDisplayName.length > 0
+                                              ? modelData.modelDisplayName : modelData.modelId
+                                        color: panel.secondaryAccent
+                                        font.family: panel.dataFontFamily
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                IconButton {
+                                    buttonSize: 40
+                                    iconSize: 16
+                                    kind: modelData.active ? "normal" : "accent"
+                                    accentColor: panel.primaryAccent
+                                    bordered: true
+                                    borderColor: modelData.active
+                                                 ? Qt.rgba(1, 1, 1, 0.12)
+                                                 : Qt.rgba(panel.secondaryAccent.r,
+                                                           panel.secondaryAccent.g,
+                                                           panel.secondaryAccent.b, 0.18)
+                                    iconSrc: modelData.active
+                                             ? "qrc:/panel_icons/stop.svg"
+                                             : "qrc:/panel_icons/play.svg"
+                                    tooltipText: modelData.active ? qsTr("In use") : qsTr("Use")
+                                    enabled: !modelData.active && panel.hasProfilesController
+                                             && panel.canChangeProvider
+                                    onClicked: panel.profileController.SetActiveProfile(modelData.uuid)
+                                }
+
+                                IconButton {
+                                    buttonSize: 40
+                                    iconSize: 16
+                                    kind: "normal"
+                                    bordered: true
+                                    iconSrc: "qrc:/panel_icons/edit.svg"
+                                    tooltipText: qsTr("Edit")
+                                    enabled: panel.hasProfilesController && panel.canChangeProvider
+                                    onClicked: panel.openEditor(modelData.uuid)
+                                }
+                            }
+
+                            MouseArea {
+                                id: cardMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        width: Math.min(parent.width - 40, 420)
+                        visible: panel.profiles.length === 0
+                        spacing: 8
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("No provider profiles")
+                            color: panel.textColor
+                            font.pixelSize: 18
+                            font.weight: 800
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Use the + button above to create one.")
+                            color: panel.mutedTextColor
+                            font.pixelSize: 13
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
                 }
             }
@@ -591,49 +632,18 @@ SwipeView {
                                 }
                             }
 
-                            Rectangle {
-                                id: retryButton
-                                // Square side tracks the model selector's actual rendered
-                                // height so the two are always exactly equal — plain
-                                // Rectangle has no style padding, mirroring the
-                                // browse-button pattern in SemanticGenerationSettingsPanel.
-                                Layout.preferredWidth: modelCombo.height
-                                Layout.preferredHeight: modelCombo.height
+                            IconButton {
+                                buttonSize: modelCombo.height
+                                iconSize: 16
                                 Layout.alignment: Qt.AlignBottom
-                                radius: 10
-                                color: retryHit.pressed
-                                       ? Qt.rgba(1, 1, 1, 0.06)
-                                       : (retryHit.containsMouse
-                                          ? Qt.rgba(1, 1, 1, 0.16)
-                                          : Qt.rgba(1, 1, 1, 0.10))
-                                border.width: 1
-                                border.color: Qt.rgba(1, 1, 1, 0.12)
-                                opacity: retryHit.enabled ? 1.0 : 0.45
-                                ToolTip.text: qsTr("Test & Refresh")
-                                ToolTip.visible: retryHit.containsMouse && retryHit.enabled
-                                ToolTip.delay: 400
-
-                                Image {
-                                    anchors.centerIn: parent
-                                    width: 20
-                                    height: 20
-                                    source: "qrc:/panel_icons/retry.svg"
-                                    sourceSize.width: 20
-                                    sourceSize.height: 20
-                                    fillMode: Image.Pad
-                                    asynchronous: true
-                                }
-
-                                MouseArea {
-                                    id: retryHit
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    enabled: panel.hasAnalysis && panel.canChangeProvider
-                                             && panel.editingProfileId.length > 0
-                                             && (panel.editProfile.credentialAvailable || panel.editProfile.authType === "none")
-                                    onClicked: panel.analysisController.ValidateConnectionForProfile(panel.editingProfileId)
-                                }
+                                kind: "normal"
+                                bordered: true
+                                iconSrc: "qrc:/panel_icons/retry.svg"
+                                tooltipText: qsTr("Test & Refresh")
+                                enabled: panel.hasAnalysis && panel.canChangeProvider
+                                         && panel.editingProfileId.length > 0
+                                         && (panel.editProfile.credentialAvailable || panel.editProfile.authType === "none")
+                                onClicked: panel.analysisController.ValidateConnectionForProfile(panel.editingProfileId)
                             }
                         }
 

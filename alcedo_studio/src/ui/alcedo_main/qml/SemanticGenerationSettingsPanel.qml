@@ -320,6 +320,10 @@ ColumnLayout {
                 id: generateButton
                 Layout.preferredWidth: 148
                 Layout.preferredHeight: 48
+                topInset: 0
+                bottomInset: 0
+                leftInset: 0
+                rightInset: 0
                 text: panel.generationRunning ? qsTr("Cancel") : qsTr("Generate")
                 enabled: panel.hasController
                          && (panel.generationRunning
@@ -360,6 +364,10 @@ ColumnLayout {
                 visible: !panel.generationRunning
                 Layout.preferredWidth: 148
                 Layout.preferredHeight: 48
+                topInset: 0
+                bottomInset: 0
+                leftInset: 0
+                rightInset: 0
                 text: qsTr("Regenerate")
                 enabled: panel.hasController && panel.albumTotalCount > 0
                          && (!panel.interactionPolicy
@@ -384,31 +392,23 @@ ColumnLayout {
                 }
             }
 
-            Button {
-                id: generationBackgroundButton
+            IconButton {
                 visible: panel.generationRunning
-                Layout.preferredWidth: 172
-                Layout.preferredHeight: 48
-                text: qsTr("Run in Background")
+                buttonWidth: 54
+                buttonHeight: 48
+                buttonRadius: 10
+                iconSize: 18
+                kind: "accent"
+                accentColor: panel.primaryAccent
+                bordered: true
+                borderColor: Qt.rgba(panel.secondaryAccent.r,
+                                     panel.secondaryAccent.g,
+                                     panel.secondaryAccent.b,
+                                     0.18)
+                iconSrc: "qrc:/panel_icons/to_bg.svg"
+                tooltipText: qsTr("Move task to background")
                 enabled: panel.generationRunning
-                font.pixelSize: 15
-                font.weight: 800
-                Material.foreground: panel.textColor
                 onClicked: panel.backgroundRequested()
-                background: Rectangle {
-                    radius: 10
-                    color: generationBackgroundButton.down
-                           ? Qt.darker(panel.primaryAccent, 1.16)
-                           : (generationBackgroundButton.hovered
-                              ? Qt.lighter(panel.primaryAccent, 1.06)
-                              : panel.primaryAccent)
-                    border.width: 1
-                    border.color: Qt.rgba(panel.secondaryAccent.r,
-                                          panel.secondaryAccent.g,
-                                          panel.secondaryAccent.b,
-                                          0.18)
-                    opacity: generationBackgroundButton.enabled ? 1.0 : 0.45
-                }
             }
         }
     }
@@ -589,18 +589,21 @@ ColumnLayout {
             Layout.fillWidth: true
             spacing: 12
 
-            Button {
-                Layout.preferredHeight: 42
+            DialogActionButton {
+                kind: "normal"
+                buttonWidth: 112
+                buttonHeight: 42
                 text: qsTr("Check")
                 enabled: panel.hasDownloadController
                          && (!panel.interactionPolicy
                              || panel.interactionPolicy.canChangeModelDownloadSettings)
-                Material.foreground: panel.textColor
                 onClicked: panel.downloadController.RefreshSelectedModelStatus()
             }
 
-            Button {
-                Layout.preferredHeight: 42
+            DialogActionButton {
+                kind: panel.modelDownloadRunning ? "warning" : "accent"
+                buttonWidth: 128
+                buttonHeight: 42
                 text: panel.modelDownloadRunning
                       ? qsTr("Cancel")
                       : qsTr("Download")
@@ -610,7 +613,6 @@ ColumnLayout {
                              : (!panel.modelActivationRunning
                                  && (!panel.interactionPolicy
                                      || panel.interactionPolicy.canChangeModelDownloadSettings)))
-                Material.foreground: panel.textColor
                 onClicked: {
                     if (panel.modelDownloadRunning) {
                         panel.downloadController.CancelSelectedModelDownload()
@@ -620,23 +622,25 @@ ColumnLayout {
                 }
             }
 
-            Button {
-                Layout.preferredHeight: 42
+            DialogActionButton {
+                kind: "danger"
+                buttonWidth: 112
+                buttonHeight: 42
                 text: qsTr("Delete")
                 enabled: panel.hasDownloadController
                          && (!panel.interactionPolicy
                              || panel.interactionPolicy.canChangeModelDownloadSettings)
-                Material.foreground: panel.dangerColor
                 onClicked: panel.downloadController.DeleteSelectedModel()
             }
 
-            Button {
-                Layout.preferredHeight: 42
+            DialogActionButton {
+                kind: "accent"
+                buttonWidth: 128
+                buttonHeight: 42
                 text: qsTr("Activate")
                 enabled: panel.hasController
                          && (!panel.interactionPolicy
                              || panel.interactionPolicy.canChangeSemanticModel)
-                Material.foreground: panel.textColor
                 onClicked: panel.semanticController.ActivateSelectedModel()
             }
 
