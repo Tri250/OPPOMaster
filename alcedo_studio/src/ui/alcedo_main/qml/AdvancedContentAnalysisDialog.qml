@@ -24,7 +24,19 @@ Dialog {
     property var backend: null
     property var selectionTargets: []
     property bool backendInteractive: false
+    // Phase 2: the interaction-policy controller. The Start button binds to its
+    // canRunAnalysis Q_PROPERTY so a running analysis on the selected images
+    // blocks starting another, with a reason shown in the footer.
+    property var interactionPolicy: null
     property real cornerRadius: 0
+
+    // Phase 2: push the dialog's selected targets into the policy controller so
+    // canRunAnalysis re-evaluates on PolicyChanged.
+    Binding {
+        target: root.interactionPolicy
+        property: "pendingAnalysisTargets"
+        value: root.selectionTargets
+    }
 
     property color panelColor: appTheme.toneGraphite
     property color canvasColor: appTheme.bgDeepColor
@@ -42,6 +54,9 @@ Dialog {
     readonly property string dataFontFamily: appTheme.dataFontFamily
 
     readonly property bool running: analysisController && analysisController.running
+    readonly property bool analysisLockedByPolicy: root.running && root.interactionPolicy
+                                                 && !root.interactionPolicy.canRunAnalysis
+    readonly property bool canRunInBackground: root.analysisLockedByPolicy
     readonly property int selectedImageCount: selectionTargets ? selectionTargets.length : 0
     readonly property bool ratingReasonSelected: ratingTask.checked && ratingReasonTask.checked
     readonly property int selectedTaskCount: (descriptionTask.checked ? 1 : 0)
@@ -129,11 +144,39 @@ Dialog {
     property var phaseQueue: []
     property var phaseTargets: ({})
     property int skippedUnits: 0
+    property real preservedContentY: 0
+    property bool preservingContentY: false
 
     signal messageRequested(string message)
 
     function withAlpha(colorValue, alphaValue) {
         return Qt.rgba(colorValue.r, colorValue.g, colorValue.b, alphaValue)
+    }
+
+    function analysisFlickable() {
+        return analysisScroll && analysisScroll.contentItem
+                && analysisScroll.contentItem.contentY !== undefined
+                ? analysisScroll.contentItem : null
+    }
+
+    function beginContentYPreserve() {
+        const flickable = analysisFlickable()
+        if (!flickable) {
+            return
+        }
+        preservedContentY = flickable.contentY
+        preservingContentY = true
+    }
+
+    function restoreContentY() {
+        const flickable = analysisFlickable()
+        if (!flickable) {
+            preservingContentY = false
+            return
+        }
+        const maxY = Math.max(0, flickable.contentHeight - flickable.height)
+        flickable.contentY = Math.max(0, Math.min(root.preservedContentY, maxY))
+        preservingContentY = false
     }
 
     Overlay.modal: Item {
@@ -178,8 +221,30 @@ Dialog {
     }
 
     function openWithTargets(targets) {
+        if (root.running) {
+            startedOnce = true
+            open()
+            return
+        }
         selectionTargets = targets ? targets : []
         resetSession()
+        open()
+        Qt.callLater(function() {
+            const flickable = root.analysisFlickable()
+            if (flickable) {
+                flickable.contentY = 0
+                root.preservedContentY = 0
+            }
+        })
+    }
+
+    function openTaskDetails(task) {
+        if (task && task.affectedTargets && task.affectedTargets.length > 0) {
+            selectionTargets = task.affectedTargets
+        }
+        if (root.running) {
+            startedOnce = true
+        }
         open()
     }
 
@@ -408,6 +473,7 @@ Dialog {
     }
 
     function finishAllPhases() {
+        beginContentYPreserve()
         finalReady = true
         const ok = analysisController ? Number(analysisController.analyzed) : 0
         const failed = analysisController ? Number(analysisController.failed) : 0
@@ -434,12 +500,30 @@ Dialog {
             finalSummary = qsTr("Analysis complete.")
         }
         phaseIndex = -1
+        Qt.callLater(root.restoreContentY)
     }
 
     function cancelAnalysis() {
         cancelRequested = true
         if (analysisController && analysisController.running) {
             analysisController.CancelAnalysis()
+        }
+    }
+
+    function runInBackground() {
+        if (!canRunInBackground) {
+            return
+        }
+        root.close()
+    }
+
+    onRunningChanged: {
+        if (!running && startedOnce && !finalReady) {
+            beginContentYPreserve()
+            Qt.callLater(function() {
+                root.advanceAfterControllerStopped()
+                root.restoreContentY()
+            })
         }
     }
 
@@ -574,6 +658,16 @@ Dialog {
                     contentWidth: availableWidth
                     clip: true
 
+                    Connections {
+                        target: analysisScroll.contentItem
+                        ignoreUnknownSignals: true
+                        function onContentYChanged() {
+                            if (!root.preservingContentY) {
+                                root.preservedContentY = analysisScroll.contentItem.contentY
+                            }
+                        }
+                    }
+
                     ColumnLayout {
                         width: analysisScroll.availableWidth
                         spacing: 18
@@ -670,7 +764,7 @@ Dialog {
                             Layout.fillWidth: true
                             Layout.leftMargin: 28
                             Layout.rightMargin: 28
-                            visible: ratingTask.checked && !root.running
+                            visible: ratingTask.checked && !root.running && !root.startedOnce
                             Layout.preferredHeight: severityColumn.implicitHeight + 28
                             radius: 8
                             color: root.sectionColor
@@ -877,10 +971,38 @@ Dialog {
 
                         Label {
                             Layout.fillWidth: true
-                            text: root.running ? qsTr("Remote provider calls may incur cost.") : ""
+                            text: root.running
+                                  ? (root.canRunInBackground
+                                     ? qsTr("Protected by interaction locks; safe to continue in the background.")
+                                     : qsTr("Remote provider calls may incur cost."))
+                                  : (root.interactionPolicy && !root.interactionPolicy.canRunAnalysis
+                                       ? root.interactionPolicy.runAnalysisReason : "")
                             color: root.mutedTextColor
                             font.pixelSize: 12
                             elide: Text.ElideRight
+                        }
+
+                        IconButton {
+                            kind: "normal"
+                            buttonWidth: 52
+                            buttonHeight: 46
+                            buttonRadius: 10
+                            iconSize: 18
+                            bordered: false
+                            iconSrc: "qrc:/panel_icons/to_bg.svg"
+                            tooltipText: qsTr("Move task to background")
+                            enabled: root.canRunInBackground
+                            onClicked: root.runInBackground()
+                        }
+
+                        DialogActionButton {
+                            kind: "accent"
+                            text: qsTr("Analyze Selected")
+                            visible: !root.running && !root.finalReady
+                            enabled: root.backendInteractive && root.selectedImageCount > 0
+                                      && (!root.interactionPolicy
+                                          || root.interactionPolicy.canRunAnalysis)
+                            onClicked: root.startAnalysis()
                         }
 
                         DialogActionButton {
@@ -892,16 +1014,8 @@ Dialog {
                         }
 
                         DialogActionButton {
-                            kind: "accent"
-                            text: qsTr("Analyze Selected")
-                            visible: !root.running && !root.finalReady
-                            enabled: root.backendInteractive && root.selectedImageCount > 0
-                            onClicked: root.startAnalysis()
-                        }
-
-                        DialogActionButton {
                             kind: "normal"
-                            text: qsTr("Close")
+                            text: qsTr("Done")
                             visible: !root.running && root.finalReady
                             onClicked: root.close()
                         }

@@ -24,6 +24,7 @@
 #include "app/model_asset_catalog.hpp"
 #include "storage/controller/semantic/semantic_label_config.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
+#include "ui/alcedo_main/album_backend/background_task_controller.hpp"
 #include "ui/alcedo_main/album_backend/model_download_controller.hpp"
 
 namespace alcedo::ui {
@@ -40,7 +41,7 @@ constexpr auto   kSemanticGenerationImportPreferenceKey = "semantic/importGenera
 constexpr auto   kSemanticPreferenceAsk                 = "ask";
 constexpr auto   kSemanticPreferenceAlways              = "always";
 constexpr auto   kSemanticPreferenceNever               = "never";
-constexpr auto   kAiSidecarRuntimeStartupTimeout         = 60s;
+constexpr auto   kAiSidecarRuntimeStartupTimeout        = 60s;
 constexpr auto   kJinaClipProfileId                     = "jina-clip-v2-int8-multilingual";
 constexpr auto   kSiglip2ProfileId                      = "siglip2-b32-256-multilingual";
 constexpr auto   kSiglip2CoreMlProfileId                = "siglip2-base-256-coreml-macos";
@@ -134,11 +135,12 @@ auto LabelPrototypeBatchSizeForProfile(const AiSidecarRuntimeModelInfo& info) ->
 
 auto LabelPrototypeBatchSizeForProfile(const SemanticResolvedModelManifest& manifest) -> size_t {
   const AiSidecarRuntimeModelInfo info{.profile_id = manifest.profile_id,
-                                      .model_id   = manifest.model_id};
+                                       .model_id   = manifest.model_id};
   return LabelPrototypeBatchSizeForProfile(info);
 }
 
-auto EmbeddingTimeoutForProfile(const AiSidecarRuntimeModelInfo& info) -> std::chrono::milliseconds {
+auto EmbeddingTimeoutForProfile(const AiSidecarRuntimeModelInfo& info)
+    -> std::chrono::milliseconds {
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
   if (profile_id == kJinaClipProfileId) {
     return 120s;
@@ -155,7 +157,7 @@ auto EmbeddingTimeoutForProfile(const AiSidecarRuntimeModelInfo& info) -> std::c
 auto EmbeddingTimeoutForProfile(const SemanticResolvedModelManifest& manifest)
     -> std::chrono::milliseconds {
   const AiSidecarRuntimeModelInfo info{.profile_id = manifest.profile_id,
-                                      .model_id   = manifest.model_id};
+                                       .model_id   = manifest.model_id};
   return EmbeddingTimeoutForProfile(info);
 }
 
@@ -187,21 +189,22 @@ SemanticGenerationController::SemanticGenerationController(AlbumBackend& backend
   // install state + selected profile, so recompute it whenever that changes
   // (selection change, download finish, delete, refresh) — not on every
   // progress tick, which is why we listen to SelectedModelInstallChanged.
-  connect(&backend_.model_download_controller_, &ModelDownloadController::SelectedModelInstallChanged,
-          this, [this]() {
+  connect(&backend_.model_download_controller_,
+          &ModelDownloadController::SelectedModelInstallChanged, this, [this]() {
             RecomputeSelectedModelActive();
             emit StateChanged();
           });
   // When the user picks a different model in the combo box, refresh the badge and
   // auto-activate it when its label prototypes are already cached, so the user does
   // not have to press Activate again for a model that was previously activated.
-  connect(&backend_.model_download_controller_, &ModelDownloadController::SelectedModelProfileChanged,
-          this, [this]() { TryAutoActivateSelectedModel(); });
+  connect(&backend_.model_download_controller_,
+          &ModelDownloadController::SelectedModelProfileChanged, this,
+          [this]() { TryAutoActivateSelectedModel(); });
 }
 
 bool SemanticGenerationController::PromptVisible() const {
-  return prompt_pending_ && !activate_prompt_pending_ && !running_
-         && !backend_.nikon_he_recovery_.is_active();
+  return prompt_pending_ && !activate_prompt_pending_ && !running_ &&
+         !backend_.nikon_he_recovery_.is_active();
 }
 
 bool SemanticGenerationController::ActivatePromptVisible() const {
@@ -279,11 +282,22 @@ QString SemanticGenerationController::ActiveModelKeyQString() const {
   return QString::fromStdString(ActiveModelKey());
 }
 
+auto SemanticGenerationController::RuntimeOptionsForCurrentSidecarSnapshot(
+    bool requireModelInfo) const -> AiSidecarRuntimeOptions {
+  QString profile_id = ActiveModelProfileId();
+  if (profile_id.isEmpty()) {
+    profile_id = backend_.model_download_controller_.SelectedModelProfileId();
+  }
+  auto options               = RuntimeOptionsForProfile(profile_id, true);
+  options.require_model_info = requireModelInfo;
+  return options;
+}
+
 void SemanticGenerationController::RecomputeSelectedModelActive() {
   const QString active_profile = ActiveModelProfileId();
   selected_model_active_ =
-      backend_.model_download_controller_.SelectedModelInstalled() && !active_profile.isEmpty()
-      && active_profile == backend_.model_download_controller_.SelectedModelProfileId();
+      backend_.model_download_controller_.SelectedModelInstalled() && !active_profile.isEmpty() &&
+      active_profile == backend_.model_download_controller_.SelectedModelProfileId();
 }
 
 void SemanticGenerationController::RefreshSemanticState() {
@@ -319,8 +333,8 @@ void SemanticGenerationController::TryAutoActivateSelectedModel() {
   // Only auto-switch when the selected model is already "warm" - its label
   // prototypes are cached. A cold model must be activated manually (Activate
   // generates the cache), because there is no data to route to yet.
-  QString       manifest_error;
-  const auto    manifest =
+  QString    manifest_error;
+  const auto manifest =
       backend_.model_download_controller_.LoadSelectedResolvedManifest(&manifest_error);
   if (!manifest.has_value()) {
     return;
@@ -331,8 +345,8 @@ void SemanticGenerationController::TryAutoActivateSelectedModel() {
   const auto        label_language = ModelLabelLanguage(*manifest);
   const auto        prompt_hash    = SemanticPromptConfigHashForLanguage(label_language);
 
-  auto&      semantic        = project->GetStorageService()->GetSemanticStorageController();
-  const auto query_count     = semantic.CountLabelQueries(prompt_hash);
+  auto&             semantic       = project->GetStorageService()->GetSemanticStorageController();
+  const auto        query_count    = semantic.CountLabelQueries(prompt_hash);
   if (query_count == 0) {
     return;
   }
@@ -353,8 +367,7 @@ void SemanticGenerationController::TryAutoActivateSelectedModel() {
   RefreshAlbumSummary();
   backend_.ReloadCurrentFolder();  // routing changed -> refresh album view + labels
   backend_.model_download_controller_.SetStatusText(
-      PL_TEXT("%1 is active for this project. Label prompts are ready.",
-              ActiveModelDisplayName()));
+      PL_TEXT("%1 is active for this project. Label prompts are ready.", ActiveModelDisplayName()));
   emit StateChanged();
 }
 
@@ -401,15 +414,33 @@ void SemanticGenerationController::ActivateSelectedModel() {
                                          : manifest->model_id + "@" + manifest->revision;
   const auto        label_language = ModelLabelLanguage(*manifest);
 
-  model_activation_running_ = true;
+  model_activation_running_        = true;
   backend_.model_download_controller_.SetStatusText(
       PL_TEXT("Activating model and preparing labels..."));
   emit StateChanged();
+  // Phase 2: surface activation in the task bar and publish its interaction
+  // locks (blocks model swap, a second generation, and model-file changes).
+  model_activation_task_id_ = RegisterActivationTask();
 
-  auto runtime_options = RuntimeOptionsForProfile(profile_id, true);
+  auto runtime_options      = RuntimeOptionsForProfile(profile_id, true);
+  auto sidecar_lease        = runtime->AcquireLease();
+  if (!sidecar_lease) {
+    model_activation_running_ = false;
+    backend_.model_download_controller_.SetStatusText(
+        PL_TEXT("Semantic runtime service is unavailable."));
+    if (!model_activation_task_id_.isEmpty()) {
+      backend_.background_task_.FinishTask(
+          model_activation_task_id_, BackgroundTaskState::Failed,
+          PL_TEXT("Semantic runtime service is unavailable.").Render());
+      model_activation_task_id_.clear();
+    }
+    emit StateChanged();
+    return;
+  }
   QPointer<SemanticGenerationController> self(this);
   std::thread([self, project = std::move(project), runtime = std::move(runtime),
-               manifest = *manifest, model_key, label_language, runtime_options]() mutable {
+               manifest      = *manifest, model_key, label_language, runtime_options,
+               sidecar_lease = std::move(sidecar_lease)]() mutable {
     bool        ok             = false;
     bool        prototype_warm = false;
     std::string message;
@@ -425,12 +456,19 @@ void SemanticGenerationController::ActivateSelectedModel() {
               return;
             }
             self->model_activation_running_ = false;
+            if (!self->model_activation_task_id_.isEmpty()) {
+              self->backend_.background_task_.FinishTask(
+                  self->model_activation_task_id_,
+                  ok ? BackgroundTaskState::Succeeded : BackgroundTaskState::Failed,
+                  self->backend_.model_download_controller_.ModelDownloadStatusText());
+              self->model_activation_task_id_.clear();
+            }
             if (ok) {
               self->model_key_ = model_key;
               self->backend_.model_download_controller_.SetStatusText(
                   prototype_warm
                       ? PL_TEXT("%1 is active for this project. Label prompts are ready.",
-                                self->ActiveModelDisplayName())
+                                       self->ActiveModelDisplayName())
                       : PL_TEXT("%1 is active for this project.", self->ActiveModelDisplayName()));
               self->RecomputeSelectedModelActive();
               self->RefreshAlbumSummary();
@@ -474,14 +512,6 @@ void SemanticGenerationController::ActivateSelectedModel() {
     prototype_warm             = query_count > 0 && prototype_count >= query_count;
     if (query_count == 0 || prototype_count < query_count) {
       auto runtime_status = runtime->Status();
-      if (runtime_status.state == AiSidecarRuntimeState::kReady &&
-          runtime_status.model_info.has_value() &&
-          (runtime_status.model_info->model_id != runtime_options.model_id ||
-           runtime_status.model_info->revision != runtime_options.revision ||
-           runtime_status.model_info->model_root != runtime_options.model_root.string())) {
-        runtime->Stop();
-        runtime_status = runtime->Status();
-      }
       if (runtime_status.state != AiSidecarRuntimeState::kReady ||
           !runtime_status.model_info.has_value()) {
         if (!runtime->StartAndWait(runtime_options)) {
@@ -501,8 +531,7 @@ void SemanticGenerationController::ActivateSelectedModel() {
         finish();
         return;
       }
-
-      auto embedder        = std::make_shared<AiSidecarRuntimeImageEmbeddingClient>(runtime);
+      auto embedder = std::make_shared<AiSidecarRuntimeImageEmbeddingClient>(runtime);
       SemanticGenerationPersistenceOptions persistence;
       persistence.storage_controller         = &semantic;
       persistence.model_key                  = model_key;
@@ -531,6 +560,10 @@ void SemanticGenerationController::ActivateSelectedModel() {
 void SemanticGenerationController::CancelGeneration() {
   if (job_) {
     job_->Cancel();
+    if (!background_task_id_.isEmpty()) {
+      backend_.background_task_.UpdateTaskState(background_task_id_,
+                                                BackgroundTaskState::Canceling);
+    }
     status_text_ = PL_TEXT("Cancelling semantic generation...");
     emit StateChanged();
   }
@@ -781,20 +814,18 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     emit StateChanged();
     return;
   }
-  QString active_profile_id = ActiveModelProfileId();
-  if (active_profile_id.isEmpty()) {
-    active_profile_id = backend_.model_download_controller_.SelectedModelProfileId();
+  sidecar_lease_ = runtime->AcquireLease();
+  if (!sidecar_lease_) {
+    running_ = false;
+    pending_items_.clear();
+    status_text_ = PL_TEXT("Semantic runtime service is unavailable.");
+    backend_.SetTaskState(status_text_, 0, false);
+    RefreshAlbumSummary();
+    emit StateChanged();
+    return;
   }
-  AiSidecarRuntimeOptions runtime_options = RuntimeOptionsForProfile(active_profile_id, true);
-  auto                   runtime_status  = runtime->Status();
-  if (runtime_status.state == AiSidecarRuntimeState::kReady &&
-      runtime_status.model_info.has_value() &&
-      (runtime_status.model_info->model_id != runtime_options.model_id ||
-       runtime_status.model_info->revision != runtime_options.revision ||
-       runtime_status.model_info->model_root != runtime_options.model_root.string())) {
-    runtime->Stop();
-    runtime_status = runtime->Status();
-  }
+  AiSidecarRuntimeOptions runtime_options = RuntimeOptionsForCurrentSidecarSnapshot(true);
+  auto                    runtime_status  = runtime->Status();
   if (runtime_status.state != AiSidecarRuntimeState::kReady ||
       !runtime_status.model_info.has_value()) {
     status_text_ = PL_TEXT("Starting semantic runtime...");
@@ -805,6 +836,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       const QString message = QString::fromStdString(runtime_status.message);
       running_              = false;
       pending_items_.clear();
+      sidecar_lease_.reset();
       status_text_ = message.isEmpty() ? PL_TEXT("Semantic runtime failed to start.")
                                        : PL_TEXT("Semantic runtime failed to start: %1", message);
       backend_.SetTaskState(status_text_, 0, false);
@@ -819,6 +851,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       const QString message = QString::fromStdString(runtime_status.message);
       running_              = false;
       pending_items_.clear();
+      sidecar_lease_.reset();
       status_text_ = message.isEmpty()
                          ? PL_TEXT("Semantic runtime did not report model information.")
                          : PL_TEXT("Semantic runtime is not ready: %1", message);
@@ -829,9 +862,9 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     }
   }
 
-  auto&             semantic        = project->GetStorageService()->GetSemanticStorageController();
-  const std::string model_key       = SemanticModelKeyFromInfo(*runtime_status.model_info);
-  const auto        label_language  = ModelLabelLanguage(*runtime_status.model_info);
+  auto&             semantic       = project->GetStorageService()->GetSemanticStorageController();
+  const std::string model_key      = SemanticModelKeyFromInfo(*runtime_status.model_info);
+  const auto        label_language = ModelLabelLanguage(*runtime_status.model_info);
   std::string       error;
   if (!semantic.UpsertModel(
           SemanticModelRecord{
@@ -848,6 +881,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
           &error)) {
     running_ = false;
     pending_items_.clear();
+    sidecar_lease_.reset();
     status_text_ =
         PL_TEXT("Semantic model registration failed: %1", QString::fromUtf8(error.c_str()));
     backend_.SetTaskState(status_text_, 0, false);
@@ -865,7 +899,8 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   failed_    = 0;
   canceled_  = 0;
   if (pending_items_.empty()) {
-    running_     = false;
+    running_ = false;
+    sidecar_lease_.reset();
     status_text_ = PL_TEXT("All images already have semantic labels.");
     backend_.SetTaskState(status_text_, 100, false);
     backend_.ScheduleIdleTaskStateReset(1800);
@@ -924,7 +959,8 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
             Qt::QueuedConnection);
       });
 
-  job_             = std::move(job);
+  job_                = std::move(job);
+  background_task_id_ = RegisterBackgroundTask();
 }
 
 auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profileId,
@@ -938,12 +974,13 @@ auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profi
   options.model_root =
       profileRoot ? backend_.model_download_controller_.ModelRootForProfile(profileId)
                   : QStringToPath(backend_.model_download_controller_.ModelDownloadDirectory());
-  options.model_id           = profile->model_id;
-  options.revision           = profile->revision;
-  options.hf_endpoint        = backend_.model_download_controller_.EffectiveModelEndpoint().toStdString();
-  options.allow_download     = false;
-  options.require_model_info = profileRoot;
-  options.startup_timeout    = kAiSidecarRuntimeStartupTimeout;
+  options.model_id    = profile->model_id;
+  options.revision    = profile->revision;
+  options.hf_endpoint = backend_.model_download_controller_.EffectiveModelEndpoint().toStdString();
+  options.provider_config_dir = backend_.ai_provider_profiles_.SidecarConfigDir();
+  options.allow_download      = false;
+  options.require_model_info  = profileRoot;
+  options.startup_timeout     = kAiSidecarRuntimeStartupTimeout;
   return options;
 }
 
@@ -954,10 +991,15 @@ void SemanticGenerationController::UpdateProgress(const SemanticGenerationProgre
   failed_             = static_cast<int>(progress.failed);
   canceled_           = static_cast<int>(progress.canceled);
   const int completed = embedded_ + skipped_ + failed_ + canceled_;
+  const int pct       = total_ > 0 ? (completed * 100) / total_ : 0;
   status_text_ =
       PL_TEXT("Generating semantic labels... %1/%2 complete", completed, std::max(total_, 1));
-  backend_.SetTaskState(status_text_, total_ > 0 ? (completed * 100) / total_ : 0, true);
+  backend_.SetTaskState(status_text_, pct, true);
   RefreshAlbumSummary();
+  if (!background_task_id_.isEmpty()) {
+    backend_.background_task_.UpdateTask(background_task_id_, status_text_.Render(), QString(),
+                                         pct);
+  }
   emit StateChanged();
 }
 
@@ -1005,6 +1047,15 @@ void SemanticGenerationController::Finish(std::vector<SemanticGenerationItemResu
     QString ignored_error;
     (void)backend_.project_handler_.PackageCurrentProjectFiles(&ignored_error);
   }
+  if (!background_task_id_.isEmpty()) {
+    const BackgroundTaskState final_state =
+        canceled > 0
+            ? BackgroundTaskState::Canceled
+            : (embedded > 0 ? BackgroundTaskState::Succeeded : BackgroundTaskState::Failed);
+    backend_.background_task_.FinishTask(background_task_id_, final_state, status_text_.Render());
+    background_task_id_.clear();
+  }
+  sidecar_lease_.reset();
   emit StateChanged();
 }
 
@@ -1020,6 +1071,79 @@ void SemanticGenerationController::ResetCounters() {
   skipped_  = 0;
   failed_   = 0;
   canceled_ = 0;
+}
+
+auto SemanticGenerationController::BuildAffectedTargets() const -> QVariantList {
+  QVariantList out;
+  for (const auto& it : pending_items_) {
+    QVariantMap m;
+    m.insert(QStringLiteral("elementId"), static_cast<uint>(it.element_id));
+    m.insert(QStringLiteral("imageId"), static_cast<uint>(it.image_id));
+    out.append(m);
+  }
+  return out;
+}
+
+auto SemanticGenerationController::RegisterBackgroundTask() -> QString {
+  BackgroundTaskSnapshot snapshot;
+  snapshot.kind_             = BackgroundTaskKind::SemanticGeneration;
+  snapshot.state_            = BackgroundTaskState::Running;
+  snapshot.title_            = status_text_.Render();
+  snapshot.progress_percent_ = 0;
+  snapshot.cancelable_       = true;
+  snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::CancelAndWait;
+  snapshot.affected_targets_ = BuildAffectedTargets();
+  // Phase 2: generation holds the model + download settings stable (don't
+  // delete/swap the model files it is using) and blocks a second run. All three
+  // are global locks (element_id_ == 0).
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeSemanticModel, 0,
+      PL_TEXT("Semantic generation is running; change the model after it finishes.").Render()});
+  snapshot.locks_.push_back(
+      InteractionLock{InteractionCapability::RunSemanticGeneration, 0,
+                      PL_TEXT("Semantic generation is already running.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeModelDownloadSettings, 0,
+      PL_TEXT("Semantic generation is running; don't change model files now.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeImageAnalysisProvider, 0,
+      PL_TEXT("Semantic generation is running; change the analysis provider after it finishes.")
+          .Render()});
+  QPointer<SemanticGenerationController> self(this);
+  return backend_.background_task_.RegisterTask(snapshot, [self]() {
+    if (self) {
+      self->CancelGeneration();
+    }
+  });
+}
+
+auto SemanticGenerationController::RegisterActivationTask() -> QString {
+  BackgroundTaskSnapshot snapshot;
+  snapshot.kind_             = BackgroundTaskKind::ModelActivation;
+  snapshot.state_            = BackgroundTaskState::Running;
+  snapshot.title_            = PL_TEXT("Activating model and preparing labels...").Render();
+  snapshot.progress_percent_ = -1;     // indeterminate — activation has no progress ticks
+  snapshot.cancelable_       = false;  // no cancel path; Phase 5 owns the shutdown wait
+  snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::WaitForFinish;
+  snapshot.affected_targets_ =
+      QVariantList{backend_.model_download_controller_.SelectedModelProfileId()};
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeSemanticModel, 0,
+      PL_TEXT("A model activation is running; change the model after it finishes.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::RunSemanticGeneration, 0,
+      PL_TEXT("A model activation is running; wait for it to finish before generating labels.")
+          .Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeModelDownloadSettings, 0,
+      PL_TEXT("A model activation is running; don't change model files now.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeImageAnalysisProvider, 0,
+      PL_TEXT("A model activation is running; change the analysis provider after it finishes.")
+          .Render()});
+  // Non-cancelable: no cancel callback. The activation finish callback
+  // (hopped back to the UI thread) calls FinishTask on this id.
+  return backend_.background_task_.RegisterTask(snapshot);
 }
 
 }  // namespace alcedo::ui

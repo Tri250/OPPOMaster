@@ -5,10 +5,12 @@
 #include "app/pipeline_service.hpp"
 
 #include <cstdint>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <algorithm>
 #include <span>
+#include <string>
 
 #include "edit/pipeline/default_pipeline_params.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
@@ -374,6 +376,116 @@ void PipelineMgmtService::Sync() {
                                                                          pipeline_guard->pipeline_);
       pipeline_guard->dirty_ = false;
     }
+  }
+}
+
+auto PipelineMgmtService::LoadPipelineSnapshot(sl_element_id_t id, image_id_t image_id,
+                                                std::string* error)
+    -> std::shared_ptr<PipelineSnapshot> {
+  std::shared_ptr<CPUPipelineExecutor> live_exec;
+
+  // Cache-hit path: borrow the executor shared_ptr without touching pin_count_.
+  // The copy keeps the executor alive even if the guard is evicted mid-capture.
+  {
+    std::unique_lock<std::mutex> g(lock_);
+    auto                          it = loaded_pipelines_.find(id);
+    if (it != loaded_pipelines_.end() && it->second && it->second->pipeline_) {
+      live_exec = it->second->pipeline_;
+    }
+  }
+
+  // Cache-miss fallback: LoadPipeline (pin + repair + build stages), capture the
+  // executor, then SavePipeline to release the pin (net-zero). dirty_ is false on
+  // a fresh load, so SavePipeline's last-pin path returns without writing storage
+  // or re-recording into the cache; the guard stays in cache unpinned. This reuses
+  // the EnsureDefault*/ResyncGlobalParamsFromOperators repair logic so the
+  // snapshot reflects a coherent state even when the image was not live.
+  if (!live_exec) {
+    std::shared_ptr<PipelineGuard> guard;
+    try {
+      guard = LoadPipeline(id);
+    } catch (const std::exception& e) {
+      if (error) {
+        *error = std::format("LoadPipelineSnapshot: load failed for {}: {}", id, e.what());
+      }
+      return nullptr;
+    } catch (...) {
+      if (error) {
+        *error = std::format("LoadPipelineSnapshot: load failed for {}: unknown error", id);
+      }
+      return nullptr;
+    }
+    if (!guard || !guard->pipeline_) {
+      if (error) {
+        *error = std::format("LoadPipelineSnapshot: no executor for {}", id);
+      }
+      return nullptr;
+    }
+    live_exec = guard->pipeline_;
+    try {
+      SavePipeline(guard);
+    } catch (...) {
+      // Non-fatal: live_exec is valid. A leaked pin is rare and bounded; the guard
+      // remains in cache and is reaped by Sync/eviction on the next opportunity.
+    }
+  }
+
+  // Capture params under the live executor's render lock. This serializes with any
+  // in-flight editor render on the same executor, so the snapshot is coherent.
+  // ExportPipelineParams is const and reads stages_ only.
+  nlohmann::json params;
+  try {
+    std::unique_lock<std::mutex> rg(live_exec->GetRenderLock());
+    params = live_exec->ExportPipelineParams();
+  } catch (const std::exception& e) {
+    if (error) {
+      *error = std::format("LoadPipelineSnapshot: export failed for {}: {}", id, e.what());
+    }
+    return nullptr;
+  } catch (...) {
+    if (error) {
+      *error = std::format("LoadPipelineSnapshot: export failed for {}: unknown error", id);
+    }
+    return nullptr;
+  }
+
+  // Build the independent snapshot executor. SetAcceleratorBackendPreference
+  // before ImportPipelineParams so the import's final SetExecutionStages() is the
+  // last stage-build call and the imported params win. ResetTransientPreviewState
+  // mirrors LoadPipeline's normalization of cached executors; it touches only
+  // transient render state, not serialized operator params.
+  std::shared_ptr<CPUPipelineExecutor> snap_exec;
+  try {
+    snap_exec = std::make_shared<CPUPipelineExecutor>();
+    snap_exec->SetBoundFile(id);
+    snap_exec->SetAcceleratorBackendPreference(accelerator_preference_);
+    snap_exec->ImportPipelineParams(params);
+    ResetTransientPreviewState(*snap_exec);
+  } catch (const std::exception& e) {
+    if (error) {
+      *error = std::format("LoadPipelineSnapshot: snapshot build failed for {}: {}", id, e.what());
+    }
+    return nullptr;
+  } catch (...) {
+    if (error) {
+      *error = std::format("LoadPipelineSnapshot: snapshot build failed for {}: unknown error", id);
+    }
+    return nullptr;
+  }
+
+  return std::make_shared<PipelineSnapshot>(
+      PipelineSnapshot{id, image_id, std::move(params), snap_exec});
+}
+
+void PipelineMgmtService::ReleasePipelineSnapshot(std::shared_ptr<PipelineSnapshot> snapshot) {
+  if (!snapshot || !snapshot->executor_) {
+    return;
+  }
+  try {
+    std::unique_lock<std::mutex> rg(snapshot->executor_->GetRenderLock());
+    snapshot->executor_->ClearAllIntermediateBuffers();
+  } catch (...) {
+    // Best-effort cleanup; the shared_ptr drops naturally regardless.
   }
 }
 }  // namespace alcedo

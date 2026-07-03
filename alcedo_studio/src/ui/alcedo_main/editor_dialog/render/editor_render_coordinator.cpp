@@ -4,8 +4,6 @@
 
 #include "ui/alcedo_main/editor_dialog/render/editor_render_coordinator.hpp"
 
-#include <algorithm>
-#include <cmath>
 #include <utility>
 
 #include "image/image_buffer.hpp"
@@ -74,12 +72,20 @@ auto EditorRenderCoordinator::BuildPreviewMetadata(RenderType render_type) const
 }
 
 auto EditorRenderCoordinator::IsDetailPreviewGeometryFallbackActive() const -> bool {
-  const auto rotation =
-      dependencies_.state != nullptr ? dependencies_.state->rotate_degrees_ : 0.0f;
+  // CropRotateOp bakes rotation into an axis-aligned output (warpAffine into
+  // out_size on CPU/CUDA/OpenCL/Metal), and while the Geometry panel is active
+  // the CROP_ROTATE operator is disabled entirely so the full unrotated frame
+  // is shown. The zoomed ROI detail patch is composited in that same
+  // axis-aligned space, so a committed rotation does not break viewport/ROI
+  // alignment. Gating on rotate_degrees_ here previously left the high-quality
+  // ROI render permanently disabled after any crop-with-straighten commit, with
+  // no clearing path. The transient post-commit window is already covered by the
+  // force_next_full_frame_preview flag below (set on commit, cleared once the
+  // matching quality base finishes or the panel switch is applied).
   const bool needs_full_frame = callbacks_.needs_full_frame_preview_after_geometry_commit
                                     ? callbacks_.needs_full_frame_preview_after_geometry_commit()
                                     : false;
-  return std::abs(rotation) > 1.0e-4f || needs_full_frame;
+  return needs_full_frame;
 }
 
 auto EditorRenderCoordinator::WantsDetailPreviewFromViewport() const -> bool {

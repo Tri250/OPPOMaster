@@ -35,6 +35,7 @@ struct ThemeColors {
   QColor bg_panel;
   QColor text;
   QColor text_muted;
+  QColor icon;
   QColor accent_secondary;
   QColor danger_tint;
   QColor selected_tint;
@@ -64,6 +65,7 @@ auto MakePuerhTheme() -> ThemeColors {
       .bg_panel = QColor(0x1A, 0x1A, 0x1A),       // primary workspaces
       .text = QColor(0xE0, 0xE0, 0xE0),
       .text_muted = QColor(0x88, 0x88, 0x88),
+      .icon = QColor(0xFF, 0xFF, 0xFF),
       .accent_secondary = BrandBlueHover(),       // hover / secondary blue
       .danger_tint = QColor(138, 58, 58, 80),
       .selected_tint = QColor(104, 146, 185, 46),
@@ -90,6 +92,7 @@ auto MakeClassicTheme() -> ThemeColors {
       .bg_panel = QColor(0x22, 0x22, 0x22),
       .text = QColor(0xD0, 0xD0, 0xD0),
       .text_muted = QColor(0x88, 0x88, 0x88),
+      .icon = QColor(0xFF, 0xFF, 0xFF),
       .accent_secondary = QColor(0xFC, 0xC7, 0x04),
       .danger_tint = QColor(138, 5, 38, 82),
       .selected_tint = QColor(252, 199, 4, 46),
@@ -920,6 +923,7 @@ auto AppTheme::bgBaseColor() const -> QColor { return GetTheme(current_theme_ind
 auto AppTheme::bgPanelColor() const -> QColor { return GetTheme(current_theme_index_).bg_panel; }
 auto AppTheme::textColor() const -> QColor { return GetTheme(current_theme_index_).text; }
 auto AppTheme::textMutedColor() const -> QColor { return GetTheme(current_theme_index_).text_muted; }
+auto AppTheme::iconColor() const -> QColor { return GetTheme(current_theme_index_).icon; }
 auto AppTheme::accentColor() const -> QColor { return toneGold(); }
 auto AppTheme::accentSecondaryColor() const -> QColor { return GetTheme(current_theme_index_).accent_secondary; }
 auto AppTheme::dangerColor() const -> QColor { return toneWine(); }

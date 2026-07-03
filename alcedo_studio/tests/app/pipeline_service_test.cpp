@@ -569,4 +569,92 @@ TEST_F(PipelineServiceTests, DISABLED_ThreadSafeTest) {
     EXPECT_NE(serialized, empty_dump);
   }
 }
+
+// Phase 3: LoadPipelineSnapshot must clone the current pipeline params into an
+// independent executor WITHOUT pinning the live guard, clearing dirty state, or
+// writing storage. A later user edit must persist through the normal editor path
+// and not be overwritten by the snapshot.
+TEST_F(PipelineServiceTests, LoadPipelineSnapshotClonesParamsAndDoesNotTouchLiveGuard) {
+  nlohmann::json params_v1;
+  nlohmann::json params_v2;
+  {
+    ProjectService      project(db_path_, meta_path_);
+    PipelineMgmtService ps(project.GetStorageService());
+
+    auto g1 = ps.LoadPipeline(1);
+    ASSERT_NE(g1, nullptr);
+    ASSERT_NE(g1->pipeline_, nullptr);
+
+    // Simulate an unsaved editor edit: exposure = 1.5, guard dirty.
+    auto&          stage = g1->pipeline_->GetStage(PipelineStageName::To_WorkingSpace);
+    nlohmann::json exp1;
+    exp1["exposure"] = 1.5f;
+    stage.SetOperator(OperatorType::EXPOSURE, exp1);
+    g1->dirty_ = true;
+    params_v1   = g1->pipeline_->ExportPipelineParams();
+
+    // Capture a snapshot of the current (dirty, pinned) live state.
+    std::string err;
+    auto        snap = ps.LoadPipelineSnapshot(1, 0, &err);
+    ASSERT_NE(snap, nullptr);
+    ASSERT_NE(snap->executor_, nullptr);
+    EXPECT_NE(snap->executor_, g1->pipeline_);                       // independent instance
+    EXPECT_EQ(snap->pipeline_params_, params_v1);                    // captured current params
+    EXPECT_EQ(snap->executor_->ExportPipelineParams(), params_v1);    // snapshot holds them
+
+    // Acceptance: the live guard is untouched by the capture.
+    EXPECT_EQ(g1->dirty_, true);                                      // dirty NOT cleared
+    EXPECT_EQ(g1->pin_count_, size_t{1});                             // pin NOT changed
+    EXPECT_EQ(g1->pipeline_->ExportPipelineParams(), params_v1);      // live exec unchanged
+
+    ps.ReleasePipelineSnapshot(snap);
+    EXPECT_EQ(g1->dirty_, true);                                      // release didn't touch live
+    EXPECT_EQ(g1->pin_count_, size_t{1});
+
+    // Later user edit after the snapshot. Must persist, not be overwritten.
+    nlohmann::json exp2;
+    exp2["exposure"] = 2.5f;
+    stage.SetOperator(OperatorType::EXPOSURE, exp2);
+    g1->dirty_ = true;
+    params_v2   = g1->pipeline_->ExportPipelineParams();
+    EXPECT_NE(params_v2, params_v1);                                  // the later edit took effect
+
+    ps.SavePipeline(g1);  // return to cache (last pin)
+    ps.Sync();            // write the later edit to storage
+  }
+  // Re-open from storage and verify the LATER edit (2.5) persisted, not the
+  // snapshot's 1.5.
+  {
+    ProjectService      project(db_path_, meta_path_);
+    PipelineMgmtService ps(project.GetStorageService());
+    auto                g2 = ps.LoadPipeline(1);
+    ASSERT_NE(g2, nullptr);
+    ASSERT_NE(g2->pipeline_, nullptr);
+    EXPECT_EQ(g2->pipeline_->ExportPipelineParams(), params_v2);
+  }
+}
+
+// Phase 3: cache-miss fallback. When the element is not currently loaded, the
+// snapshot path falls back to LoadPipeline/SavePipeline (net-zero pin) to obtain
+// a coherent, repaired executor. Must not crash or write storage.
+TEST_F(PipelineServiceTests, LoadPipelineSnapshotFallbackRepairsAndReleasesPin) {
+  ProjectService      project(db_path_, meta_path_);
+  PipelineMgmtService ps(project.GetStorageService());
+
+  // 999 was never loaded → cache-miss fallback inside LoadPipelineSnapshot.
+  std::string err;
+  auto        snap = ps.LoadPipelineSnapshot(999, 0, &err);
+  ASSERT_NE(snap, nullptr);
+  ASSERT_NE(snap->executor_, nullptr);
+
+  // The fallback guard is in cache unpinned (pin_count_ == 0) — re-loading must
+  // re-pin it cleanly without throwing.
+  auto g = ps.LoadPipeline(999);
+  ASSERT_NE(g, nullptr);
+  EXPECT_EQ(g->pinned_, true);
+  EXPECT_EQ(g->pin_count_, size_t{1});
+  ps.SavePipeline(g);
+
+  EXPECT_NO_THROW(ps.ReleasePipelineSnapshot(snap));
+}
 }  // namespace alcedo

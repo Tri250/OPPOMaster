@@ -299,6 +299,10 @@ void ImportExportHandler::StartExportWithSplitOptionsForTargets(
   const auto            tiff_compress = TiffCompressFromName(sdrTiffCompression);
 
   esvc->ClearAllExportTasks();
+  // Phase 2 (Step 4): hold the project DB write barrier across the export so
+  // background image-analysis result commits queue in memory and flush after
+  // export releases it. Export itself does not wait for analysis to finish.
+  backend_.db_write_barrier_.Acquire();
   const auto queue_result = BuildExportQueue(
       targets, outDirOpt.value(), sdrResizeEnabled, clamped_sdr_max, clamped_ultra_hdr_max,
       sdr_format, clamped_sdr_quality, sdr_bit_depth, clamped_png, tiff_compress,
@@ -306,6 +310,8 @@ void ImportExportHandler::StartExportWithSplitOptionsForTargets(
       ultraHdrDitherEnabled);
 
   if (queue_result.queued_count_ == 0) {
+    // Nothing to export; release the barrier we just acquired.
+    backend_.db_write_barrier_.Release();
     export_status_text_ = PL_TEXT("No export tasks were queued.");
     if (!queue_result.first_error_.isEmpty()) {
       export_error_summary_text_ = PL_TEXT("%1", queue_result.first_error_);
@@ -502,6 +508,9 @@ void ImportExportHandler::FinishImport(const ImportResult& result) {
 void ImportExportHandler::FinishExport(
     const std::shared_ptr<std::vector<ExportResult>>& results, int skippedCount) {
   export_inflight_ = false;
+  // Phase 2 (Step 4): release the barrier; the 1->0 transition fires on_release_,
+  // which drains any analysis-result writes that queued behind it.
+  backend_.db_write_barrier_.Release();
 
   int         ok   = 0;
   int         fail = 0;

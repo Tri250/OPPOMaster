@@ -34,12 +34,12 @@ namespace {
 
 using namespace std::chrono_literals;
 
-constexpr auto kSemanticModelDirectoryKey     = "semantic/modelDirectory";
-constexpr auto kSemanticEndpointPresetKey     = "semantic/modelEndpointPreset";
-constexpr auto kSemanticCustomEndpointKey     = "semantic/customModelEndpoint";
+constexpr auto kSemanticModelDirectoryKey      = "semantic/modelDirectory";
+constexpr auto kSemanticEndpointPresetKey      = "semantic/modelEndpointPreset";
+constexpr auto kSemanticCustomEndpointKey      = "semantic/customModelEndpoint";
 constexpr auto kAiSidecarRuntimeStartupTimeout = 60s;
-constexpr auto kJinaClipProfileId             = "jina-clip-v2-int8-multilingual";
-constexpr auto kSiglip2ProfileId              = "siglip2-b32-256-multilingual";
+constexpr auto kJinaClipProfileId              = "jina-clip-v2-int8-multilingual";
+constexpr auto kSiglip2ProfileId               = "siglip2-b32-256-multilingual";
 
 auto           DefaultSemanticModelDirectory() -> QString {
   return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("model"));
@@ -164,27 +164,10 @@ auto MakeSemanticSearchRequestId(sl_element_id_t folder_id, const std::wstring& 
   return "semantic-search-" + std::to_string(folder_id) + "-" + std::to_string(hash);
 }
 
-class AiSidecarRuntimeSearchSession final {
- public:
-  explicit AiSidecarRuntimeSearchSession(std::shared_ptr<AiSidecarRuntimeService> runtime)
-      : runtime_(std::move(runtime)) {}
-  ~AiSidecarRuntimeSearchSession() {
-    if (runtime_) {
-      runtime_->Stop();
-    }
-  }
-
-  AiSidecarRuntimeSearchSession(const AiSidecarRuntimeSearchSession&)            = delete;
-  AiSidecarRuntimeSearchSession& operator=(const AiSidecarRuntimeSearchSession&) = delete;
-
- private:
-  std::shared_ptr<AiSidecarRuntimeService> runtime_;
-};
-
 class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
  public:
   ProjectSemanticSearchProvider(
-      std::shared_ptr<StorageService>                          storage_service,
+      std::shared_ptr<StorageService>                           storage_service,
       std::function<std::shared_ptr<AiSidecarRuntimeService>()> runtime_factory)
       : storage_service_(std::move(storage_service)),
         runtime_factory_(std::move(runtime_factory)) {}
@@ -217,15 +200,11 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
     }
 
     const auto runtime_options = RuntimeOptionsForSemanticModel(*active_model);
-    auto       runtime_status  = runtime->Status();
-    if (runtime_status.state == AiSidecarRuntimeState::kReady &&
-        runtime_status.model_info.has_value() &&
-        (runtime_status.model_info->model_id != runtime_options.model_id ||
-         runtime_status.model_info->revision != runtime_options.revision ||
-         runtime_status.model_info->model_root != runtime_options.model_root.string())) {
-      runtime->Stop();
-      runtime_status = runtime->Status();
+    auto       sidecar_lease   = runtime->AcquireLease();
+    if (!sidecar_lease) {
+      throw std::runtime_error("Semantic runtime service is unavailable.");
     }
+    auto runtime_status = runtime->Status();
     if (runtime_status.state != AiSidecarRuntimeState::kReady ||
         !runtime_status.model_info.has_value()) {
       if (!runtime->StartAndWait(runtime_options)) {
@@ -254,9 +233,8 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
       throw std::runtime_error("Semantic runtime image size does not match storage.");
     }
 
-    const AiSidecarRuntimeSearchSession session(runtime);
-    const auto                         request_id = MakeSemanticSearchRequestId(folder_id, query);
-    const auto                         text       = conv::ToBytes(query);
+    const auto request_id = MakeSemanticSearchRequestId(folder_id, query);
+    const auto text       = conv::ToBytes(query);
     qCInfo(diag::semanticLog).noquote()
         << QStringLiteral("semantic.search.embedding.request request_id=%1 model_key=%2")
                .arg(QString::fromStdString(request_id),
@@ -265,8 +243,8 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
     if (!client_session) {
       throw std::runtime_error("Semantic runtime client session is unavailable.");
     }
-    const auto embedding =
-        client_session->semantic().EmbedText(request_id, text, EmbeddingTimeoutForModel(*active_model));
+    const auto embedding = client_session->semantic().EmbedText(
+        request_id, text, EmbeddingTimeoutForModel(*active_model));
     if (const auto validation =
             ValidateSearchEmbedding(embedding, request_id, active_model->embedding_dim_);
         validation.has_value()) {
@@ -293,7 +271,7 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
   }
 
  private:
-  std::shared_ptr<StorageService>                          storage_service_;
+  std::shared_ptr<StorageService>                           storage_service_;
   std::function<std::shared_ptr<AiSidecarRuntimeService>()> runtime_factory_;
 };
 
@@ -601,6 +579,25 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
 
   storage_service_ = std::make_shared<StorageService>(db_path_);
 
+  // Best-effort: load the DuckDB vss extension when the project DB already has
+  // HNSW indexes (semantic embedding tables). Without this, every semantic-
+  // generation embedding persist fails with "unknown index type 'HNSW'" on a
+  // normal project open — snapshot import already loads vss, but LoadProject did
+  // not, so the semantic task reported "0 generated, 24 failed" while the
+  // concurrent LLM image-analysis task succeeded (and got blamed for it). Non-
+  // fatal: a missing vss extension only breaks semantic embedding writes, not
+  // image analysis / editing / browsing.
+  {
+    auto guard   = storage_service_->GetDBController().GetConnectionGuard();
+    auto db_lock = guard.Lock();
+    QString vss_error;
+    if (!project_pack::EnsureVssExtensionForExistingHnswIndexes(guard.conn_, &vss_error)) {
+      qCWarning(diag::semanticLog).noquote()
+          << QStringLiteral("project.open.vss_extension_load_failed error=%1")
+                 .arg(vss_error);
+    }
+  }
+
   if (expected_summary.has_value()) {
     try {
       nlohmann::json actual_summary = ComputeProjectDataSummary(*storage_service_);
@@ -639,7 +636,8 @@ void ProjectService::RegisterSemanticSearchProvider() {
       storage_service_, [this]() { return GetAiSidecarRuntimeService(); }));
 }
 
-auto ProjectService::GetAiSidecarRuntimeService() const -> std::shared_ptr<AiSidecarRuntimeService> {
+auto ProjectService::GetAiSidecarRuntimeService() const
+    -> std::shared_ptr<AiSidecarRuntimeService> {
   std::lock_guard lock(ai_sidecar_runtime_mutex_);
   if (!ai_sidecar_runtime_service_) {
     ai_sidecar_runtime_service_ = MakeAiSidecarRuntimeService();

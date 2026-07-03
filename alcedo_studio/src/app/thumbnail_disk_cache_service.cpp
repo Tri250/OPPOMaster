@@ -31,11 +31,11 @@ namespace alcedo {
 namespace {
 OIIO_NAMESPACE_USING
 
-constexpr int      kDefaultJpegQuality  = 85;
-constexpr int      kDefaultWebPQuality  = 80;
-constexpr size_t   kDefaultMaxEntries   = 10000;
-constexpr uint32_t kCacheSchemaVersion  = 1;
-constexpr auto     kGlobalMetadataFilename = "cache_global.json";
+constexpr int         kDefaultJpegQuality     = 85;
+constexpr int         kDefaultWebPQuality     = 80;
+constexpr size_t      kDefaultMaxEntries      = 10000;
+constexpr uint32_t    kCacheSchemaVersion     = 1;
+constexpr auto        kGlobalMetadataFilename = "cache_global.json";
 
 std::filesystem::path GetDefaultCacheRoot() {
 #if defined(_WIN32)
@@ -100,7 +100,7 @@ cv::Mat PrepareForOiioEncoding(const cv::Mat& src) {
     return {};
   }
 
-  cv::Mat rgb;
+  cv::Mat   rgb;
   const int channels = src.channels();
   if (channels == 4) {
     cv::cvtColor(src, rgb, cv::COLOR_RGBA2RGB);
@@ -139,10 +139,8 @@ cv::Mat PrepareForOpenCvEncoding(const cv::Mat& src) {
   return bgr8.isContinuous() ? bgr8 : bgr8.clone();
 }
 
-bool WriteWithOpenImageIO(const std::filesystem::path& file_path,
-                          const cv::Mat&              src,
-                          ThumbnailCacheFormat        format,
-                          int                         quality) {
+bool WriteWithOpenImageIO(const std::filesystem::path& file_path, const cv::Mat& src,
+                          ThumbnailCacheFormat format, int quality) {
   if (format != ThumbnailCacheFormat::kJpeg && format != ThumbnailCacheFormat::kWebP) {
     return false;
   }
@@ -181,9 +179,8 @@ cv::Mat ReadWithOpenImageIO(const std::filesystem::path& file_path) {
     return {};
   }
 
-  const int channels_to_read = std::min(spec.nchannels, 4);
-  std::vector<uint8_t> pixels(static_cast<size_t>(spec.width) *
-                              static_cast<size_t>(spec.height) *
+  const int            channels_to_read = std::min(spec.nchannels, 4);
+  std::vector<uint8_t> pixels(static_cast<size_t>(spec.width) * static_cast<size_t>(spec.height) *
                               static_cast<size_t>(channels_to_read));
   const bool ok = input->read_image(0, 0, 0, channels_to_read, TypeDesc::UINT8, pixels.data());
   input->close();
@@ -211,49 +208,49 @@ int64_t SystemTimeSeconds() {
 }  // namespace
 
 struct ThumbnailDiskCacheService::State {
-  std::filesystem::path                           cache_root_;
-  std::string                                     project_uuid_;
-  std::filesystem::path                           project_cache_dir_;
-  std::filesystem::path                           metadata_file_path_;
-  std::filesystem::path                           global_metadata_path_;
+  std::filesystem::path                      cache_root_;
+  std::string                                project_uuid_;
+  std::filesystem::path                      project_cache_dir_;
+  std::filesystem::path                      metadata_file_path_;
+  std::filesystem::path                      global_metadata_path_;
 
-  std::unordered_map<std::string, EntryMeta>      index_;
-  LRUCache<std::string, std::string>              lru_index_{kDefaultMaxEntries};
-  size_t                                           total_size_bytes_ = 0;
-  std::unordered_map<std::string, uint64_t>        invalidation_generations_;
-  uint64_t                                         clear_generation_ = 0;
+  std::unordered_map<std::string, EntryMeta> index_;
+  LRUCache<std::string, std::string>         lru_index_{kDefaultMaxEntries};
+  size_t                                     total_size_bytes_ = 0;
+  std::unordered_map<std::string, uint64_t>  invalidation_generations_;
+  uint64_t                                   clear_generation_ = 0;
 
-  ConcurrentBlockingQueue<WriteTask>               write_queue_;
-  std::thread                                      writer_thread_;
-  std::atomic<bool>                                writer_running_{false};
+  ConcurrentBlockingQueue<WriteTask>         write_queue_;
+  std::thread                                writer_thread_;
+  std::atomic<bool>                          writer_running_{false};
 
-  mutable std::mutex                               metadata_mutex_;
-  mutable std::atomic<size_t>                      hit_count_{0};
-  mutable std::atomic<size_t>                      miss_count_{0};
+  mutable std::mutex                         metadata_mutex_;
+  mutable std::atomic<size_t>                hit_count_{0};
+  mutable std::atomic<size_t>                miss_count_{0};
 
-  bool                                             initialized_    = false;
-  bool                                             enabled_        = true;
-  size_t                                           max_entries_    = kDefaultMaxEntries;
-  int                                              jpeg_quality_   = kDefaultJpegQuality;
-  int                                              webp_quality_   = kDefaultWebPQuality;
+  bool                                       initialized_  = false;
+  bool                                       enabled_      = true;
+  size_t                                     max_entries_  = kDefaultMaxEntries;
+  int                                        jpeg_quality_ = kDefaultJpegQuality;
+  int                                        webp_quality_ = kDefaultWebPQuality;
 };
 
-int64_t ThumbnailDiskCacheService::CurrentTimeSeconds() const {
-  return SystemTimeSeconds();
-}
+int64_t     ThumbnailDiskCacheService::CurrentTimeSeconds() const { return SystemTimeSeconds(); }
 
 std::string ThumbnailDiskCacheService::MakeKeyHashString(const ThumbnailDiskCacheKey& key) {
   std::ostringstream oss;
-  oss << key.project_uuid << '|' << key.element_id << '|'
-      << static_cast<uint32_t>(key.resolution) << '|' << key.edit_version_hash << '|'
-      << key.cache_schema_version;
-  const auto str    = oss.str();
-  const auto hash   = Hash128::Compute(str.data(), str.size());
+  oss << key.project_uuid << '|' << key.element_id << '|' << static_cast<uint32_t>(key.resolution)
+      << '|' << key.edit_version_hash << '|' << key.cache_schema_version;
+  if (key.purpose != ThumbnailDiskCachePurpose::kThumbnail) {
+    oss << '|' << static_cast<uint32_t>(key.purpose);
+  }
+  const auto str  = oss.str();
+  const auto hash = Hash128::Compute(str.data(), str.size());
   return FormatSizeBytes(hash.low64(), hash.high64());
 }
 
-std::filesystem::path ThumbnailDiskCacheService::DeriveFilePath(
-    const std::string& key_hash, ThumbnailCacheFormat format) const {
+std::filesystem::path ThumbnailDiskCacheService::DeriveFilePath(const std::string&   key_hash,
+                                                                ThumbnailCacheFormat format) const {
   const auto& dir = state_->project_cache_dir_;
   return dir / key_hash.substr(0, 2) / key_hash.substr(2, 2) /
          (key_hash + FormatFileExtension(format));
@@ -267,18 +264,16 @@ ThumbnailDiskCacheService::ThumbnailDiskCacheService(const std::filesystem::path
   state_->cache_root_ = cache_root;
 }
 
-ThumbnailDiskCacheService::~ThumbnailDiskCacheService() {
-  Shutdown();
-}
+ThumbnailDiskCacheService::~ThumbnailDiskCacheService() { Shutdown(); }
 
 void ThumbnailDiskCacheService::Initialize(const std::string& project_uuid) {
   if (state_->initialized_) {
     return;
   }
 
-  state_->project_uuid_     = project_uuid;
-  state_->project_cache_dir_ = state_->cache_root_ / project_uuid;
-  state_->metadata_file_path_ = state_->project_cache_dir_ / "cache_metadata.json";
+  state_->project_uuid_         = project_uuid;
+  state_->project_cache_dir_    = state_->cache_root_ / project_uuid;
+  state_->metadata_file_path_   = state_->project_cache_dir_ / "cache_metadata.json";
   state_->global_metadata_path_ = state_->cache_root_ / kGlobalMetadataFilename;
 
   {
@@ -295,9 +290,9 @@ void ThumbnailDiskCacheService::Initialize(const std::string& project_uuid) {
   LoadMetadata();
 
   state_->writer_running_ = true;
-  state_->writer_thread_   = std::thread(&ThumbnailDiskCacheService::WriterThreadLoop, this);
+  state_->writer_thread_  = std::thread(&ThumbnailDiskCacheService::WriterThreadLoop, this);
 
-  state_->initialized_ = true;
+  state_->initialized_    = true;
 }
 
 void ThumbnailDiskCacheService::Shutdown() {
@@ -323,7 +318,7 @@ bool ThumbnailDiskCacheService::Lookup(const ThumbnailDiskCacheKey& key) {
     return false;
   }
 
-  const auto key_hash = MakeKeyHashString(key);
+  const auto       key_hash = MakeKeyHashString(key);
 
   std::unique_lock lock(state_->metadata_mutex_);
   auto             it = state_->index_.find(key_hash);
@@ -345,7 +340,7 @@ std::unique_ptr<ImageBuffer> ThumbnailDiskCacheService::Read(const ThumbnailDisk
     return nullptr;
   }
 
-  const auto        key_hash = MakeKeyHashString(key);
+  const auto            key_hash = MakeKeyHashString(key);
   std::filesystem::path file_path;
 
   {
@@ -401,15 +396,14 @@ std::unique_ptr<ImageBuffer> ThumbnailDiskCacheService::Read(const ThumbnailDisk
   return nullptr;
 }
 
-void ThumbnailDiskCacheService::EnqueueWrite(const ThumbnailDiskCacheKey& key,
-                                              ImageBuffer                  buffer,
-                                              ThumbnailCacheFormat         format) {
+void ThumbnailDiskCacheService::EnqueueWrite(const ThumbnailDiskCacheKey& key, ImageBuffer buffer,
+                                             ThumbnailCacheFormat format) {
   EnqueueWrite(key, std::make_shared<ImageBuffer>(std::move(buffer)), format);
 }
 
 void ThumbnailDiskCacheService::EnqueueWrite(const ThumbnailDiskCacheKey& key,
-                                              std::shared_ptr<ImageBuffer> buffer,
-                                              ThumbnailCacheFormat         format) {
+                                             std::shared_ptr<ImageBuffer> buffer,
+                                             ThumbnailCacheFormat         format) {
   if (!state_->initialized_ || !state_->enabled_) {
     return;
   }
@@ -429,7 +423,7 @@ void ThumbnailDiskCacheService::EnqueueWrite(const ThumbnailDiskCacheKey& key,
   const auto key_hash         = MakeKeyHashString(key);
   const auto invalidation_key = MakeElementInvalidationKey(key.project_uuid, key.element_id);
 
-  WriteTask task;
+  WriteTask  task;
   task.key      = key;
   task.key_hash = key_hash;
   task.format   = format;
@@ -442,8 +436,8 @@ void ThumbnailDiskCacheService::EnqueueWrite(const ThumbnailDiskCacheKey& key,
   state_->write_queue_.push(std::move(task));
 }
 
-void ThumbnailDiskCacheService::Invalidate(const std::string&     project_uuid,
-                                            sl_element_id_t        element_id) {
+void ThumbnailDiskCacheService::Invalidate(const std::string& project_uuid,
+                                           sl_element_id_t    element_id) {
   if (!state_->initialized_) {
     return;
   }
@@ -478,7 +472,7 @@ auto ThumbnailDiskCacheService::GetStats() const -> Stats {
   }
 
   std::unique_lock lock(state_->metadata_mutex_);
-  s.total_entries   = state_->index_.size();
+  s.total_entries    = state_->index_.size();
   s.total_size_bytes = state_->total_size_bytes_;
   s.hit_count        = state_->hit_count_.load();
   s.miss_count       = state_->miss_count_.load();
@@ -487,13 +481,9 @@ auto ThumbnailDiskCacheService::GetStats() const -> Stats {
 
 // ── Phase 4: Configuration ────────────────────────────────────────────────
 
-void ThumbnailDiskCacheService::SetEnabled(bool enabled) {
-  state_->enabled_ = enabled;
-}
+void ThumbnailDiskCacheService::SetEnabled(bool enabled) { state_->enabled_ = enabled; }
 
-bool ThumbnailDiskCacheService::IsEnabled() const {
-  return state_->enabled_;
-}
+bool ThumbnailDiskCacheService::IsEnabled() const { return state_->enabled_; }
 
 void ThumbnailDiskCacheService::SetCacheRoot(const std::filesystem::path& cache_root) {
   const auto next_root = cache_root.empty() ? GetDefaultCacheRoot() : cache_root;
@@ -523,25 +513,19 @@ void ThumbnailDiskCacheService::SetMaxEntries(size_t max_entries) {
   }
 }
 
-size_t ThumbnailDiskCacheService::GetMaxEntries() const {
-  return state_->max_entries_;
-}
+size_t ThumbnailDiskCacheService::GetMaxEntries() const { return state_->max_entries_; }
 
-void ThumbnailDiskCacheService::SetJpegQuality(int quality) {
+void   ThumbnailDiskCacheService::SetJpegQuality(int quality) {
   state_->jpeg_quality_ = std::clamp(quality, 1, 100);
 }
 
-int ThumbnailDiskCacheService::GetJpegQuality() const {
-  return state_->jpeg_quality_;
-}
+int  ThumbnailDiskCacheService::GetJpegQuality() const { return state_->jpeg_quality_; }
 
 void ThumbnailDiskCacheService::SetWebPQuality(int quality) {
   state_->webp_quality_ = std::clamp(quality, 1, 100);
 }
 
-int ThumbnailDiskCacheService::GetWebPQuality() const {
-  return state_->webp_quality_;
-}
+int  ThumbnailDiskCacheService::GetWebPQuality() const { return state_->webp_quality_; }
 
 // ── Phase 4: Operations ───────────────────────────────────────────────────
 
@@ -636,28 +620,27 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
     std::vector<uint8_t> encoded;
     std::vector<int>     params;
     ThumbnailCacheFormat effective_format = task.format;
-    const int            jpeg_q = state_->jpeg_quality_;
-    const int            webp_q = state_->webp_quality_;
+    const int            jpeg_q           = state_->jpeg_quality_;
+    const int            webp_q           = state_->webp_quality_;
     if (task.format == ThumbnailCacheFormat::kJpeg) {
       params = {cv::IMWRITE_JPEG_QUALITY, jpeg_q};
     } else if (task.format == ThumbnailCacheFormat::kWebP) {
       params = {cv::IMWRITE_WEBP_QUALITY, webp_q};
     }
 
-    auto file_path = DeriveFilePath(task.key_hash, effective_format);
+    auto            file_path = DeriveFilePath(task.key_hash, effective_format);
     std::error_code ec;
     std::filesystem::create_directories(file_path.parent_path(), ec);
     if (ec) {
       continue;
     }
 
-    bool   write_ok = false;
+    bool   write_ok        = false;
     size_t file_size_bytes = 0;
     if (effective_format == ThumbnailCacheFormat::kJpeg ||
         effective_format == ThumbnailCacheFormat::kWebP) {
-      const int quality =
-          effective_format == ThumbnailCacheFormat::kJpeg ? jpeg_q : webp_q;
-      write_ok = WriteWithOpenImageIO(file_path, mat, effective_format, quality);
+      const int quality = effective_format == ThumbnailCacheFormat::kJpeg ? jpeg_q : webp_q;
+      write_ok          = WriteWithOpenImageIO(file_path, mat, effective_format, quality);
       if (write_ok) {
         file_size_bytes = static_cast<size_t>(std::filesystem::file_size(file_path, ec));
         if (ec || file_size_bytes == 0) {
@@ -669,7 +652,7 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
 
     if (!write_ok && effective_format != ThumbnailCacheFormat::kBmp) {
       effective_format = ThumbnailCacheFormat::kBmp;
-      file_path = DeriveFilePath(task.key_hash, effective_format);
+      file_path        = DeriveFilePath(task.key_hash, effective_format);
       std::filesystem::create_directories(file_path.parent_path(), ec);
       if (ec) {
         continue;
@@ -680,8 +663,8 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
         continue;
       }
       try {
-        write_ok = cv::imencode(FormatFileExtension(ThumbnailCacheFormat::kBmp), bgr8, encoded,
-                                params);
+        write_ok =
+            cv::imencode(FormatFileExtension(ThumbnailCacheFormat::kBmp), bgr8, encoded, params);
       } catch (const cv::Exception&) {
         write_ok = false;
       } catch (...) {
@@ -714,16 +697,16 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
         continue;
       }
 
-      auto             it = state_->index_.find(task.key_hash);
+      auto it = state_->index_.find(task.key_hash);
       if (it != state_->index_.end()) {
         state_->total_size_bytes_ -= it->second.file_size_bytes;
       }
 
       EntryMeta meta;
-      meta.key              = task.key;
-      meta.file_size_bytes  = file_size_bytes;
-      meta.file_path        = file_path;
-      meta.last_access_time = CurrentTimeSeconds();
+      meta.key                      = task.key;
+      meta.file_size_bytes          = file_size_bytes;
+      meta.file_path                = file_path;
+      meta.last_access_time         = CurrentTimeSeconds();
       state_->index_[task.key_hash] = meta;
       RecordLruAccessLocked(task.key_hash);
       state_->total_size_bytes_ += file_size_bytes;
@@ -746,6 +729,7 @@ void ThumbnailDiskCacheService::FlushMetadata() {
     entry["project_uuid"]         = meta.key.project_uuid;
     entry["element_id"]           = meta.key.element_id;
     entry["resolution"]           = static_cast<uint32_t>(meta.key.resolution);
+    entry["purpose"]              = static_cast<uint32_t>(meta.key.purpose);
     entry["edit_version_hash"]    = meta.key.edit_version_hash;
     entry["cache_schema_version"] = meta.key.cache_schema_version;
     entry["file_size_bytes"]      = meta.file_size_bytes;
@@ -761,8 +745,8 @@ void ThumbnailDiskCacheService::FlushMetadata() {
     j["project_uuid"]         = state_->project_uuid_;
     j["total_size_bytes"]     = state_->total_size_bytes_;
 
-    auto& entries_json = j["entries"];
-    entries_json       = nlohmann::json::array();
+    auto& entries_json        = j["entries"];
+    entries_json              = nlohmann::json::array();
 
     {
       std::unique_lock lock(state_->metadata_mutex_);
@@ -798,8 +782,8 @@ void ThumbnailDiskCacheService::FlushMetadata() {
     global["max_entries"]          = state_->max_entries_;
     global["enabled"]              = state_->enabled_;
 
-    auto& entries_json = global["entries"];
-    entries_json       = nlohmann::json::array();
+    auto& entries_json             = global["entries"];
+    entries_json                   = nlohmann::json::array();
 
     {
       std::unique_lock lock(state_->metadata_mutex_);
@@ -853,13 +837,13 @@ void ThumbnailDiskCacheService::LoadGlobalMetadata() {
   // loaded afterwards to refresh current-project details when available.
   std::unique_lock lock(state_->metadata_mutex_);
 
-  size_t loaded_count = 0;
+  size_t           loaded_count = 0;
   for (const auto& entry : j["entries"]) {
     try {
       const auto file_path_str = entry.value("file_path", std::string{});
       if (file_path_str.empty()) continue;
 
-      const auto project_uuid = entry.value("project_uuid", std::string{});
+      const auto            project_uuid = entry.value("project_uuid", std::string{});
 
       std::filesystem::path file_path(file_path_str);
       if (!std::filesystem::exists(file_path, ec)) continue;
@@ -868,20 +852,22 @@ void ThumbnailDiskCacheService::LoadGlobalMetadata() {
       meta.file_path        = file_path;
       meta.file_size_bytes  = entry.value("file_size_bytes", size_t{0});
       meta.last_access_time = entry.value("last_access_time", int64_t{0});
-      meta.key.project_uuid        = project_uuid;
-      meta.key.element_id          = entry.value("element_id", sl_element_id_t{0});
-      meta.key.resolution          = static_cast<ThumbnailResolution>(
+      meta.key.project_uuid = project_uuid;
+      meta.key.element_id   = entry.value("element_id", sl_element_id_t{0});
+      meta.key.resolution   = static_cast<ThumbnailResolution>(
           entry.value("resolution", static_cast<uint32_t>(ThumbnailResolution::k1024)));
-      meta.key.edit_version_hash   = entry.value("edit_version_hash", std::string{});
+      meta.key.purpose = static_cast<ThumbnailDiskCachePurpose>(
+          entry.value("purpose", static_cast<uint32_t>(ThumbnailDiskCachePurpose::kThumbnail)));
+      meta.key.edit_version_hash    = entry.value("edit_version_hash", std::string{});
       meta.key.cache_schema_version = entry.value("cache_schema_version", uint32_t{0});
 
-      const auto key_hash = entry.value("key_hash", std::string{});
+      const auto key_hash           = entry.value("key_hash", std::string{});
       if (key_hash.empty()) continue;
 
       if (auto old_it = state_->index_.find(key_hash); old_it != state_->index_.end()) {
         state_->total_size_bytes_ -= old_it->second.file_size_bytes;
       }
-      state_->index_[key_hash]  = meta;
+      state_->index_[key_hash] = meta;
       RecordLruAccessLocked(key_hash);
       state_->total_size_bytes_ += meta.file_size_bytes;
       loaded_count++;
@@ -925,10 +911,10 @@ void ThumbnailDiskCacheService::LoadMetadata() {
 
   std::unique_lock lock(state_->metadata_mutex_);
 
-  const auto current_project = state_->project_uuid_;
+  const auto       current_project = state_->project_uuid_;
   for (const auto& entry : j["entries"]) {
     try {
-      EntryMeta meta;
+      EntryMeta  meta;
 
       const auto file_path_str = entry.value("file_path", std::string{});
       if (file_path_str.empty()) {
@@ -937,14 +923,16 @@ void ThumbnailDiskCacheService::LoadMetadata() {
       meta.file_path        = file_path_str;
       meta.file_size_bytes  = entry.value("file_size_bytes", size_t{0});
       meta.last_access_time = entry.value("last_access_time", int64_t{0});
-      meta.key.project_uuid  = entry.value("project_uuid", std::string{});
+      meta.key.project_uuid = entry.value("project_uuid", std::string{});
       meta.key.element_id   = entry.value("element_id", sl_element_id_t{0});
       meta.key.resolution   = static_cast<ThumbnailResolution>(
           entry.value("resolution", static_cast<uint32_t>(ThumbnailResolution::k1024)));
-      meta.key.edit_version_hash  = entry.value("edit_version_hash", std::string{});
+      meta.key.purpose = static_cast<ThumbnailDiskCachePurpose>(
+          entry.value("purpose", static_cast<uint32_t>(ThumbnailDiskCachePurpose::kThumbnail)));
+      meta.key.edit_version_hash    = entry.value("edit_version_hash", std::string{});
       meta.key.cache_schema_version = entry.value("cache_schema_version", uint32_t{0});
 
-      const auto key_hash = entry.value("key_hash", std::string{});
+      const auto key_hash           = entry.value("key_hash", std::string{});
       if (key_hash.empty()) {
         continue;
       }
@@ -955,7 +943,7 @@ void ThumbnailDiskCacheService::LoadMetadata() {
           if (auto old_it = state_->index_.find(key_hash); old_it != state_->index_.end()) {
             state_->total_size_bytes_ -= old_it->second.file_size_bytes;
           }
-          state_->index_[key_hash]  = meta;
+          state_->index_[key_hash] = meta;
           RecordLruAccessLocked(key_hash);
           state_->total_size_bytes_ += meta.file_size_bytes;
         }
@@ -1061,14 +1049,16 @@ void ThumbnailDiskCacheService::RebuildFromDirectoryScan() {
         meta.file_path        = file_path;
         meta.file_size_bytes  = entry.value("file_size_bytes", size_t{0});
         meta.last_access_time = entry.value("last_access_time", int64_t{0});
-        meta.key.project_uuid        = entry.value("project_uuid", std::string{});
-        meta.key.element_id          = entry.value("element_id", sl_element_id_t{0});
-        meta.key.resolution          = static_cast<ThumbnailResolution>(
+        meta.key.project_uuid = entry.value("project_uuid", std::string{});
+        meta.key.element_id   = entry.value("element_id", sl_element_id_t{0});
+        meta.key.resolution   = static_cast<ThumbnailResolution>(
             entry.value("resolution", static_cast<uint32_t>(ThumbnailResolution::k1024)));
-        meta.key.edit_version_hash   = entry.value("edit_version_hash", std::string{});
+        meta.key.purpose = static_cast<ThumbnailDiskCachePurpose>(
+            entry.value("purpose", static_cast<uint32_t>(ThumbnailDiskCachePurpose::kThumbnail)));
+        meta.key.edit_version_hash    = entry.value("edit_version_hash", std::string{});
         meta.key.cache_schema_version = entry.value("cache_schema_version", uint32_t{0});
 
-        const auto key_hash = entry.value("key_hash", std::string{});
+        const auto key_hash           = entry.value("key_hash", std::string{});
         if (key_hash.empty()) continue;
 
         state_->index_[key_hash] = meta;
@@ -1094,8 +1084,6 @@ void ThumbnailDiskCacheService::ReopenWithCacheRoot(const std::filesystem::path&
   }
 }
 
-void ThumbnailDiskCacheService::BumpClearGenerationLocked() {
-  ++state_->clear_generation_;
-}
+void ThumbnailDiskCacheService::BumpClearGenerationLocked() { ++state_->clear_generation_; }
 
 }  // namespace alcedo

@@ -152,6 +152,23 @@ ApplicationWindow {
     property var pendingProjectLaunchAction: null
     property bool restoreWelcomeOnProjectLaunchFailure: false
     onWelcomeDismissedForLaunchChanged: updateWelcomeDialogVisibility()
+
+    // Phase 2: push the focused image element id and the pending delete targets
+    // into the interaction-policy controller so its cached Q_PROPERTYs (which the
+    // inspector edit gates and the delete action bind to) re-evaluate on
+    // PolicyChanged. focusedImageTarget is the reliable elementId source
+    // (focusedImageInspection may omit it on the success branch).
+    Binding {
+        target: albumBackend.interactionPolicyController
+        property: "focusedElementId"
+        value: root.focusedImageTarget ? Number(root.focusedImageTarget.elementId || 0) : 0
+    }
+    Binding {
+        target: albumBackend.interactionPolicyController
+        property: "pendingDeleteTargets"
+        value: root.pendingDeleteTargets
+    }
+
     Component.onCompleted: {
         updateWelcomeDialogVisibility()
         acceleratorPreparationStartTimer.start()
@@ -794,6 +811,9 @@ ApplicationWindow {
         onMessageRequested: function(message) {
             root.showSnackbar(message)
         }
+        onSemanticGenerationBackgroundRequested: {
+            semanticGenerationDialog.runInBackground()
+        }
     }
 
     AdjustmentTransferDialog {
@@ -842,7 +862,11 @@ ApplicationWindow {
             {
                 id: "delete",
                 label: Number(albumBackend.currentFolderId) === 0 ? qsTr("Delete") : qsTr("Remove from Album"),
+                // Phase 2: blocked while the selected images are in an active
+                // analysis set (DeleteImages lock). The reason is exposed on the
+                // policy controller as pendingDeleteReason.
                 enabled: root.pendingDeleteTargets.length > 0
+                          && albumBackend.interactionPolicyController.canDeletePendingTargets
             }
         ].concat(root.albumTargetActions())
         onRatingRequested: function(rating) {
@@ -914,6 +938,7 @@ ApplicationWindow {
         backend: albumBackend
         analysisController: albumBackend.imageAnalysisController
         profileController: albumBackend.aiProviderProfileController
+        interactionPolicy: albumBackend.interactionPolicyController
         backendInteractive: root.backendInteractive
         onMessageRequested: function(message) {
             root.showSnackbar(message)
@@ -1043,6 +1068,9 @@ ApplicationWindow {
                 Button {
                     id: deleteConfirmButton
                     text: qsTr("Delete")
+                    // Phase 2: gated by the same policy as the context-menu delete
+                    // action — stays disabled while the targets are being analyzed.
+                    enabled: albumBackend.interactionPolicyController.canDeletePendingTargets
                     Material.background: root.colDanger
                     Material.foreground: root.colText
                     onClicked: {
@@ -1708,6 +1736,7 @@ ApplicationWindow {
                             anchors.fill: parent
                             anchors.margins: 10
                             focusedImage: root.focusedImageInspection
+                            interactionPolicy: albumBackend.interactionPolicyController
                             onRatingRequested: function(rating) {
                                 root.requestSetFocusedImageRating(rating)
                             }
@@ -1844,6 +1873,15 @@ ApplicationWindow {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        BackgroundTaskBar {
+            Layout.fillWidth: true
+            onTaskDetailsRequested: function(task) {
+                if (task && task.kind === "imageAnalysis") {
+                    advancedContentAnalysisDialog.openTaskDetails(task)
                 }
             }
         }

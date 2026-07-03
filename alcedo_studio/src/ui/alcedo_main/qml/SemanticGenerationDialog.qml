@@ -27,6 +27,7 @@ Popup {
     property string statusText: ""
     property Item backgroundSource: null
     property bool startTransitionPending: false
+    property bool backgrounded: false
     property real elapsedSecs: 0
     property var generationStart: null
 
@@ -36,7 +37,8 @@ Popup {
 
     readonly property int completed: embedded + skipped + failed + canceled
     readonly property real progressValue: total > 0 ? completed / total : 0
-    readonly property bool showingGeneration: generationRunning || startTransitionPending
+    readonly property bool showingGeneration: startTransitionPending
+                                              || (generationRunning && !backgrounded)
     // Rough ETA: batch size is fixed (64 or 4), so once the first batch lands the
     // completion rate stabilizes and remaining time = remaining / rate.
     readonly property real processingRate: (elapsedSecs > 0 && completed > 0)
@@ -55,10 +57,12 @@ Popup {
             startTransitionPending = false
         }
         if (generationRunning) {
+            backgrounded = false
             generationStart = Date.now()
             elapsedSecs = 0
             etaTimer.start()
         } else {
+            backgrounded = false
             etaTimer.stop()
             generationStart = null
         }
@@ -67,10 +71,19 @@ Popup {
     onPromptVisibleChanged: {
         if (promptVisible) {
             startTransitionPending = false
+            backgrounded = false
         }
     }
 
     onClosed: startTransitionPending = false
+
+    function runInBackground() {
+        if (!generationRunning) {
+            return
+        }
+        backgrounded = true
+        close()
+    }
 
     function _pad2(n) {
         n = Math.floor(n)
@@ -274,6 +287,25 @@ Popup {
                 }
             }
 
+            IconButton {
+                visible: root.showingGeneration
+                buttonWidth: 54
+                buttonHeight: 48
+                buttonRadius: 10
+                iconSize: 18
+                kind: "accent"
+                accentColor: root.accentColor
+                bordered: true
+                borderColor: Qt.rgba(root.accentColor.r,
+                                     root.accentColor.g,
+                                     root.accentColor.b,
+                                     0.20)
+                iconSrc: "qrc:/panel_icons/to_bg.svg"
+                tooltipText: qsTr("Move task to background")
+                enabled: root.generationRunning
+                onClicked: root.runInBackground()
+            }
+
             AiButton {
                 visible: !root.showingGeneration
                 Layout.preferredWidth: 168
@@ -292,6 +324,10 @@ Popup {
         property bool primary: false
 
         Layout.preferredHeight: 48
+        topInset: 0
+        bottomInset: 0
+        leftInset: 0
+        rightInset: 0
         font.pixelSize: 15
         font.weight: 800
         hoverEnabled: true

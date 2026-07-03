@@ -23,6 +23,10 @@ auto HasselbladX2dSamplePath() -> std::filesystem::path {
          "B0004841.dng";
 }
 
+auto SonyCctRegressionSamplePath() -> std::filesystem::path {
+  return std::filesystem::path(TEST_IMG_PATH) / "raw" / "cct_test" / "_DSC8085.ARW";
+}
+
 void ExpectMatrixNear(const double* actual, const double (&expected)[9], const double epsilon) {
   ASSERT_NE(actual, nullptr);
   for (int i = 0; i < 9; ++i) {
@@ -215,6 +219,42 @@ TEST(MetadataExtractorTest, EmbeddedDngProfileTablesDisableForwardMatrixFallback
   EXPECT_LT(params.color_temp_cam_to_xyz_d50_[2], 0.05f);
   EXPECT_LT(params.color_temp_cam_to_xyz_d50_[5], -0.2f);
   EXPECT_LT(params.color_temp_cam_to_xyz_d50_[7], -0.1f);
+}
+
+TEST(MetadataExtractorTest, SonyArwMakerNoteAsShotNeutralResolvesStableCct) {
+  const auto sample_path = SonyCctRegressionSamplePath();
+  if (!std::filesystem::exists(sample_path)) {
+    GTEST_SKIP() << "Sample ARW not found: " << sample_path.string();
+  }
+
+  Image image(7, sample_path, ImageType::ARW);
+  ASSERT_NO_THROW(MetadataExtractor::ExtractEXIF_ToImage(sample_path, image));
+  ASSERT_TRUE(image.HasRawColorContext());
+
+  const auto& ctx = image.GetRawColorContext();
+  ASSERT_TRUE(ctx.valid_);
+  ASSERT_TRUE(ctx.as_shot_neutral_valid_);
+  EXPECT_NEAR(ctx.cam_mul_[0], 1848.0f, 1e-3f);
+  EXPECT_NEAR(ctx.cam_mul_[1], 1024.0f, 1e-3f);
+  EXPECT_NEAR(ctx.cam_mul_[2], 2004.0f, 1e-3f);
+  EXPECT_NEAR(ctx.as_shot_neutral_[0], 1024.0 / 1848.0, 1e-6);
+  EXPECT_DOUBLE_EQ(ctx.as_shot_neutral_[1], 1.0);
+  EXPECT_NEAR(ctx.as_shot_neutral_[2], 1024.0 / 2004.0, 1e-6);
+
+  OperatorParams params;
+  params.color_temp_enabled_ = true;
+  params.PopulateRawMetadata(ctx);
+
+  const nlohmann::json color_temp_params = {
+      {"color_temp", {{"mode", "as_shot"}, {"cct", 6500.0}, {"tint", 0.0}}}};
+  ColorTempOp op(color_temp_params);
+  ASSERT_NO_THROW(op.SetGlobalParams(params));
+
+  EXPECT_TRUE(params.color_temp_matrices_valid_);
+  EXPECT_GT(params.color_temp_resolved_cct_, 3900.0f);
+  EXPECT_LT(params.color_temp_resolved_cct_, 4050.0f);
+  EXPECT_GT(params.color_temp_resolved_tint_, -20.0f);
+  EXPECT_LT(params.color_temp_resolved_tint_, 0.0f);
 }
 
 }  // namespace

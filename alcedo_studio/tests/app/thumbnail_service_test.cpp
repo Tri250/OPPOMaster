@@ -1016,6 +1016,82 @@ TEST_F(ThumbnailServiceTests, ThumbnailRenderUsesInjectedRawMetadataForDng) {
   EXPECT_EQ(thumbnail_hash, direct_hash);
 }
 
+// Phase 3: an analysis rendition renders from a captured pipeline snapshot and
+// must NOT call SavePipeline on the live guard or clear the live guard's dirty
+// state. Verified by pinning + dirtying the live guard across the render and
+// asserting pin_count_/dirty_ are unchanged afterward.
+TEST_F(ThumbnailServiceTests, AnalysisRenditionRendersWithoutSavePipelineOnLiveGuard) {
+  const auto raw_path =
+      std::filesystem::path(TEST_IMG_PATH) / "raw" / "bad_dng" / "bad_color_dng.dng";
+  if (!std::filesystem::exists(raw_path)) {
+    GTEST_SKIP() << "Sample DNG file is missing: " << raw_path.string();
+  }
+
+  ProjectService    project(db_path_, meta_path_);
+  auto              fs_service = project.GetSleeveService();
+  auto              img_pool   = project.GetImagePoolService();
+  ImportServiceImpl import_service(fs_service, img_pool);
+
+  std::shared_ptr<ImportJob> import_job = std::make_shared<ImportJob>();
+  std::promise<ImportResult> final_result;
+  auto                       final_result_future = final_result.get_future();
+  import_job->on_finished_                        = [&final_result](const ImportResult& result) {
+    final_result.set_value(result);
+  };
+
+  import_job = import_service.ImportToFolder({raw_path}, L"", {}, import_job);
+  ASSERT_NE(import_job, nullptr);
+  ASSERT_EQ(final_result_future.wait_for(60s), std::future_status::ready);
+
+  const auto import_result = final_result_future.get();
+  ASSERT_EQ(import_result.imported_, 1u);
+  ASSERT_EQ(import_result.failed_, 0u);
+  ASSERT_NE(import_job->import_log_, nullptr);
+
+  const auto snapshot = import_job->import_log_->Snapshot();
+  ASSERT_EQ(snapshot.created_.size(), 1u);
+
+  import_service.SyncImports(snapshot, L"");
+  project.GetSleeveService()->Sync();
+  project.GetImagePoolService()->SyncWithStorage();
+  project.SaveProject(meta_path_);
+
+  const auto element_id = snapshot.created_.front().element_id_;
+  const auto image_id   = snapshot.created_.front().image_id_;
+
+  auto            pipeline_service = std::make_shared<PipelineMgmtService>(project.GetStorageService());
+  ThumbnailService thumbnail_service(project.GetSleeveService(), img_pool, pipeline_service);
+
+  // Pin the live guard and mark it dirty. A correct snapshot render must leave
+  // both untouched: it never calls SavePipeline on this guard, so the pin is not
+  // decremented and dirty state is not cleared.
+  auto live_guard = pipeline_service->LoadPipeline(element_id);
+  ASSERT_NE(live_guard, nullptr);
+  ASSERT_NE(live_guard->pipeline_, nullptr);
+  live_guard->dirty_ = true;
+  ASSERT_EQ(live_guard->pin_count_, size_t{1});
+
+  std::promise<ThumbnailRequestResult> done;
+  auto                                 done_future = done.get_future();
+  thumbnail_service.RequestAnalysisRendition(
+      element_id, image_id, ThumbnailResolution::k256,
+      [&done](ThumbnailRequestResult r) { done.set_value(std::move(r)); });
+  ASSERT_EQ(done_future.wait_for(30s), std::future_status::ready);
+
+  const auto result = done_future.get();
+  EXPECT_EQ(result.status, ThumbnailRequestStatus::kReady);
+  ASSERT_NE(result.guard, nullptr);
+  ASSERT_NE(result.guard->thumbnail_buffer_, nullptr);
+
+  // Acceptance: the live guard was not released or reset by the analysis render.
+  EXPECT_EQ(live_guard->pin_count_, size_t{1});  // no SavePipeline on the live guard
+  EXPECT_EQ(live_guard->dirty_, true);          // dirty not cleared
+  ASSERT_NE(live_guard->pipeline_, nullptr);   // executor still valid
+
+  thumbnail_service.ReleaseAnalysisRendition(result.key);
+  pipeline_service->SavePipeline(live_guard);  // release the test's pin
+}
+
 TEST_F(ThumbnailServiceTests, DiskCacheHitServesAfterPipelineIsRemoved) {
   const auto raw_path =
       std::filesystem::path(TEST_IMG_PATH) / "raw" / "bad_dng" / "bad_color_dng.dng";

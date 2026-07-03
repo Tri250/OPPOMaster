@@ -1247,6 +1247,26 @@ auto ExtractDngMetadataToImageFast(const image_path_t& image_path, Image& image)
   return true;
 }
 
+void PopulateAsShotNeutralFromLibRawCamMul(const libraw_colordata_t& color,
+                                           RawRuntimeColorContext& ctx) {
+  if (!IsFinitePositive(color.cam_mul[0]) || !IsFinitePositive(color.cam_mul[1]) ||
+      !IsFinitePositive(color.cam_mul[2])) {
+    return;
+  }
+
+  double green = static_cast<double>(color.cam_mul[1]);
+  if (IsFinitePositive(color.cam_mul[3])) {
+    green = 0.5 * (green + static_cast<double>(color.cam_mul[3]));
+  }
+
+  ctx.as_shot_neutral_[0] = green / static_cast<double>(color.cam_mul[0]);
+  ctx.as_shot_neutral_[1] = 1.0;
+  ctx.as_shot_neutral_[2] = green / static_cast<double>(color.cam_mul[2]);
+  ctx.as_shot_neutral_valid_ = std::all_of(
+      std::begin(ctx.as_shot_neutral_), std::end(ctx.as_shot_neutral_),
+      [](double value) { return std::isfinite(value) && value > 0.0; });
+}
+
 /// Populate a RawRuntimeColorContext directly from libraw's open-but-not-processed state.
 /// Only requires open_file / unpack to have been called so that imgdata.rawdata.color,
 /// imgdata.idata, imgdata.other, imgdata.lens are populated.
@@ -1262,6 +1282,7 @@ void PopulateMetadataRuntimeContext(LibRaw& raw_processor, RawRuntimeColorContex
       ctx.rgb_cam_[r * 3 + c] = color.rgb_cam[r][c];
     }
   }
+  PopulateAsShotNeutralFromLibRawCamMul(color, ctx);
 
   ctx.camera_make_  = TrimAscii(raw_processor.imgdata.idata.make);
   ctx.camera_model_ = TrimAscii(raw_processor.imgdata.idata.model);

@@ -87,17 +87,18 @@ class AiSidecarRuntimeService final : public QObject {
 
  public:
   explicit AiSidecarRuntimeService(AiSidecarClientFactory client_factory = {},
-                                   QObject* parent = nullptr);
+                                   QObject*               parent         = nullptr);
   ~AiSidecarRuntimeService() override;
 
-  auto StartAndWait(const AiSidecarRuntimeOptions& options) -> bool;
-  void Stop();
-  void StopForProjectClose();
+  auto               StartAndWait(const AiSidecarRuntimeOptions& options) -> bool;
+  [[nodiscard]] auto AcquireLease() -> std::shared_ptr<void>;
+  void               Stop();
+  void               StopForProjectClose();
 
-  auto Status() -> AiSidecarRuntimeStatusSnapshot;
-  auto Options() const -> const AiSidecarRuntimeOptions& { return options_; }
-  auto IsRunning() -> bool;
-  auto Endpoint() const -> std::string { return endpoint_; }
+  auto               Status() -> AiSidecarRuntimeStatusSnapshot;
+  auto               Options() const -> const AiSidecarRuntimeOptions& { return options_; }
+  auto               IsRunning() -> bool;
+  auto               Endpoint() const -> std::string { return endpoint_; }
   auto ClientSession() const -> std::shared_ptr<sidecar_client::Client> { return client_; }
 
   auto StateName() const -> QString;
@@ -115,16 +116,18 @@ class AiSidecarRuntimeService final : public QObject {
   void RefreshProcessExit();
   auto BuildArguments() const -> QStringList;
   auto ChoosePort() const -> uint16_t;
-  auto WaitForReadiness() -> bool;
+  auto WaitForReadiness(bool terminate_on_timeout) -> bool;
   void AttachChildTreeCleanup();
   void ReleaseChildTreeCleanup();
+  void ReleaseLease();
 
-  AiSidecarClientFactory                    client_factory_;
-  std::shared_ptr<sidecar_client::Client>   client_;
-  QProcess                                  process_;
-  AiSidecarRuntimeOptions                   options_;
-  AiSidecarRuntimeStatusSnapshot            status_;
-  std::string                               endpoint_;
+  AiSidecarClientFactory                  client_factory_;
+  std::shared_ptr<sidecar_client::Client> client_;
+  QProcess                                process_;
+  AiSidecarRuntimeOptions                 options_;
+  AiSidecarRuntimeStatusSnapshot          status_;
+  std::string                             endpoint_;
+  int                                     active_leases_ = 0;
 #ifdef _WIN32
   void* job_object_ = nullptr;
 #endif

@@ -50,47 +50,49 @@ class SemanticGenerationController final : public QObject {
  public:
   explicit SemanticGenerationController(AlbumBackend& backend, QObject* parent = nullptr);
 
-  bool             PromptVisible() const;
-  bool             ActivatePromptVisible() const;
-  bool             Running() const { return running_; }
-  int              PendingCount() const { return static_cast<int>(pending_items_.size()); }
-  int              Total() const { return total_; }
-  int              Embedded() const { return embedded_; }
-  int              Skipped() const { return skipped_; }
-  int              Failed() const { return failed_; }
-  int              Canceled() const { return canceled_; }
-  QString          StatusText() const { return status_text_.Render(); }
-  int              AlbumTotalCount() const { return album_total_count_; }
-  int              AlbumLabeledCount() const { return album_labeled_count_; }
-  int              AlbumUnlabeledCount() const { return album_unlabeled_count_; }
-  QString          AlbumSummaryText() const { return album_summary_text_.Render(); }
-  QString          ImportPreference() const;
-  QString          ActiveModelProfileId() const;
-  QString          ActiveModelDisplayName() const;
-  QString          ActiveModelKeyQString() const;
-  bool             ModelActivationRunning() const { return model_activation_running_; }
-  bool             SelectedModelActive() const { return selected_model_active_; }
+  bool               PromptVisible() const;
+  bool               ActivatePromptVisible() const;
+  bool               Running() const { return running_; }
+  int                PendingCount() const { return static_cast<int>(pending_items_.size()); }
+  int                Total() const { return total_; }
+  int                Embedded() const { return embedded_; }
+  int                Skipped() const { return skipped_; }
+  int                Failed() const { return failed_; }
+  int                Canceled() const { return canceled_; }
+  QString            StatusText() const { return status_text_.Render(); }
+  int                AlbumTotalCount() const { return album_total_count_; }
+  int                AlbumLabeledCount() const { return album_labeled_count_; }
+  int                AlbumUnlabeledCount() const { return album_unlabeled_count_; }
+  QString            AlbumSummaryText() const { return album_summary_text_.Render(); }
+  QString            ImportPreference() const;
+  QString            ActiveModelProfileId() const;
+  QString            ActiveModelDisplayName() const;
+  QString            ActiveModelKeyQString() const;
+  bool               ModelActivationRunning() const { return model_activation_running_; }
+  bool               SelectedModelActive() const { return selected_model_active_; }
 
-  Q_INVOKABLE void StartPendingGeneration(bool forceRegenerate = false);
-  Q_INVOKABLE void SkipPendingGeneration(bool rememberChoice = false);
-  Q_INVOKABLE void DismissActivatePrompt();
-  Q_INVOKABLE void SetImportPreference(const QString& preference);
-  Q_INVOKABLE void ActivateSelectedModel();
-  Q_INVOKABLE void CancelGeneration();
-  Q_INVOKABLE void RefreshAlbumSummary();
-  Q_INVOKABLE void StartAlbumGeneration(bool forceRegenerate = false);
+  Q_INVOKABLE void   StartPendingGeneration(bool forceRegenerate = false);
+  Q_INVOKABLE void   SkipPendingGeneration(bool rememberChoice = false);
+  Q_INVOKABLE void   DismissActivatePrompt();
+  Q_INVOKABLE void   SetImportPreference(const QString& preference);
+  Q_INVOKABLE void   ActivateSelectedModel();
+  Q_INVOKABLE void   CancelGeneration();
+  Q_INVOKABLE void   RefreshAlbumSummary();
+  Q_INVOKABLE void   StartAlbumGeneration(bool forceRegenerate = false);
 
-  void             QueuePrompt(std::vector<SemanticGenerationItem> items);
-  void             ResumeQueuedWorkflow();
+  void               QueuePrompt(std::vector<SemanticGenerationItem> items);
+  void               ResumeQueuedWorkflow();
 
   [[nodiscard]] auto ActiveModelKey() const -> std::string;
+  [[nodiscard]] auto RuntimeOptionsForCurrentSidecarSnapshot(bool requireModelInfo) const
+      -> AiSidecarRuntimeOptions;
   [[nodiscard]] auto LabelDisplayText(sl_element_id_t elementId) const -> QString;
   // Full post-open / post-purge refresh: fresh on-disk install state, a
   // recomputed selectedModelActive badge, album counts, and an unconditional
   // StateChanged so live DB bindings (activeModelName/activeModelKey) refresh
   // even when the counts are unchanged. Called on project open and after a
   // save-time purge.
-  void RefreshSemanticState();
+  void               RefreshSemanticState();
 
  signals:
   void StateChanged();
@@ -107,6 +109,18 @@ class SemanticGenerationController final : public QObject {
   void Finish(std::vector<SemanticGenerationItemResult> results);
   void ClearPrompt();
   void ResetCounters();
+  // Build the `affectedTargets` list ({elementId,imageId} maps) for the task
+  // snapshot from the in-flight `pending_items_` set.
+  auto BuildAffectedTargets() const -> QVariantList;
+  // Register this run as a background task (Phase 1 mirroring) and return the
+  // assigned task id. No-op (returns empty) when no registry is reachable.
+  auto RegisterBackgroundTask() -> QString;
+  // Phase 2: register the model-activation run as a background task (non-
+  // cancelable — activation runs on a detached thread with no cancel path; Phase
+  // 5 owns the shutdown wait) and return its id. No-op (returns empty) when no
+  // registry is reachable. Publishes locks for sidecar snapshot settings so the
+  // policy blocks model/provider/download changes during activation.
+  auto RegisterActivationTask() -> QString;
   // Recomputes selected_model_active_ from the download controller's install
   // state and the project's active-model record. Does not emit StateChanged;
   // callers emit.
@@ -121,25 +135,32 @@ class SemanticGenerationController final : public QObject {
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
       -> AiSidecarRuntimeOptions;
 
-  AlbumBackend&                                backend_;
-  std::vector<SemanticGenerationItem>          pending_items_{};
-  std::shared_ptr<SemanticGenerationJob>       job_{};
-  i18n::LocalizedText                          status_text_{};
-  i18n::LocalizedText                          album_summary_text_{};
-  std::string                                  model_key_{};
-  bool                                         model_activation_running_ = false;
-  bool                                         selected_model_active_    = false;
-  bool                                         prompt_pending_           = false;
-  bool                                         activate_prompt_pending_  = false;
-  bool                                         running_                  = false;
-  int                                          total_                    = 0;
-  int                                          embedded_                 = 0;
-  int                                          skipped_                  = 0;
-  int                                          failed_                   = 0;
-  int                                          canceled_                 = 0;
-  int                                          album_total_count_        = 0;
-  int                                          album_labeled_count_      = 0;
-  int                                          album_unlabeled_count_    = 0;
+  AlbumBackend&                          backend_;
+  std::vector<SemanticGenerationItem>    pending_items_{};
+  std::shared_ptr<SemanticGenerationJob> job_{};
+  std::shared_ptr<void>                  sidecar_lease_{};
+  // Phase 1 background-task mirroring id; empty when no task is registered.
+  QString                                background_task_id_;
+  // Phase 2: the model-activation background-task id (separate from the
+  // generation task id so the two task lifecycles never collide). Empty when no
+  // activation task is registered.
+  QString                                model_activation_task_id_;
+  i18n::LocalizedText                    status_text_{};
+  i18n::LocalizedText                    album_summary_text_{};
+  std::string                            model_key_{};
+  bool                                   model_activation_running_ = false;
+  bool                                   selected_model_active_    = false;
+  bool                                   prompt_pending_           = false;
+  bool                                   activate_prompt_pending_  = false;
+  bool                                   running_                  = false;
+  int                                    total_                    = 0;
+  int                                    embedded_                 = 0;
+  int                                    skipped_                  = 0;
+  int                                    failed_                   = 0;
+  int                                    canceled_                 = 0;
+  int                                    album_total_count_        = 0;
+  int                                    album_labeled_count_      = 0;
+  int                                    album_unlabeled_count_    = 0;
 };
 
 }  // namespace alcedo::ui

@@ -33,6 +33,7 @@ class AppTheme final : public QObject {
   Q_PROPERTY(QColor bgPanelColor READ bgPanelColor NOTIFY ThemeChanged)
   Q_PROPERTY(QColor textColor READ textColor NOTIFY ThemeChanged)
   Q_PROPERTY(QColor textMutedColor READ textMutedColor NOTIFY ThemeChanged)
+  Q_PROPERTY(QColor iconColor READ iconColor NOTIFY ThemeChanged)
   Q_PROPERTY(QColor accentColor READ accentColor NOTIFY ThemeChanged)
   Q_PROPERTY(QColor accentSecondaryColor READ accentSecondaryColor NOTIFY ThemeChanged)
   Q_PROPERTY(QColor dangerColor READ dangerColor NOTIFY ThemeChanged)
@@ -117,6 +118,7 @@ class AppTheme final : public QObject {
   auto bgPanelColor() const -> QColor;
   auto textColor() const -> QColor;
   auto textMutedColor() const -> QColor;
+  auto iconColor() const -> QColor;
   auto accentColor() const -> QColor;
   auto accentSecondaryColor() const -> QColor;
   auto dangerColor() const -> QColor;

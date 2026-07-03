@@ -18,6 +18,9 @@ Button {
         if (kind === "accent") {
             return appTheme.accentColor
         }
+        if (kind === "danger") {
+            return "#7A2532"
+        }
         if (kind === "warning") {
             return appTheme.dangerColor
         }
@@ -28,6 +31,10 @@ Button {
     implicitHeight: buttonHeight
     Layout.preferredWidth: buttonWidth
     Layout.preferredHeight: buttonHeight
+    topInset: 0
+    bottomInset: 0
+    leftInset: 0
+    rightInset: 0
     padding: 0
     hoverEnabled: true
     font.family: appTheme.uiFontFamily

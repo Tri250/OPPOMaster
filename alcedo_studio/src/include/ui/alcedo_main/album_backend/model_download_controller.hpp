@@ -140,8 +140,13 @@ class ModelDownloadController final : public QObject {
   // advances the average while phase == "downloading"; clears the labels (but
   // keeps the EMA) otherwise so inter-asset gaps don't flicker.
   void UpdateDownloadSpeed(const alcedo::ModelDownloadProgress& progress);
+  // Register this download as a background task (Phase 1 mirroring) and return
+  // the assigned task id; empty when no registry is reachable.
+  auto RegisterBackgroundTask() -> QString;
 
   AlbumBackend&         backend_;
+  // Phase 1 background-task mirroring id; empty when no task is registered.
+  QString               background_task_id_;
   i18n::LocalizedText   model_download_status_text_{};
   bool                  model_download_running_      = false;
   int                   model_download_progress_    = 0;

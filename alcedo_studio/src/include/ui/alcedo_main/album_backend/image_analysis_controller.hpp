@@ -22,6 +22,7 @@
 namespace alcedo::ui {
 
 class AlbumBackend;
+class BackgroundTaskController;
 
 /// Phase 6d — the runtime seams `ImageAnalysisController` needs, as an interface
 /// so the controller is unit-testable without a live project / sidecar.
@@ -43,6 +44,7 @@ class IImageAnalysisEnvironment {
   /// controller only requests and forwards it for gear-sensitive rating/analyze
   /// runs.
   virtual auto CameraContextForItem(const alcedo::ImageAnalysisItem& item) -> std::string = 0;
+  virtual auto AcquireSidecarLease() -> std::shared_ptr<void>                             = 0;
   /// Start the AI sidecar on demand with `require_model_info=false` (remote image
   /// analysis uses the HTTP-provider path; no CLIP model is needed). Returns true
   /// if the sidecar is ready. Does NOT check `model_info` (it is unpopulated when
@@ -94,7 +96,8 @@ class ImageAnalysisController final : public QObject {
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
                           AiProviderProfileController*               profiles,
-                          std::shared_ptr<IImageAnalysisSink> sink, QObject* parent = nullptr);
+                          std::shared_ptr<IImageAnalysisSink>        sink,
+                          BackgroundTaskController* registry = nullptr, QObject* parent = nullptr);
 
   bool             Running() const { return running_; }
   int              Total() const { return total_; }
@@ -118,9 +121,9 @@ class ImageAnalysisController final : public QObject {
   // never silently fall back to "whole view".
   Q_INVOKABLE void StartDescribeForTargets(const QVariantList& targetEntries);
   Q_INVOKABLE void StartScoreForTargets(const QVariantList& targetEntries,
-                                        bool includeRatingReasons);
+                                        bool                includeRatingReasons);
   Q_INVOKABLE void StartAnalyzeForTargets(const QVariantList& targetEntries,
-                                          bool includeRatingReasons);
+                                          bool                includeRatingReasons);
   Q_INVOKABLE void CancelAnalysis();
   Q_INVOKABLE void RetryLast();
   // Dry-run model discovery against the selected profile (reuses the Phase 6c
@@ -148,11 +151,23 @@ class ImageAnalysisController final : public QObject {
   void Finish(std::vector<alcedo::ImageAnalysisItemResult> results);
   void SetError(const QString& error);
   void ResetCounters();
+  // Build the `affectedTargets` list ({elementId,imageId} maps) for the task
+  // snapshot from the in-flight `last_items_` set.
+  auto BuildAffectedTargets() const -> QVariantList;
+  // Register this run as a background task (Phase 1 mirroring) and return the
+  // assigned task id. No-op (returns empty) when no registry was injected.
+  auto RegisterBackgroundTask() -> QString;
 
   std::shared_ptr<IImageAnalysisEnvironment> env_;
   AiProviderProfileController*               profiles_;
   std::shared_ptr<IImageAnalysisSink>        sink_;
   std::shared_ptr<alcedo::ImageAnalysisJob>  job_;
+  std::shared_ptr<void>                      sidecar_lease_;
+  // Phase 1 background-task mirroring. `registry_` is optional (tests inject
+  // none); when present, the controller registers/updates/finishes a task the
+  // QML task bar mirrors. Cancel from the bar routes back to CancelAnalysis().
+  BackgroundTaskController*                  registry_ = nullptr;
+  QString                                    background_task_id_;
   std::vector<alcedo::ImageAnalysisItem>     last_items_;
   alcedo::ImageAnalysisTask                  last_task_ = alcedo::ImageAnalysisTask::kDescribe;
   bool                                       last_include_rating_reasons_ = true;

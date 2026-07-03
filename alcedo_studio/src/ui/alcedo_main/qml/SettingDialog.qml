@@ -12,7 +12,7 @@ Dialog {
     parent: Overlay.overlay
     modal: true
     focus: visible
-    closePolicy: Popup.CloseOnEscape
+    closePolicy: canCompleteSettings ? Popup.CloseOnEscape : Popup.NoAutoClose
     padding: 0
     width: parent ? parent.width : 0
     height: parent ? parent.height : 0
@@ -46,8 +46,10 @@ Dialog {
     property string pendingSemanticImportPreference: albumBackend.semanticGenerationController.importPreference
     property string cacheStatsSnapshot: ""
     property int requestedCategory: 0
+    readonly property bool canCompleteSettings: albumBackend.interactionPolicyController.canRunSemanticGeneration
 
     signal messageRequested(string message)
+    signal semanticGenerationBackgroundRequested()
 
     onVisibleChanged: {
         if (visible) {
@@ -790,6 +792,7 @@ Dialog {
                                     Layout.bottomMargin: 26
                                     semanticController: albumBackend.semanticGenerationController
                                     downloadController: albumBackend.modelDownloadController
+                                    interactionPolicy: albumBackend.interactionPolicyController
                                     importPreference: dialog.pendingSemanticImportPreference
                                     primaryAccent: dialog.primaryAccent
                                     secondaryAccent: dialog.secondaryAccent
@@ -805,6 +808,10 @@ Dialog {
                                     onMessageRequested: function(message) {
                                         dialog.messageRequested(message)
                                     }
+                                    onBackgroundRequested: {
+                                        dialog.semanticGenerationBackgroundRequested()
+                                        dialog.close()
+                                    }
                                 }
                             }
                         }
@@ -815,6 +822,7 @@ Dialog {
                             width: parent ? parent.width : 0
                             profileController: albumBackend.aiProviderProfileController
                             analysisController: albumBackend.imageAnalysisController
+                            interactionPolicy: albumBackend.interactionPolicyController
                             backgroundSource: dialog.blurSource
                             primaryAccent: dialog.primaryAccent
                             secondaryAccent: dialog.secondaryAccent
@@ -870,6 +878,7 @@ Dialog {
                             Layout.preferredWidth: 168
                             Layout.preferredHeight: 48
                             text: qsTr("Done")
+                            enabled: dialog.canCompleteSettings
                             font.pixelSize: 15
                             font.weight: 800
                             Material.foreground: dialog.textColor
@@ -886,6 +895,7 @@ Dialog {
                                                       dialog.secondaryAccent.g,
                                                       dialog.secondaryAccent.b,
                                                       0.18)
+                                opacity: applyButton.enabled ? 1.0 : 0.45
                             }
                         }
                     }

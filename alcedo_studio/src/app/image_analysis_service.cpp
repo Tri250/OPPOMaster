@@ -341,19 +341,19 @@ void ThumbnailServiceImageAnalysisProvider::RequestThumbnail(const ImageAnalysis
     callback(std::move(r));
     return;
   }
-  service_->GetThumbnailDetailed(item.element_id, item.image_id, std::move(callback), true, nullptr,
-                                 resolution);
+  service_->RequestAnalysisRendition(item.element_id, item.image_id, resolution,
+                                      std::move(callback));
 }
 
 void ThumbnailServiceImageAnalysisProvider::CancelThumbnail(const ThumbnailCacheKey& key) {
   if (service_) {
-    service_->CancelPending(key);
+    service_->CancelAnalysisRendition(key);
   }
 }
 
 void ThumbnailServiceImageAnalysisProvider::ReleaseThumbnail(const ThumbnailCacheKey& key) {
   if (service_) {
-    service_->ReleaseThumbnail(key);
+    service_->ReleaseAnalysisRendition(key);
   }
 }
 
@@ -1357,6 +1357,27 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     }
     update_and_dispatch(
         [&](ImageAnalysisProgress& p) { p.canceled += (items.size() - consumed); });
+  }
+
+  // Revoke the credential BEFORE signaling finish. `on_finished` queues `Finish`
+  // onto the controller's (GUI) thread; `Finish` releases the sidecar lease, and
+  // when the lease refcount hits zero the sidecar Stops. If the revoke is left to
+  // the `credential_revoke_guard` below (which fires only when RunJob returns —
+  // after the GUI thread has already run Finish and stopped the sidecar), the
+  // revoke no-ops against a not-ready runtime and the handle leaks in the sidecar
+  // vault until its TTL. Revoking here — while the GUI thread still holds the
+  // lease and the sidecar is guaranteed ready — makes the revoke deterministic.
+  if (!credential_ref.empty()) {
+    bool        revoked = false;
+    std::string revoke_error;
+    if (!analysis_client->RevokeCredential(credential_ref, options.timeout, &revoked,
+                                           &revoke_error) &&
+        !revoke_error.empty()) {
+      qCWarning(diag::semanticLog).noquote()
+          << QStringLiteral("image_analysis.credential_revoke_failed error=%1")
+                 .arg(QString::fromStdString(revoke_error));
+    }
+    credential_ref.clear();  // the ScopeExit guard below is now a no-op
   }
 
   if (on_finished) {

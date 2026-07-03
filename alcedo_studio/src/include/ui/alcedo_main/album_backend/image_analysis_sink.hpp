@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "app/image_analysis_service.hpp"  // alcedo::ImageAnalysisItemResult
@@ -72,6 +73,18 @@ class IImageAnalysisSink {
   /// match. The storage layer refreshes the derived FTS index during persistence when the
   /// DuckDB fts extension is available; this refreshes the current thumbnail view.
   virtual void NotifySearchDocumentChanged()                                     = 0;
+
+  /// Phase 2 (Step 4) — project DB write barrier integration. While the barrier
+  /// is held (export is in flight), the production sink queues writes instead of
+  /// committing them. These three hooks let `ImageAnalysisController::Finish`
+  /// defer a background task's `FinishTask` until the queued writes actually
+  /// commit, so the task's interaction locks stay held across the export-barrier
+  /// gap (preventing a user from editing a just-analyzed image's rating in the
+  /// window before the queued AI rating would overwrite it). All default to
+  /// no-op/false so test fakes (which never queue) are unaffected.
+  virtual bool HasPendingWrites() const                 { return false; }
+  virtual void SetOnDrainComplete(std::function<void()> /*cb*/) {}
+  virtual void FlushPendingWrites()                     {}
 };
 
 }  // namespace alcedo::ui
