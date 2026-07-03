@@ -8,7 +8,6 @@
 #include <opencv2/core.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -16,6 +15,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace alcedo {
 namespace {
@@ -30,6 +30,8 @@ constexpr double kDeterminantEpsilon  = 1e-10;
 constexpr double kValueEpsilon        = 1e-10;
 constexpr double kAsShotSolveEpsilon  = 1e-8;
 constexpr int    kAsShotSolveMaxIter  = 16;
+constexpr double kOhnoTableStepRatio  = 1.0025;
+constexpr double kOhnoNearLocusDuv    = 0.002;
 constexpr double kD50X                = 0.34567;
 constexpr double kD50Y                = 0.35850;
 constexpr double kD60X                = 0.32168;
@@ -38,47 +40,6 @@ constexpr double kD60Y                = 0.33767;
 const cv::Matx33d kXyzD60ToAp1(1.6410233797, -0.3248032942, -0.2364246952, -0.6636628587,
                                1.6153315917, 0.0167563477, 0.0117218943, -0.0082844420,
                                0.9883948585);
-
-struct RobertsonLine {
-  double r_;
-  double u_;
-  double v_;
-  double t_;
-};
-
-static constexpr std::array<RobertsonLine, 31> kRobertsonLines = {
-    RobertsonLine{0.0, 0.18006, 0.26352, -0.24341},
-    RobertsonLine{10.0, 0.18066, 0.26589, -0.25479},
-    RobertsonLine{20.0, 0.18133, 0.26846, -0.26876},
-    RobertsonLine{30.0, 0.18208, 0.27119, -0.28539},
-    RobertsonLine{40.0, 0.18293, 0.27407, -0.30470},
-    RobertsonLine{50.0, 0.18388, 0.27709, -0.32675},
-    RobertsonLine{60.0, 0.18494, 0.28021, -0.35156},
-    RobertsonLine{70.0, 0.18611, 0.28342, -0.37915},
-    RobertsonLine{80.0, 0.18740, 0.28668, -0.40955},
-    RobertsonLine{90.0, 0.18880, 0.28997, -0.44278},
-    RobertsonLine{100.0, 0.19032, 0.29326, -0.47888},
-    RobertsonLine{125.0, 0.19462, 0.30141, -0.58204},
-    RobertsonLine{150.0, 0.19962, 0.30921, -0.70471},
-    RobertsonLine{175.0, 0.20525, 0.31647, -0.84901},
-    RobertsonLine{200.0, 0.21142, 0.32312, -1.01820},
-    RobertsonLine{225.0, 0.21807, 0.32909, -1.21680},
-    RobertsonLine{250.0, 0.22511, 0.33439, -1.45120},
-    RobertsonLine{275.0, 0.23247, 0.33904, -1.72980},
-    RobertsonLine{300.0, 0.24010, 0.34308, -2.06370},
-    RobertsonLine{325.0, 0.24792, 0.34655, -2.46810},
-    RobertsonLine{350.0, 0.25591, 0.34951, -2.96410},
-    RobertsonLine{375.0, 0.26400, 0.35200, -3.58140},
-    RobertsonLine{400.0, 0.27218, 0.35407, -4.36330},
-    RobertsonLine{425.0, 0.28039, 0.35577, -5.37620},
-    RobertsonLine{450.0, 0.28863, 0.35714, -6.72620},
-    RobertsonLine{475.0, 0.29685, 0.35823, -8.59550},
-    RobertsonLine{500.0, 0.30505, 0.35907, -11.32400},
-    RobertsonLine{525.0, 0.31320, 0.35968, -15.62800},
-    RobertsonLine{550.0, 0.32129, 0.36011, -23.32500},
-    RobertsonLine{575.0, 0.32931, 0.36038, -40.77000},
-    RobertsonLine{600.0, 0.33724, 0.36051, -116.45000},
-};
 
 auto ClampFinite(double value, double min_value, double max_value) -> double {
   if (!std::isfinite(value)) {
@@ -286,166 +247,225 @@ auto UVToXY(const cv::Vec2d& uv) -> cv::Vec2d {
   return cv::Vec2d(1.5 * uv[0] / den, uv[1] / den);
 }
 
-// ---------------------------------------------------------------------------
-// Shared helper: compute the (u, v) point on the Planckian locus AND the
-// normalised isotherm (perpendicular) direction at a given CCT, using the
-// Robertson table.  Both TemperatureTintToUV and UVToTemperatureTint use this
-// so that the (CCT, tint) <-> (u, v) mapping is exactly invertible.
-// ---------------------------------------------------------------------------
 struct PlanckianLocusPoint {
   cv::Vec2d uv_;     // point on the Planckian locus
-  cv::Vec2d perp_;   // normalised isotherm direction at this CCT
+  cv::Vec2d perp_;   // normalized isotherm direction at this CCT
   bool      valid_;  // false when the perpendicular direction degenerates
 };
 
+struct OhnoPlanckianSample {
+  double    cct_;
+  cv::Vec2d uv_;
+};
+
+struct OhnoSolution {
+  bool   valid_ = false;
+  double cct_   = 0.0;
+  double duv_   = 0.0;
+};
+
+auto PlanckianXYApprox(double cct) -> cv::Vec2d {
+  const double T = ClampFinite(cct, kCustomCCTMin, kCustomCCTMax);
+
+  double x = 0.0;
+  if (T <= 4000.0) {
+    x = -0.2661239e9 / (T * T * T) - 0.2343580e6 / (T * T) + 0.8776956e3 / T + 0.179910;
+  } else {
+    x = -3.0258469e9 / (T * T * T) + 2.1070379e6 / (T * T) + 0.2226347e3 / T + 0.240390;
+  }
+
+  double y = 0.0;
+  if (T <= 2222.0) {
+    y = -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683;
+  } else if (T <= 4000.0) {
+    y = -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867;
+  } else {
+    y = 3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483;
+  }
+
+  return cv::Vec2d(x, y);
+}
+
+auto PlanckianUVApprox(double cct) -> cv::Vec2d { return XYToUV(PlanckianXYApprox(cct)); }
+
 auto PlanckianLocusAtCCT(double cct) -> PlanckianLocusPoint {
   const double safe_cct = ClampFinite(cct, kCustomCCTMin, kCustomCCTMax);
-  const double mired    = 1e6 / safe_cct;
-
-  size_t index = 1;
-  while (index < kRobertsonLines.size() && mired > kRobertsonLines[index].r_) {
-    ++index;
-  }
-  if (index >= kRobertsonLines.size()) {
-    index = kRobertsonLines.size() - 1;
-  }
-  if (index == 0) {
-    index = 1;
-  }
-
-  const double denom = kRobertsonLines[index].r_ - kRobertsonLines[index - 1].r_;
-  const double blend = std::clamp((std::abs(denom) <= kValueEpsilon)
-                                      ? 0.0
-                                      : (kRobertsonLines[index].r_ - mired) / denom,
-                                  0.0, 1.0);
+  const double delta_k =
+      std::clamp(safe_cct * 0.001, 0.5, std::max(0.5, 0.25 * (kCustomCCTMax - kCustomCCTMin)));
+  const double low_cct  = std::max(kCustomCCTMin, safe_cct - delta_k);
+  const double high_cct = std::min(kCustomCCTMax, safe_cct + delta_k);
 
   PlanckianLocusPoint pt;
-  pt.uv_[0] = kRobertsonLines[index - 1].u_ * blend + kRobertsonLines[index].u_ * (1.0 - blend);
-  pt.uv_[1] = kRobertsonLines[index - 1].v_ * blend + kRobertsonLines[index].v_ * (1.0 - blend);
+  pt.uv_ = PlanckianUVApprox(safe_cct);
+  if ((high_cct - low_cct) <= kValueEpsilon) {
+    pt.perp_  = cv::Vec2d(0.0, 0.0);
+    pt.valid_ = false;
+    return pt;
+  }
 
-  const double vv1  = kRobertsonLines[index - 1].t_;
-  const double len1 = std::sqrt(1.0 + vv1 * vv1);
-  const double vv2  = kRobertsonLines[index].t_;
-  const double len2 = std::sqrt(1.0 + vv2 * vv2);
+  const cv::Vec2d tangent = (PlanckianUVApprox(high_cct) - PlanckianUVApprox(low_cct)) /
+                            (high_cct - low_cct);
+  const double tangent_len = std::sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]);
 
-  const double uu3  = (1.0 / len1) * blend + (1.0 / len2) * (1.0 - blend);
-  const double vv3  = (vv1 / len1) * blend + (vv2 / len2) * (1.0 - blend);
-  const double len3 = std::sqrt(uu3 * uu3 + vv3 * vv3);
-
-  if (len3 <= kValueEpsilon) {
+  if (tangent_len <= kValueEpsilon) {
     pt.perp_  = cv::Vec2d(0.0, 0.0);
     pt.valid_ = false;
   } else {
-    pt.perp_  = cv::Vec2d(uu3 / len3, vv3 / len3);
+    pt.perp_  = cv::Vec2d(-tangent[1] / tangent_len, tangent[0] / tangent_len);
     pt.valid_ = true;
   }
   return pt;
 }
 
-// ---------------------------------------------------------------------------
-// UVToTemperatureTint – improved Robertson method
-//
-//   Phase 1 : standard Robertson signed-distance bracket search  → initial CCT
-//   Phase 2 : Newton refinement of CCT so that the locus point is the true
-//             closest point (important for inputs far from the Planckian locus)
-//   Phase 3 : tint derived from the *same* locus helper used by the forward
-//             function, guaranteeing an exact roundtrip
-// ---------------------------------------------------------------------------
-auto UVToTemperatureTint(const cv::Vec2d& uv, double& out_cct, double& out_tint) -> bool {
-  // Phase 1 – Robertson bracket search for the initial CCT estimate.
-  double last_dt = 0.0;
-
-  for (size_t i = 1; i < kRobertsonLines.size(); ++i) {
-    double du  = 1.0;
-    double dv  = kRobertsonLines[i].t_;
-    double len = std::sqrt(1.0 + dv * dv);
-    du /= len;
-    dv /= len;
-
-    const double uu = uv[0] - kRobertsonLines[i].u_;
-    const double vv = uv[1] - kRobertsonLines[i].v_;
-    double       dt = -uu * dv + vv * du;
-
-    if (dt <= 0.0 || i == (kRobertsonLines.size() - 1)) {
-      if (dt > 0.0) {
-        dt = 0.0;
-      }
-      dt = -dt;
-
-      double blend = 0.0;
-      if (i > 1 && (dt + last_dt) > kValueEpsilon) {
-        blend = dt / (last_dt + dt);
-      }
-      blend = std::clamp(blend, 0.0, 1.0);
-
-      const double mired =
-          kRobertsonLines[i - 1].r_ * blend + kRobertsonLines[i].r_ * (1.0 - blend);
-      out_cct = (mired <= kValueEpsilon) ? kCustomCCTMax : (1e6 / mired);
-
-      // Phase 2 – Newton refinement of CCT.
-      // At the true closest locus point the displacement from locus to the
-      // input UV is purely along the isotherm (perpendicular to the locus
-      // tangent).  We adjust CCT until the along-tangent component vanishes.
-      {
-        constexpr int    kRefineMaxIter = 6;
-        constexpr double kRefineDeltaK  = 0.5;   // ΔK for numerical tangent
-        constexpr double kRefineEps     = 1e-8;
-
-        for (int iter = 0; iter < kRefineMaxIter; ++iter) {
-          const auto lp = PlanckianLocusAtCCT(out_cct + kRefineDeltaK);
-          const auto lm = PlanckianLocusAtCCT(out_cct - kRefineDeltaK);
-          const auto lc = PlanckianLocusAtCCT(out_cct);
-          if (!lc.valid_) {
-            break;
-          }
-
-          // Numerical tangent d(uv)/d(cct)
-          const cv::Vec2d tangent = (lp.uv_ - lm.uv_) * (0.5 / kRefineDeltaK);
-          const double    t_len2  = tangent[0] * tangent[0] + tangent[1] * tangent[1];
-          if (t_len2 <= kValueEpsilon) {
-            break;
-          }
-
-          // Along-tangent component of the displacement from locus to input
-          const double along =
-              (uv[0] - lc.uv_[0]) * tangent[0] + (uv[1] - lc.uv_[1]) * tangent[1];
-
-          // Newton step: Δcct ≈ along / |tangent|²
-          const double step = along / t_len2;
-          out_cct += step;
-          out_cct = std::clamp(out_cct, kCustomCCTMin, kCustomCCTMax);
-
-          if (std::abs(step) < kRefineEps) {
-            break;
-          }
-        }
-      }
-
-      // Phase 3 – derive tint from the same locus helper that the forward
-      // function (TemperatureTintToUV) uses, which guarantees:
-      //   TemperatureTintToUV(cct, tint) ≈ uv
-      //
-      // Forward model:  UV = locus.uv − (tint / kTintScale) · locus.perp
-      //            ⟹  tint = −kTintScale · dot(UV − locus.uv, locus.perp)
-      {
-        const auto locus = PlanckianLocusAtCCT(out_cct);
-        if (!locus.valid_) {
-          out_tint = 0.0;
-          return true;
-        }
-
-        const double delta_u = uv[0] - locus.uv_[0];
-        const double delta_v = uv[1] - locus.uv_[1];
-        out_tint = -kTintScale * (delta_u * locus.perp_[0] + delta_v * locus.perp_[1]);
-      }
-
-      return std::isfinite(out_cct) && std::isfinite(out_tint);
+auto BuildOhnoPlanckianTable() -> const std::vector<OhnoPlanckianSample>& {
+  static const std::vector<OhnoPlanckianSample> table = [] {
+    std::vector<OhnoPlanckianSample> samples;
+    samples.reserve(1000);
+    for (double cct = kCustomCCTMin; cct < kCustomCCTMax; cct *= kOhnoTableStepRatio) {
+      samples.push_back(OhnoPlanckianSample{cct, PlanckianUVApprox(cct)});
     }
+    samples.push_back(OhnoPlanckianSample{kCustomCCTMax, PlanckianUVApprox(kCustomCCTMax)});
+    return samples;
+  }();
+  return table;
+}
 
-    last_dt = dt;
+auto Distance(const cv::Vec2d& a, const cv::Vec2d& b) -> double {
+  const double du = a[0] - b[0];
+  const double dv = a[1] - b[1];
+  return std::sqrt(du * du + dv * dv);
+}
+
+auto SignFromDeltaV(double delta_v) -> double { return (delta_v < 0.0) ? -1.0 : 1.0; }
+
+auto FindClosestOhnoSample(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSample>& table)
+    -> size_t {
+  size_t best_index       = 0;
+  double best_distance_sq = std::numeric_limits<double>::max();
+
+  for (size_t i = 0; i < table.size(); ++i) {
+    const double du          = uv[0] - table[i].uv_[0];
+    const double dv          = uv[1] - table[i].uv_[1];
+    const double distance_sq = du * du + dv * dv;
+    if (distance_sq < best_distance_sq) {
+      best_distance_sq = distance_sq;
+      best_index       = i;
+    }
   }
 
-  return false;
+  if (best_index == 0) {
+    return 1;
+  }
+  if (best_index + 1 >= table.size()) {
+    return table.size() - 2;
+  }
+  return best_index;
+}
+
+auto SolveOhnoTriangular(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSample>& table,
+                         size_t m) -> OhnoSolution {
+  const auto& p0 = table[m - 1];
+  const auto& p2 = table[m + 1];
+
+  const double d0 = Distance(uv, p0.uv_);
+  const double d2 = Distance(uv, p2.uv_);
+
+  const cv::Vec2d chord = p2.uv_ - p0.uv_;
+  const double    l     = std::sqrt(chord[0] * chord[0] + chord[1] * chord[1]);
+  if (l <= kValueEpsilon) {
+    return {};
+  }
+
+  const double x     = std::clamp((d0 * d0 - d2 * d2 + l * l) / (2.0 * l), 0.0, l);
+  const double alpha = x / l;
+  const double cct   = p0.cct_ + (p2.cct_ - p0.cct_) * alpha;
+  const double v_tx  = p0.uv_[1] + (p2.uv_[1] - p0.uv_[1]) * alpha;
+  const double duv   = std::sqrt(std::max(0.0, d0 * d0 - x * x)) * SignFromDeltaV(uv[1] - v_tx);
+
+  return OhnoSolution{std::isfinite(cct) && std::isfinite(duv), cct, duv};
+}
+
+auto SolveOhnoParabolic(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSample>& table,
+                        size_t m) -> OhnoSolution {
+  const auto& p0 = table[m - 1];
+  const auto& p1 = table[m];
+  const auto& p2 = table[m + 1];
+
+  const double t0 = p0.cct_ * 0.001;
+  const double t1 = p1.cct_ * 0.001;
+  const double t2 = p2.cct_ * 0.001;
+  const double d0 = Distance(uv, p0.uv_);
+  const double d1 = Distance(uv, p1.uv_);
+  const double d2 = Distance(uv, p2.uv_);
+
+  const double denom0 = (t0 - t1) * (t0 - t2);
+  const double denom1 = (t1 - t0) * (t1 - t2);
+  const double denom2 = (t2 - t0) * (t2 - t1);
+  if (std::abs(denom0) <= kValueEpsilon || std::abs(denom1) <= kValueEpsilon ||
+      std::abs(denom2) <= kValueEpsilon) {
+    return {};
+  }
+
+  const double a = d0 / denom0 + d1 / denom1 + d2 / denom2;
+  const double b = -d0 * (t1 + t2) / denom0 - d1 * (t0 + t2) / denom1 -
+                   d2 * (t0 + t1) / denom2;
+  const double c = d0 * t1 * t2 / denom0 + d1 * t0 * t2 / denom1 +
+                   d2 * t0 * t1 / denom2;
+  if (!std::isfinite(a) || std::abs(a) <= kValueEpsilon) {
+    return {};
+  }
+
+  const double tx       = std::clamp(-b / (2.0 * a), t0, t2);
+  const double cct      = tx * 1000.0;
+  const double distance = std::max(0.0, a * tx * tx + b * tx + c);
+  const double v_tx     = PlanckianUVApprox(cct)[1];
+  const double duv      = distance * SignFromDeltaV(uv[1] - v_tx);
+
+  return OhnoSolution{std::isfinite(cct) && std::isfinite(duv), cct, duv};
+}
+
+auto OhnoTemperatureDuv(const cv::Vec2d& uv, double& out_cct, double& out_duv) -> bool {
+  if (!std::isfinite(uv[0]) || !std::isfinite(uv[1])) {
+    return false;
+  }
+
+  const auto& table = BuildOhnoPlanckianTable();
+  if (table.size() < 3) {
+    return false;
+  }
+
+  const size_t       m           = FindClosestOhnoSample(uv, table);
+  const OhnoSolution triangular  = SolveOhnoTriangular(uv, table, m);
+  const OhnoSolution parabolic   = SolveOhnoParabolic(uv, table, m);
+  const OhnoSolution& selected =
+      (triangular.valid_ && (std::abs(triangular.duv_) < kOhnoNearLocusDuv || !parabolic.valid_))
+          ? triangular
+          : parabolic;
+
+  if (!selected.valid_) {
+    return false;
+  }
+
+  out_cct = ClampFinite(selected.cct_, kCustomCCTMin, kCustomCCTMax);
+  out_duv = selected.duv_;
+  return std::isfinite(out_cct) && std::isfinite(out_duv);
+}
+
+auto UVToTemperatureTint(const cv::Vec2d& uv, double& out_cct, double& out_tint) -> bool {
+  double duv = 0.0;
+  if (!OhnoTemperatureDuv(uv, out_cct, duv)) {
+    return false;
+  }
+
+  const auto locus = PlanckianLocusAtCCT(out_cct);
+  if (!locus.valid_) {
+    return false;
+  }
+
+  const double delta_u = uv[0] - locus.uv_[0];
+  const double delta_v = uv[1] - locus.uv_[1];
+  out_tint = -kTintScale * (delta_u * locus.perp_[0] + delta_v * locus.perp_[1]);
+  return std::isfinite(out_cct) && std::isfinite(out_tint);
 }
 
 auto TemperatureTintToUV(double cct, double tint) -> cv::Vec2d {
@@ -557,6 +577,104 @@ auto ResolveAsShotCameraNeutral(const OperatorParams& params, cv::Vec3d& out_neu
   });
 }
 
+auto TintAtCctForXY(double cct, const cv::Vec2d& xy, double& out_tint) -> bool {
+  const auto locus = PlanckianLocusAtCCT(cct);
+  if (!locus.valid_) {
+    return false;
+  }
+
+  const cv::Vec2d uv = XYToUV(xy);
+  const double delta_u = uv[0] - locus.uv_[0];
+  const double delta_v = uv[1] - locus.uv_[1];
+  out_tint = -kTintScale * (delta_u * locus.perp_[0] + delta_v * locus.perp_[1]);
+  return std::isfinite(out_tint);
+}
+
+struct AsShotCctEvaluation {
+  bool      valid_         = false;
+  double    candidate_cct_ = 0.0;
+  double    derived_cct_   = 0.0;
+  double    residual_      = 0.0;
+  double    tint_          = 0.0;
+  cv::Vec2d xy_            = cv::Vec2d(kD50X, kD50Y);
+};
+
+auto EvaluateAsShotAtCct(const cv::Vec3d& camera_neutral, const cv::Matx33d& cm1,
+                         const cv::Matx33d& cm2, double endpoint_cct_1,
+                         double endpoint_cct_2, double candidate_cct)
+    -> AsShotCctEvaluation {
+  AsShotCctEvaluation eval;
+  eval.candidate_cct_ = ClampFinite(candidate_cct, kCustomCCTMin, kCustomCCTMax);
+
+  const cv::Matx33d xyz_to_camera =
+      InterpolateColorMatrix(cm1, cm2, eval.candidate_cct_, endpoint_cct_1, endpoint_cct_2);
+  cv::Matx33d camera_to_xyz;
+  if (!Invert3x3(xyz_to_camera, camera_to_xyz)) {
+    return eval;
+  }
+
+  const cv::Vec3d white_xyz = camera_to_xyz * camera_neutral;
+  if (!XYZToXY(white_xyz, eval.xy_)) {
+    return eval;
+  }
+
+  double derived_tint = 0.0;
+  if (!UVToTemperatureTint(XYToUV(eval.xy_), eval.derived_cct_, derived_tint)) {
+    return eval;
+  }
+  if (!TintAtCctForXY(eval.candidate_cct_, eval.xy_, eval.tint_)) {
+    return eval;
+  }
+
+  eval.residual_ = eval.derived_cct_ - eval.candidate_cct_;
+  eval.valid_    = std::isfinite(eval.residual_) && std::isfinite(eval.tint_);
+  return eval;
+}
+
+auto IsBetterAsShotEvaluation(const AsShotCctEvaluation& candidate,
+                              const AsShotCctEvaluation& incumbent) -> bool {
+  if (!candidate.valid_) {
+    return false;
+  }
+  if (!incumbent.valid_) {
+    return true;
+  }
+  return std::abs(candidate.residual_) < std::abs(incumbent.residual_);
+}
+
+auto HasOppositeSigns(double a, double b) -> bool {
+  return (a <= 0.0 && b >= 0.0) || (a >= 0.0 && b <= 0.0);
+}
+
+auto RefineAsShotCctRoot(const cv::Vec3d& camera_neutral, const cv::Matx33d& cm1,
+                         const cv::Matx33d& cm2, double endpoint_cct_1,
+                         double endpoint_cct_2, AsShotCctEvaluation low,
+                         AsShotCctEvaluation high) -> AsShotCctEvaluation {
+  AsShotCctEvaluation best = IsBetterAsShotEvaluation(low, high) ? low : high;
+
+  for (int i = 0; i < kAsShotSolveMaxIter; ++i) {
+    const double mid_cct = 0.5 * (low.candidate_cct_ + high.candidate_cct_);
+    auto mid = EvaluateAsShotAtCct(camera_neutral, cm1, cm2, endpoint_cct_1, endpoint_cct_2,
+                                   mid_cct);
+    if (!mid.valid_) {
+      break;
+    }
+    if (IsBetterAsShotEvaluation(mid, best)) {
+      best = mid;
+    }
+    if (std::abs(mid.residual_) <= kAsShotSolveEpsilon) {
+      return mid;
+    }
+    if (HasOppositeSigns(low.residual_, mid.residual_)) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return best;
+}
+
 auto SolveAsShotWhiteXY(const OperatorParams& params, const cv::Matx33d& cm1, const cv::Matx33d& cm2,
                         double endpoint_cct_1, double endpoint_cct_2, cv::Vec2d& out_xy,
                         double& out_cct, double& out_tint) -> bool {
@@ -565,39 +683,41 @@ auto SolveAsShotWhiteXY(const OperatorParams& params, const cv::Matx33d& cm1, co
     return false;
   }
 
-  cv::Vec2d       xy(kD50X, kD50Y);
-  for (int i = 0; i < kAsShotSolveMaxIter; ++i) {
-    double       iter_cct  = 6500.0;
-    double       iter_tint = 0.0;
-    if (!UVToTemperatureTint(XYToUV(xy), iter_cct, iter_tint)) {
-      break;
-    }
+  AsShotCctEvaluation best;
+  AsShotCctEvaluation previous;
+  constexpr int       kScanCount = 96;
+  const double        min_mired  = 1.0e6 / kCustomCCTMax;
+  const double        max_mired  = 1.0e6 / kCustomCCTMin;
 
-    const cv::Matx33d xyz_to_camera =
-        InterpolateColorMatrix(cm1, cm2, iter_cct, endpoint_cct_1, endpoint_cct_2);
-    cv::Matx33d       camera_to_xyz;
-    if (!Invert3x3(xyz_to_camera, camera_to_xyz)) {
-      return false;
+  for (int i = 0; i <= kScanCount; ++i) {
+    const double t     = static_cast<double>(i) / static_cast<double>(kScanCount);
+    const double mired = max_mired + (min_mired - max_mired) * t;
+    const double cct   = 1.0e6 / std::max(mired, kValueEpsilon);
+    auto eval = EvaluateAsShotAtCct(camera_neutral, cm1, cm2, endpoint_cct_1, endpoint_cct_2,
+                                    cct);
+    if (!eval.valid_) {
+      continue;
     }
-
-    const cv::Vec3d white_xyz = camera_to_xyz * camera_neutral;
-    cv::Vec2d       next_xy;
-    if (!XYZToXY(white_xyz, next_xy)) {
-      return false;
+    if (IsBetterAsShotEvaluation(eval, best)) {
+      best = eval;
     }
-
-    if (cv::norm(next_xy - xy) <= kAsShotSolveEpsilon) {
-      xy = next_xy;
-      break;
+    if (previous.valid_ && HasOppositeSigns(previous.residual_, eval.residual_)) {
+      auto refined = RefineAsShotCctRoot(camera_neutral, cm1, cm2, endpoint_cct_1,
+                                         endpoint_cct_2, previous, eval);
+      if (IsBetterAsShotEvaluation(refined, best)) {
+        best = refined;
+      }
     }
-    xy = next_xy;
+    previous = eval;
   }
 
-  if (!UVToTemperatureTint(XYToUV(xy), out_cct, out_tint)) {
+  if (!best.valid_) {
     return false;
   }
 
-  out_xy = xy;
+  out_xy   = best.xy_;
+  out_cct  = best.candidate_cct_;
+  out_tint = best.tint_;
   return true;
 }
 
