@@ -9,7 +9,7 @@
 ![C++](https://img.shields.io/badge/C++-20-blue)
 ![AI](https://img.shields.io/badge/AI-CLIP%20%2B%20VLM-ff6f00)
 
-**Alcedo Studio** is an open-source RAW photo editor and digital asset management (DAM) project. It is designed to provide a new choice to photographers who seek a lightweight, high-performance, and largely industry-compatible workflow for their photo editing and library management needs — with a built-in AI layer that tags your photos, answers natural-language searches, and curates your keepers. On-device by default, cloud optional. 
+**Alcedo Studio** is an open-source RAW photo editor and digital asset management (DAM) project. It is designed to provide a new choice to photographers who seek a lightweight, high-performance, and largely industry-compatible workflow for their photo editing and library management needs. The practical goal is to give the community a RAW workflow with a very gentle learning curve, pleasing default renders, a lightweight footprint, privacy-preserving and fully controllable AI features, and modern asset retrieval for real-world libraries — with a built-in AI layer that tags your photos, answers natural-language searches, and curates your keepers. On-device by default, cloud optional. 
 
 >Alcedo Studio is _**NOT an alternative**_ to the existing commercial software nor other open-source projects.
 
@@ -122,7 +122,8 @@ Tagging a whole album, running the LLM on your selects, pulling down a model —
 - 32-bit floating-point processing pipeline.
 - Support **ACES 2.0 Output Rendering** and **OpenDRT** with display color space, EOTF, and peak-luminance controls.
 - Film-like highlight transition, highlight reconstruction, LLF-style local Highlights/Shadows, sigmoid contrast curve, and RCD demosaic support for high-quality RAW reconstruction.
-- **CUBE** LUT support for creative color grading, including a curated set of packaged Kodak, Fuji, and Agfa film-emulation LUTs plus favorites.
+- Nikon HE/HE* RAW support through a patched LibRaw integration based on [zidage/LibRaw](https://github.com/zidage/LibRaw).
+- Film simulation goes beyond a LUT picker: curated Kodak, Fuji, and Agfa **CUBE** LUTs, LUT favorites, Portra-style portrait looks, and output-stage texture controls are tuned for pleasing results quickly while staying fully editable.
 - Film grain and Halation output effects with shared history/pipeline integration across CPU, CUDA, OpenCL, and Metal.
 - Support JPEG/TIFF/PNG/EXR output with metadata write-back, ICC embedding, HDR/SDR export metadata, and UltraHDR writer paths.
 - OpenImageIO/Exiv2-based image output with support for various formats and metadata handling.
