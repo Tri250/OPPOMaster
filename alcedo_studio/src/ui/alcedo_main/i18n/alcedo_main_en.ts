@@ -1279,16 +1279,64 @@ Alcedo will use %1 instead.</translation>
         <translation>(unnamed)</translation>
     </message>
     <message>
+        <source>RAW</source>
+        <translation>RAW</translation>
+    </message>
+    <message>
+        <source>HDR</source>
+        <translation>HDR</translation>
+    </message>
+    <message>
+        <source>-</source>
+        <translation>-</translation>
+    </message>
+    <message>
+        <source>%1 / 5</source>
+        <translation>%1 / 5</translation>
+    </message>
+    <message>
+        <source>Unrated</source>
+        <translation>Unrated</translation>
+    </message>
+    <message>
+        <source>Image actions</source>
+        <translation>Image actions</translation>
+    </message>
+    <message>
+        <source>Exposure</source>
+        <translation>Exposure</translation>
+    </message>
+    <message>
+        <source>Metadata</source>
+        <translation>Metadata</translation>
+    </message>
+    <message>
+        <source>AI Description</source>
+        <translation>AI Description</translation>
+    </message>
+    <message>
+        <source>No description yet.</source>
+        <translation>No description yet.</translation>
+    </message>
+    <message>
+        <source>AI Comment</source>
+        <translation>AI Comment</translation>
+    </message>
+    <message>
+        <source>No comment yet.</source>
+        <translation>No comment yet.</translation>
+    </message>
+    <message>
+        <source>AI Rating</source>
+        <translation>AI Rating</translation>
+    </message>
+    <message>
         <source>Save description</source>
         <translation>Save description</translation>
     </message>
     <message>
         <source>Edit description</source>
         <translation>Edit description</translation>
-    </message>
-    <message>
-        <source>No description yet.</source>
-        <translation>No description yet.</translation>
     </message>
     <message>
         <source>Save rating reason</source>

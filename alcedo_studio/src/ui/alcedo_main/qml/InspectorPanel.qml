@@ -30,6 +30,7 @@ Item {
     signal ratingRequested(int rating)
     signal descriptionSaveRequested(string caption)
     signal ratingReasonSaveRequested(string reasons)
+    signal contextMenuRequested(var item, real sceneX, real sceneY)
 
     readonly property color textColor: appTheme.textColor
     readonly property color mutedTextColor: appTheme.textMutedColor
@@ -140,6 +141,9 @@ Item {
                 }
                 onRatingReasonSaveRequested: function(reasons) {
                     root.ratingReasonSaveRequested(reasons)
+                }
+                onContextMenuRequested: function(item, sceneX, sceneY) {
+                    root.contextMenuRequested(item, sceneX, sceneY)
                 }
             }
         }

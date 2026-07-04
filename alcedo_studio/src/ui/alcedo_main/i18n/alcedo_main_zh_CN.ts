@@ -2194,16 +2194,64 @@ Alcedo 将改用 %1。</translation>
         <translation>（未命名）</translation>
     </message>
     <message>
+        <source>RAW</source>
+        <translation>RAW</translation>
+    </message>
+    <message>
+        <source>HDR</source>
+        <translation>HDR</translation>
+    </message>
+    <message>
+        <source>-</source>
+        <translation>-</translation>
+    </message>
+    <message>
+        <source>%1 / 5</source>
+        <translation>%1 / 5</translation>
+    </message>
+    <message>
+        <source>Unrated</source>
+        <translation>未评分</translation>
+    </message>
+    <message>
+        <source>Image actions</source>
+        <translation>图像操作</translation>
+    </message>
+    <message>
+        <source>Exposure</source>
+        <translation>曝光</translation>
+    </message>
+    <message>
+        <source>Metadata</source>
+        <translation>元数据</translation>
+    </message>
+    <message>
+        <source>AI Description</source>
+        <translation>AI 描述</translation>
+    </message>
+    <message>
+        <source>No description yet.</source>
+        <translation>暂无描述。</translation>
+    </message>
+    <message>
+        <source>AI Comment</source>
+        <translation>AI 评语</translation>
+    </message>
+    <message>
+        <source>No comment yet.</source>
+        <translation>暂无评语。</translation>
+    </message>
+    <message>
+        <source>AI Rating</source>
+        <translation>AI 评分</translation>
+    </message>
+    <message>
         <source>Save description</source>
         <translation>保存描述</translation>
     </message>
     <message>
         <source>Edit description</source>
         <translation>编辑描述</translation>
-    </message>
-    <message>
-        <source>No description yet.</source>
-        <translation>暂无描述。</translation>
     </message>
     <message>
         <source>Save rating reason</source>
