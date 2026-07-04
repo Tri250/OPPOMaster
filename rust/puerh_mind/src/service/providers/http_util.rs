@@ -887,12 +887,11 @@ mod tests {
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        assert_eq!(required, vec!["caption", "confidence", "scene", "tags"]);
+        assert_eq!(required, vec!["description"]);
         // additionalProperties retained.
         assert_eq!(v["additionalProperties"], false);
-        // minItems / minLength / minimum / maximum dropped.
-        assert!(v["properties"]["tags"].get("minItems").is_none());
-        assert!(v["properties"]["confidence"].get("maximum").is_none());
+        // minLength dropped.
+        assert!(v["properties"]["description"].get("minLength").is_none());
     }
 
     #[test]
@@ -901,8 +900,8 @@ mod tests {
             crate::service::image_analysis::ImageAnalysisSchemaSpec::score(true),
         );
         let v = strict_schema_value(&schema).expect("rating schema sanitizes");
-        // The rating contract is a flat object: rating + rubric_id + rubric_version
-        // + reasons. Strict mode forces every property to be required (sorted), and
+        // The rating contract is a flat object: rating + rating_reason.
+        // Strict mode forces every property to be required (sorted), and
         // drops the `minimum`/`maximum` range constraints (the code-owned
         // `validate_rating` re-enforces 1..=5 on the parsed response, so fail-closed
         // behavior is preserved — the injected schema only guides the model).
@@ -912,10 +911,7 @@ mod tests {
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        assert_eq!(
-            required,
-            vec!["rating", "reasons", "rubric_id", "rubric_version"]
-        );
+        assert_eq!(required, vec!["rating", "rating_reason"]);
         assert_eq!(v["additionalProperties"], false);
         assert_eq!(v["properties"]["rating"]["type"], "integer");
         assert!(

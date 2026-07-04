@@ -49,8 +49,9 @@ use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
     AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, DiscoveredModel,
     ImageAnalysisProvider, ImageAnalysisSchemaSpec, ProviderError, ScoreOutcome, Usage,
-    image_analysis_schema_json, validate_analyze, validate_batch_analyze, validate_rating,
-    validate_understanding,
+    image_analysis_schema_json, output_confidence, output_description, output_rating_reason,
+    output_rubric_id, output_rubric_version, output_scene, output_tags, validate_analyze,
+    validate_batch_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -79,6 +80,27 @@ struct BatchItemRepair {
 struct BatchRepairContext<'a> {
     previous_content: &'a str,
     failures: &'a [BatchItemRepair],
+}
+
+/// Read `choices[0].finish_reason` from an OpenAI-compatible response. Used to
+/// distinguish a reasoning-token-starved response (`finish_reason = "length"`
+/// with null content) from a genuine schema mismatch, so the driver can recover
+/// by escalating `max_tokens` instead of burning a schema-repair retry the model
+/// will repeat.
+fn finish_reason_of(body: &Value) -> Option<&str> {
+    body.pointer("/choices/0/finish_reason")
+        .and_then(|v| v.as_str())
+}
+
+/// A short `(finish_reason: <reason>)` suffix appended to null-content
+/// diagnostic messages so a non-length null (e.g. `content_filter`, or a
+/// provider that returns null with `finish_reason = "stop"`) is identifiable
+/// in the surfaced error. Empty when no `finish_reason` is reported.
+fn finish_reason_suffix(body: &Value) -> String {
+    match finish_reason_of(body) {
+        Some(fr) => format!(" (finish_reason: {fr})"),
+        None => String::new(),
+    }
 }
 
 pub struct OpenAiChatCompatibleProvider {
@@ -288,12 +310,19 @@ impl OpenAiChatCompatibleProvider {
                 { "role": "user", "content": user_content }
             ])
         };
+        // `max_tokens` is intentionally omitted: reasoning models (e.g. kimi-k2.6)
+        // consume reasoning tokens out of the same budget as the visible content,
+        // so a server-side cap starves the content (content=null +
+        // finish_reason="length"). Letting the provider/model generate as much as
+        // it needs — bounded only by the model's own max output — avoids our side
+        // throttling the generation. A length-starved response under no cap means
+        // the model's own output window was reached; see
+        // [`Self::model_output_budget_exhausted`].
         let mut body = json!({
             "model": slug,
             "messages": messages,
             "stream": false,
             "temperature": self.config.defaults.temperature,
-            "max_tokens": self.config.limits.max_output_tokens,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -343,12 +372,15 @@ impl OpenAiChatCompatibleProvider {
                 { "role": "user", "content": user_content }
             ])
         };
+        // `max_tokens` intentionally omitted (see `build_chat_body`): reasoning
+        // models burn the budget on reasoning and return content=null +
+        // finish_reason="length"; a batch amplifies this. Let the model generate
+        // what it needs, bounded by its own max output.
         let mut body = json!({
             "model": slug,
             "messages": messages,
             "stream": false,
             "temperature": self.config.defaults.temperature,
-            "max_tokens": self.config.limits.max_output_tokens,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -411,6 +443,12 @@ impl OpenAiChatCompatibleProvider {
                     .as_deref(),
             );
             let provider_content = self.response_content_excerpt(&resp_body);
+            // The driver sends no `max_tokens`, so a length-starved response means
+            // the model's own output window was reached — surface a clear error
+            // instead of burning a schema-repair retry the model will repeat.
+            if let Some(err) = self.model_output_budget_exhausted(&resp_body) {
+                return Err(err);
+            }
             match self.parse_describe(&resp_body, slug, &header_req_id) {
                 Ok(outcome) => break Ok((outcome, provider_content, attempt)),
                 Err(err) => {
@@ -484,6 +522,9 @@ impl OpenAiChatCompatibleProvider {
                     .as_deref(),
             );
             let provider_content = self.response_content_excerpt(&resp_body);
+            if let Some(err) = self.model_output_budget_exhausted(&resp_body) {
+                return Err(err);
+            }
             match self.parse_score(&resp_body, slug, &header_req_id) {
                 Ok(outcome) => break Ok((outcome, provider_content, attempt)),
                 Err(err) => {
@@ -557,6 +598,9 @@ impl OpenAiChatCompatibleProvider {
                     .as_deref(),
             );
             let provider_content = self.response_content_excerpt(&resp_body);
+            if let Some(err) = self.model_output_budget_exhausted(&resp_body) {
+                return Err(err);
+            }
             match self.parse_analyze(&resp_body, slug, &header_req_id) {
                 Ok(outcome) => break Ok((outcome, provider_content, attempt)),
                 Err(err) => {
@@ -636,6 +680,14 @@ impl OpenAiChatCompatibleProvider {
                     .as_deref(),
             );
             let provider_content = self.response_content_excerpt(&resp_body);
+            // The driver sends no `max_tokens`, so a length-starved response
+            // (content=null + finish_reason="length" + no tool-call arguments,
+            // making every required index "omitted") means the model's own output
+            // window was reached. Surface a clear error rather than burning a
+            // schema-repair retry the model will repeat.
+            if let Some(err) = self.model_output_budget_exhausted(&resp_body) {
+                return Err(err);
+            }
             match self.parse_batch_analyze_items(
                 &resp_body,
                 slug,
@@ -734,46 +786,12 @@ impl OpenAiChatCompatibleProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<DescribeOutcome, ProviderError> {
-        let content_pointer = self
-            .config
-            .response
-            .content_json_pointer
-            .as_deref()
-            .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
-            ))
-        })?;
-        let parsed = match content {
-            Value::String(s) => parse_content_json(s)?,
-            other => other.clone(),
-        };
+        let parsed = self.parsed_chat_content(body)?;
         let out = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
+            caption: output_description(&parsed),
+            tags: output_tags(&parsed),
+            scene: output_scene(&parsed),
+            confidence: output_confidence(&parsed),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -788,6 +806,59 @@ impl OpenAiChatCompatibleProvider {
         Ok(out)
     }
 
+    /// True when the model exhausted its OWN max output budget on reasoning
+    /// before producing any content: the configured content pointer resolves to
+    /// null/absent or an empty string, there are no `tool_calls` /
+    /// `function_call` arguments to fall back to, and `finish_reason == "length"`.
+    /// The driver sends no `max_tokens`, so a `"length"` cutoff here is the
+    /// provider/model's own output ceiling (not a cap we imposed) — there is
+    /// nothing to escalate. A null content with a different `finish_reason` (e.g.
+    /// `content_filter`) or with tool-call arguments is NOT this shape and falls
+    /// through to the normal parse / schema-repair path.
+    fn is_reasoning_length_starved(&self, body: &Value) -> bool {
+        let content_pointer = self
+            .config
+            .response
+            .content_json_pointer
+            .as_deref()
+            .unwrap_or("/choices/0/message/content");
+        let content_null = match json_pointer_str(body, content_pointer) {
+            None | Some(Value::Null) => true,
+            Some(Value::String(s)) => s.trim().is_empty(),
+            Some(_) => false,
+        };
+        if !content_null {
+            return false;
+        }
+        let has_tool_args = body
+            .pointer("/choices/0/message/tool_calls")
+            .is_some()
+            || body
+                .pointer("/choices/0/message/function_call")
+                .is_some();
+        !has_tool_args && finish_reason_of(body) == Some("length")
+    }
+
+    /// When the provider returns `content: null` + `finish_reason: "length"` with
+    /// no tool-call arguments, the model exhausted its own max output budget on
+    /// reasoning (the driver sends no `max_tokens`, so this is the provider/model's
+    /// ceiling, not a cap we imposed). There is nothing to retry — return a clear,
+    /// actionable error so the host knows to use a model with a larger output
+    /// window, fewer images per batch, or a non-reasoning model. Returns
+    /// `Some(error)` when the response is length-starved, `None` otherwise.
+    fn model_output_budget_exhausted(&self, body: &Value) -> Option<ProviderError> {
+        if !self.is_reasoning_length_starved(body) {
+            return None;
+        }
+        Some(ProviderError::Provider(
+            "model exhausted its own max output budget (finish_reason=length) before producing \
+             content; the request sent no max_tokens limit, so this is the provider/model's own \
+             output ceiling — use a model with a larger output window, fewer images per batch, \
+             or a non-reasoning model"
+                .to_string(),
+        ))
+    }
+
     fn parsed_chat_content(&self, body: &Value) -> Result<Value, ProviderError> {
         let content_pointer = self
             .config
@@ -795,15 +866,75 @@ impl OpenAiChatCompatibleProvider {
             .content_json_pointer
             .as_deref()
             .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
-            ))
-        })?;
-        Ok(match content {
-            Value::String(s) => parse_content_json(s)?,
-            other => other.clone(),
+        if let Some(content) = json_pointer_str(body, content_pointer) {
+            return match content {
+                Value::String(s) => parse_content_json(s),
+                Value::Null => Self::parsed_chat_content_fallback(body).unwrap_or_else(|| {
+                    Err(ProviderError::SchemaValidationMessage(format!(
+                        "provider response content at pointer {content_pointer} was null and no JSON tool-call arguments were found{}",
+                        finish_reason_suffix(body)
+                    )))
+                }),
+                other => Ok(other.clone()),
+            };
+        }
+        Self::parsed_chat_content_fallback(body).unwrap_or_else(|| {
+            Err(ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content or tool-call arguments{}",
+                finish_reason_suffix(body)
+            )))
         })
+    }
+
+    fn parsed_chat_content_fallback(body: &Value) -> Option<Result<Value, ProviderError>> {
+        let message = body.pointer("/choices/0/message")?;
+        if let Some(parsed) = message.get("parsed") {
+            if !parsed.is_null() {
+                return Some(Self::parse_json_value_or_string(parsed));
+            }
+        }
+        if let Some(arguments) = message.pointer("/function_call/arguments") {
+            return Some(Self::parse_json_value_or_string(arguments));
+        }
+        let tool_calls = message.get("tool_calls").and_then(|v| v.as_array())?;
+        for call in tool_calls {
+            if let Some(arguments) = call.pointer("/function/arguments") {
+                return Some(Self::parse_json_value_or_string(arguments));
+            }
+        }
+        None
+    }
+
+    fn parse_json_value_or_string(value: &Value) -> Result<Value, ProviderError> {
+        match value {
+            Value::String(s) => parse_content_json(s),
+            other => Ok(other.clone()),
+        }
+    }
+
+    fn parsed_chat_content_fallback_excerpt(body: &Value) -> Option<String> {
+        let message = body.pointer("/choices/0/message")?;
+        if let Some(parsed) = message.get("parsed") {
+            if !parsed.is_null() {
+                return Some(sanitized_provider_json_excerpt(parsed, 1200));
+            }
+        }
+        if let Some(arguments) = message.pointer("/function_call/arguments") {
+            return Some(match arguments {
+                Value::String(s) => compact_text_excerpt(s, 1200),
+                other => sanitized_provider_json_excerpt(other, 1200),
+            });
+        }
+        let tool_calls = message.get("tool_calls").and_then(|v| v.as_array())?;
+        for call in tool_calls {
+            if let Some(arguments) = call.pointer("/function/arguments") {
+                return Some(match arguments {
+                    Value::String(s) => compact_text_excerpt(s, 1200),
+                    other => sanitized_provider_json_excerpt(other, 1200),
+                });
+            }
+        }
+        None
     }
 
     fn analyze_from_flat_value(
@@ -812,19 +943,9 @@ impl OpenAiChatCompatibleProvider {
         header_req_id: &str,
         usage: Usage,
     ) -> Result<AnalyzeOutcome, ProviderError> {
-        if parsed.get("caption").is_none() {
+        if parsed.get("description").is_none() && parsed.get("caption").is_none() {
             return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain caption".to_string(),
-            ));
-        }
-        if parsed.get("tags").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain tags array".to_string(),
-            ));
-        }
-        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+                "provider response did not contain description".to_string(),
             ));
         }
         if parsed.get("rating").is_none() {
@@ -832,57 +953,20 @@ impl OpenAiChatCompatibleProvider {
                 "provider response did not contain rating".to_string(),
             ));
         }
-        if parsed.get("rubric_id").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain rubric_id".to_string(),
-            ));
-        }
         let understanding = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
+            caption: output_description(parsed),
+            tags: output_tags(parsed),
+            scene: output_scene(parsed),
+            confidence: output_confidence(parsed),
             model_id: model_id.to_string(),
             usage: usage.clone(),
             provider_request_id: header_req_id.to_string(),
         };
         let rating = ScoreOutcome {
             rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            rubric_id: output_rubric_id(parsed),
+            rubric_version: output_rubric_version(parsed),
+            reasons: output_rating_reason(parsed),
             model_id: model_id.to_string(),
             usage: usage.clone(),
             provider_request_id: header_req_id.to_string(),
@@ -904,21 +988,7 @@ impl OpenAiChatCompatibleProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<ScoreOutcome, ProviderError> {
-        let content_pointer = self
-            .config
-            .response
-            .content_json_pointer
-            .as_deref()
-            .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
-            ))
-        })?;
-        let parsed = match content {
-            Value::String(s) => parse_content_json(s)?,
-            other => other.clone(),
-        };
+        let parsed = self.parsed_chat_content(body)?;
         // The remote LLM is asked for a 1..=5 integer star rating. Accept an exact
         // integer, or an integer-valued float a model may emit despite the
         // `integer` schema (e.g. `4.0`); a fractional float (e.g. `4.9`) is
@@ -928,21 +998,9 @@ impl OpenAiChatCompatibleProvider {
         let rating = parsed.get("rating").and_then(parse_rating_int).unwrap_or(0);
         let out = ScoreOutcome {
             rating,
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            rubric_id: output_rubric_id(&parsed),
+            rubric_version: output_rubric_version(&parsed),
+            reasons: output_rating_reason(&parsed),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -1078,8 +1136,11 @@ impl OpenAiChatCompatibleProvider {
             .unwrap_or("/choices/0/message/content");
         match json_pointer_str(body, content_pointer) {
             Some(Value::String(s)) => compact_text_excerpt(s, 1200),
+            Some(Value::Null) => Self::parsed_chat_content_fallback_excerpt(body)
+                .unwrap_or_else(|| "null".to_string()),
             Some(other) => sanitized_provider_json_excerpt(other, 1200),
-            None => sanitized_provider_json_excerpt(body, 1200),
+            None => Self::parsed_chat_content_fallback_excerpt(body)
+                .unwrap_or_else(|| sanitized_provider_json_excerpt(body, 1200)),
         }
     }
 }
@@ -1175,30 +1236,20 @@ fn schema_repair_instruction(schema_name: &str, error: &ProviderError) -> String
     let shape = match schema_name {
         UNDERSTANDING_SCHEMA_NAME => {
             r#"{
-  "caption": "non-empty string",
-  "tags": ["one or more non-empty strings"],
-  "scene": "string",
-  "confidence": 0.0
+  "description": "non-empty string"
 }"#
         }
         RATING_SCHEMA_NAME => {
             r#"{
   "rating": 1,
-  "rubric_id": "non-empty string",
-  "rubric_version": "string",
-  "reasons": "string"
+  "rating_reason": "string"
 }"#
         }
         ANALYSIS_FLAT_SCHEMA_NAME => {
             r#"{
-  "caption": "non-empty string",
-  "tags": ["one or more non-empty strings"],
-  "scene": "string",
-  "confidence": 0.0,
+  "description": "non-empty string",
   "rating": 1,
-  "rubric_id": "non-empty string",
-  "rubric_version": "string",
-  "reasons": "string"
+  "rating_reason": "string"
 }"#
         }
         _ => "{}",
@@ -1209,7 +1260,7 @@ fn schema_repair_instruction(schema_name: &str, error: &ProviderError) -> String
 Using the same image and task context, respond again with a JSON object matching `{schema_name}` exactly:
 {shape}
 
-Do not include prose or markdown. Do not add extra fields. For `{ANALYSIS_FLAT_SCHEMA_NAME}`, the object must be flat; do not nest fields under "understanding" or "rating". `tags` must be an array, not a string."#
+Do not include prose or markdown. Do not add extra fields. For `{ANALYSIS_FLAT_SCHEMA_NAME}`, the object must be flat; do not nest fields under "understanding" or "rating"."#
     )
 }
 
@@ -1238,17 +1289,12 @@ Repair only the failed item indexes below. Call the same schema again and return
 Each corrected item must match this exact shape:
 {{
   "index": 0,
-  "caption": "non-empty string",
-  "tags": ["one or more non-empty strings"],
-  "scene": "string",
-  "confidence": 0.0,
+  "description": "non-empty string",
   "rating": 1,
-  "rubric_id": "non-empty string",
-  "rubric_version": "string",
-  "reasons": "string"
+  "rating_reason": "string"
 }}
 
-Do not include prose or markdown. Do not add extra fields. Do not return already-valid indexes. tags must be an array, not a string."#
+Do not include prose or markdown. Do not add extra fields. Do not return already-valid indexes."#
     )
 }
 
@@ -1583,6 +1629,25 @@ mod tests {
         OpenAiChatCompatibleProvider::new(config).expect("provider builds")
     }
 
+    /// An OpenAI-compatible response shape that simulates a reasoning model
+    /// exhausting its OWN max output budget on reasoning before producing any
+    /// content: `choices[0].message.content` is null and `finish_reason` is
+    /// `"length"`, with no `tool_calls` to fall back to. The driver sends no
+    /// `max_tokens`, so this shape means the provider/model's own output window
+    /// was reached (not a cap we imposed) and the call fails closed with a
+    /// clear, actionable error.
+    fn length_starved_body() -> Value {
+        json!({
+            "id": "req-length-starved",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "length",
+                "message": { "role": "assistant", "content": null }
+            }],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 1200, "total_tokens": 1210 }
+        })
+    }
+
     fn ok_understanding_body(content_json: &str) -> Value {
         json!({
             "id": "opencode-req-123",
@@ -1678,8 +1743,7 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        assert!(required.contains(&"caption"));
-        assert!(required.contains(&"tags"));
+        assert_eq!(required, vec!["description"]);
         // The image is carried as a data URI in the user message.
         let img_url = &body["messages"][1]["content"][1]["image_url"]["url"];
         assert!(
@@ -1804,10 +1868,9 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        assert!(required.contains(&"caption"));
-        assert!(required.contains(&"tags"));
+        assert!(required.contains(&"description"));
         assert!(required.contains(&"rating"));
-        assert!(required.contains(&"rubric_id"));
+        assert!(required.contains(&"rating_reason"));
         assert!(schema["properties"].get("understanding").is_none());
     }
 
@@ -1817,13 +1880,13 @@ mod tests {
         let bad_body = json!({
             "id": "opencode-req-bad",
             "choices": [ { "message": { "content":
-                r#"{"caption":"c","tags":"not-an-array","scene":"","confidence":0.5,"rating":4,"rubric_id":"general","rubric_version":"","reasons":"solid"}"# } } ],
+                r#"{"rating":4,"rating_reason":"solid"}"# } } ],
             "usage": { "prompt_tokens": 120, "completion_tokens": 60, "total_tokens": 180 }
         });
         let repaired_body = json!({
             "id": "opencode-req-repaired",
             "choices": [ { "message": { "content":
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5,"rating":4,"rubric_id":"general","rubric_version":"","reasons":"solid"}"# } } ],
+                r#"{"description":"c","rating":4,"rating_reason":"solid"}"# } } ],
             "usage": { "prompt_tokens": 150, "completion_tokens": 45, "total_tokens": 195 }
         });
         Mock::given(method("POST"))
@@ -1870,7 +1933,7 @@ mod tests {
             second["messages"][2]["content"]
                 .as_str()
                 .unwrap()
-                .contains("not-an-array")
+                .contains("\"rating\":4")
         );
         assert_eq!(second["messages"][3]["role"], "user");
         assert!(
@@ -1955,6 +2018,76 @@ mod tests {
             !err.to_string().contains(RAW_BODY_SENTINEL),
             "raw body leaked: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn batch_analyze_accepts_tool_call_arguments_when_content_is_null() {
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "opencode-req-tool-call",
+            "choices": [
+                {
+                    "message": {
+                        "content": null,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": ANALYSIS_BATCH_SCHEMA_NAME,
+                                    "arguments": r#"{"results":[{"index":0,"description":"第一张图","rating":4,"rating_reason":"构图完整"},{"index":1,"description":"第二张图","rating":3,"rating_reason":"主体较弱"}]}"#
+                                }
+                            }
+                        ]
+                    }
+                }
+            ],
+            "usage": { "prompt_tokens": 100, "completion_tokens": 40, "total_tokens": 140 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        let img_a = test_image_png();
+        let img_b = test_image_png();
+        let inputs = [
+            AnalyzeImageInput {
+                image_bytes: &img_a,
+                camera_context: "",
+            },
+            AnalyzeImageInput {
+                image_bytes: &img_b,
+                camera_context: "",
+            },
+        ];
+
+        let out = provider
+            .batch_analyze_images(
+                &inputs,
+                "",
+                "",
+                "general",
+                "normal",
+                "zh",
+                true,
+                true,
+                true,
+                Some(&secret()),
+            )
+            .await
+            .expect("tool call arguments accepted");
+
+        assert_eq!(out.items.len(), 2);
+        assert_eq!(
+            out.items[0].understanding.as_ref().unwrap().caption,
+            "第一张图"
+        );
+        assert_eq!(out.items[0].rating.as_ref().unwrap().rating, 4);
+        assert_eq!(out.items[1].rating.as_ref().unwrap().reasons, "主体较弱");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -2515,6 +2648,247 @@ mod tests {
         assert!(
             system.contains("Simplified Chinese"),
             "zh directive missing: {system}"
+        );
+    }
+
+    // ----- No `max_tokens` limit + model-output-budget exhaustion (kimi-k2.6) -----
+    //
+    // The driver intentionally omits `max_tokens` from every request body: a
+    // reasoning model (e.g. kimi-k2.6) consumes reasoning tokens out of the same
+    // `max_tokens` budget as the visible content, so a server-side cap starves
+    // the content (content=null + finish_reason="length"). Letting the
+    // provider/model generate as much as it needs — bounded only by the model's
+    // own max output — avoids our side throttling generation for every model.
+
+    /// The describe request body MUST NOT carry a `max_tokens` field. The
+    /// config's `max_output_tokens` (1200 in the OpenCode built-in) is ignored on
+    /// the wire by design: reasoning models would otherwise be starved. Verified
+    /// against the real wire body the driver builds.
+    #[tokio::test]
+    async fn describe_request_body_omits_max_tokens() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+            )))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        provider
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
+            .await
+            .expect("describe ok");
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 1);
+        let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        assert!(
+            body.get("max_tokens").is_none(),
+            "max_tokens must be omitted so the model is not throttled: {body}"
+        );
+        // The rest of the body shape is unchanged.
+        assert_eq!(body["model"], "kimi-k2.7-code");
+        assert_eq!(body["stream"], false);
+        assert_eq!(body["response_format"]["type"], "json_schema");
+    }
+
+    /// The batch request body MUST NOT carry a `max_tokens` field either. A
+    /// batch amplifies the reasoning-token cost (every image is reasoned about in
+    /// one response), so a cap is even more likely to starve the content here.
+    #[tokio::test]
+    async fn batch_request_body_omits_max_tokens() {
+        let server = MockServer::start().await;
+        let ok_batch = json!({
+            "id": "req-batch-ok",
+            "choices": [{ "message": { "content":
+                r#"{"results":[{"index":0,"description":"first","rating":3,"rating_reason":"ok"},{"index":1,"description":"second","rating":4,"rating_reason":"good"}]}"# } }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_batch))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        let img = test_image_png();
+        let inputs = [
+            AnalyzeImageInput {
+                image_bytes: &img,
+                camera_context: "",
+            },
+            AnalyzeImageInput {
+                image_bytes: &img,
+                camera_context: "",
+            },
+        ];
+        provider
+            .batch_analyze_images(
+                &inputs,
+                "",
+                "",
+                "general",
+                "normal",
+                "zh",
+                true,
+                true,
+                true,
+                Some(&secret()),
+            )
+            .await
+            .expect("batch ok");
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 1);
+        let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        assert!(
+            body.get("max_tokens").is_none(),
+            "batch max_tokens must be omitted: {body}"
+        );
+    }
+
+    /// When the model exhausts its OWN max output budget on reasoning (content=
+    /// null + finish_reason="length" + no tool-call arguments, with no `max_tokens`
+    /// sent), the driver surfaces a clear, actionable error and does NOT burn a
+    /// schema-repair retry (the model would repeat the cutoff). This is the
+    /// shape observed when a batch exceeds the model's output window.
+    #[tokio::test]
+    async fn model_output_budget_exhausted_surfaces_clear_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(length_starved_body()))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        let err = provider
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
+            .await
+            .expect_err("budget exhausted fails closed");
+        match err {
+            ProviderError::Provider(msg) => {
+                assert!(
+                    msg.contains("finish_reason=length"),
+                    "error should name the length cutoff: {msg}"
+                );
+                assert!(
+                    msg.contains("max_tokens"),
+                    "error should clarify no max_tokens limit was set: {msg}"
+                );
+                assert!(
+                    msg.contains("larger output window"),
+                    "error should point at the model's output window: {msg}"
+                );
+            }
+            other => panic!("expected Provider error for budget exhaustion, got {other:?}"),
+        }
+        // No retry: the model's own ceiling was reached, retrying won't help.
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            1,
+            "budget exhaustion does not retry"
+        );
+    }
+
+    /// A null content with a NON-`"length"` `finish_reason` (e.g.
+    /// `content_filter`) is NOT budget exhaustion: the driver must take the
+    /// normal schema-repair path, and the surfaced error includes the
+    /// `finish_reason` for diagnosis.
+    #[tokio::test]
+    async fn null_content_with_non_length_finish_reason_takes_schema_repair_path() {
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "req-filtered",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "content_filter",
+                "message": { "role": "assistant", "content": null }
+            }],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        let err = provider
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
+            .await
+            .expect_err("non-length null content fails");
+        // The error must surface the finish_reason for diagnosis.
+        assert!(
+            err.to_string().contains("finish_reason: content_filter"),
+            "error should include finish_reason for a non-length null: {err}"
+        );
+        // Not budget exhaustion: the original call + one schema-repair retry fire.
+        // The repair retry also returns null, so the call fails closed after the
+        // schema-repair turn.
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            2,
+            "non-length null takes the schema-repair path"
+        );
+    }
+
+    /// A null content WITH `tool_calls` is NOT budget exhaustion even when
+    /// `finish_reason` is `"length"`: the driver parses the tool-call arguments
+    /// via the existing fallback path and succeeds. Guards against the
+    /// budget-exhaustion check accidentally consuming the tool-call case.
+    #[tokio::test]
+    async fn null_content_with_tool_calls_parsed_not_budget_exhausted() {
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "req-tool-call",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "length",
+                "message": {
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": ANALYSIS_FLAT_SCHEMA_NAME,
+                            "arguments": r#"{"description":"from tool","rating":3,"rating_reason":"ok"}"#
+                        }
+                    }]
+                }
+            }],
+            "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        let out = provider
+            .analyze_image(
+                &test_image_png(),
+                "",
+                "",
+                "general",
+                "normal",
+                "",
+                "",
+                true,
+                true,
+                true,
+                Some(&secret()),
+            )
+            .await
+            .expect("tool-call arguments accepted");
+        assert_eq!(out.understanding.as_ref().unwrap().caption, "from tool");
+        assert_eq!(out.rating.as_ref().unwrap().rating, 3);
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            1,
+            "tool-call fallback parses without retry"
         );
     }
 }

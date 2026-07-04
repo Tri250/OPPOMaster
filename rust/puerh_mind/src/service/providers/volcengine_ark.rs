@@ -28,7 +28,9 @@ use tracing::warn;
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
     DescribeOutcome, ImageAnalysisProvider, ImageAnalysisSchemaSpec, ProviderError, ScoreOutcome,
-    image_analysis_schema_json, validate_rating, validate_understanding,
+    image_analysis_schema_json, output_confidence, output_description, output_rating_reason,
+    output_rubric_id, output_rubric_version, output_scene, output_tags, validate_rating,
+    validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -177,30 +179,10 @@ impl VolcengineArkResponsesProvider {
         let text = Self::extract_output_text(body).ok_or(ProviderError::SchemaValidation)?;
         let parsed = parse_content_json(&text)?;
         let out = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
+            caption: output_description(&parsed),
+            tags: output_tags(&parsed),
+            scene: output_scene(&parsed),
+            confidence: output_confidence(&parsed),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -233,21 +215,9 @@ impl VolcengineArkResponsesProvider {
         let rating = parsed.get("rating").and_then(parse_rating_int).unwrap_or(0);
         let out = ScoreOutcome {
             rating,
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            rubric_id: output_rubric_id(&parsed),
+            rubric_version: output_rubric_version(&parsed),
+            reasons: output_rating_reason(&parsed),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -792,16 +762,17 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/responses"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_responses_body(
-                r#"{"caption":"c","tags":[],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(ok_responses_body(r#"{"description":""}"#)),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
         let err = provider
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
-            .expect_err("empty tags rejected");
+            .expect_err("empty description rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
     }
 

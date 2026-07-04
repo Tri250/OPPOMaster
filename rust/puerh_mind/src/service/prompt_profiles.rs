@@ -410,7 +410,7 @@ mod tests {
         );
         assert!(prompt.system.contains("Henri Cartier-Bresson"));
         assert!(prompt.system.contains("AlcedoImageRating"));
-        assert!(prompt.system.contains("\"reasons\""));
+        assert!(prompt.system.contains("\"rating_reason\""));
         assert!(prompt.instruction.contains("Rubric: default."));
         assert!(prompt.instruction.contains("Prompt profile: profile-1."));
     }
@@ -420,15 +420,11 @@ mod tests {
         let prompt =
             analyze_prompt("", "", "normal", "", "", true, true, true).expect("prompt loads");
         assert!(prompt.system.contains("AlcedoImageAnalysisFlat"));
-        for field in [
-            "caption",
-            "tags",
-            "scene",
-            "confidence",
-            "rating",
-            "reasons",
-        ] {
+        for field in ["description", "rating", "rating_reason"] {
             assert!(prompt.system.contains(&format!("\"{field}\"")));
+        }
+        for field in ["tags", "confidence", "rubric_id", "rubric_version"] {
+            assert!(!prompt.system.contains(&format!("\"{field}\"")));
         }
         assert!(prompt.instruction.contains("requested JSON object"));
     }

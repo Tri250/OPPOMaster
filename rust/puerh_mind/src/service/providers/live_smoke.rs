@@ -1,5 +1,6 @@
-//! Env-gated live smoke tests against the real OpenRouter, Volcengine Ark, and
-//! Volcengine Ark Coding Plan (Anthropic-compatible) APIs.
+//! Env-gated live smoke tests against the real OpenRouter, Opencode
+//! OpenAI-compatible, Volcengine Ark, and Volcengine Ark Coding Plan
+//! (Anthropic-compatible) APIs.
 //!
 //! These are NOT part of the default CI gate — they call real provider endpoints
 //! and may incur cost. Each test loads a gitignored `.env.test` (via `dotenvy`) and
@@ -21,10 +22,12 @@
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    ImageAnalysisProvider, validate_rating, validate_understanding,
+    AnalyzeImageInput, ImageAnalysisProvider, validate_batch_analyze, validate_rating,
+    validate_understanding,
 };
 use crate::service::provider_config::load_provider_configs;
 use crate::service::providers::anthropic_messages::AnthropicMessagesProvider;
+use crate::service::providers::openai_chat_compatible::OpenAiChatCompatibleProvider;
 use crate::service::providers::openrouter::OpenRouterChatProvider;
 use crate::service::providers::volcengine_ark::VolcengineArkResponsesProvider;
 
@@ -127,6 +130,121 @@ async fn live_openrouter_smoke_describe_and_score() {
         score.rating, score.rubric_id, score.usage, score.provider_request_id
     );
     validate_rating(&score).expect("live rating validates against the Alcedo contract");
+}
+
+#[tokio::test]
+async fn live_opencode_openai_batch_analyze_smoke() {
+    // Ground-truth check for the OpenAI Chat-compatible batch parser against an
+    // Opencode-routed model. Some OpenAI-compatible providers return structured
+    // JSON in `message.tool_calls[].function.arguments` with `message.content =
+    // null`; this smoke catches that real envelope drift for the batch path.
+    let _ = dotenvy::from_filename(".env.test").ok();
+    if !live_smoke_enabled_or_skip() {
+        return;
+    }
+    let key = env_or_skip(&["ALCEDO_OPENCODE_API_KEY", "OPENCODE_API_KEY"]);
+    let Some(key) = key else {
+        return;
+    };
+
+    let config = load_provider_configs(None)
+        .expect("built-ins load")
+        .get("opencode_go_openai")
+        .expect("opencode_go_openai built-in")
+        .clone();
+    let provider = OpenAiChatCompatibleProvider::new(config).expect("provider builds");
+    let secret = SecretString::new(key);
+    let img_a = smoke_image_png();
+    let img_b = smoke_image_png();
+    let images = [
+        AnalyzeImageInput {
+            image_bytes: &img_a,
+            camera_context: "",
+        },
+        AnalyzeImageInput {
+            image_bytes: &img_b,
+            camera_context: "",
+        },
+    ];
+
+    let out = provider
+        .batch_analyze_images(
+            &images,
+            "",
+            "alcedo-live-smoke",
+            "general",
+            "normal",
+            "zh",
+            true,
+            true,
+            true,
+            Some(&secret),
+        )
+        .await
+        .expect("live Opencode OpenAI-compatible batch analyze succeeded");
+    eprintln!(
+        "live opencode_openai batch: items={} usage={:?} req_id={}",
+        out.items.len(),
+        out.usage,
+        out.provider_request_id
+    );
+    validate_batch_analyze(&out).expect("live batch validates against the Alcedo contract");
+}
+
+#[tokio::test]
+async fn live_opencode_openai_kimi_k26_no_max_tokens_smoke() {
+    // Ground-truth check that kimi-k2.6 — a reasoning model served via OpenCode's
+    // Moonshot upstream — succeeds through the OpenAI-compatible driver when the
+    // driver omits `max_tokens`. Reasoning models consume reasoning tokens out of
+    // the same `max_tokens` budget as the visible content, so a server-side cap
+    // starves the content (content=null + finish_reason="length"); omitting the
+    // cap lets the model generate as much as it needs (bounded only by the
+    // model's own max output). This is the live end-to-end verification of the
+    // kimi-k2.6 fix; the mock-server `*_request_body_omits_max_tokens` tests in
+    // openai_chat_compatible.rs cover the wire shape against a fixture.
+    let _ = dotenvy::from_filename(".env.test").ok();
+    if !live_smoke_enabled_or_skip() {
+        return;
+    }
+    let key = env_or_skip(&["ALCEDO_OPENCODE_API_KEY", "OPENCODE_API_KEY"]);
+    let Some(key) = key else {
+        return;
+    };
+
+    let config = load_provider_configs(None)
+        .expect("built-ins load")
+        .get("opencode_go_openai")
+        .expect("opencode_go_openai built-in")
+        .clone();
+    // The driver ignores `max_output_tokens` and sends no `max_tokens` — verify
+    // kimi-k2.6 reasons freely and emits valid structured content. (The built-in
+    // default `max_output_tokens: 1200` would have starved kimi-k2.6 on a real
+    // photo batch; omitting max_tokens is the fix.)
+    let provider = OpenAiChatCompatibleProvider::new(config).expect("provider builds");
+    let secret = SecretString::new(key);
+
+    // Discover + commit kimi-k2.6 so resolve_model accepts it. The built-in ships
+    // kimi-k2.7-code/kimi-k2.7 as documented models; kimi-k2.6 is the working
+    // alternative the user selected (served via OpenCode's Moonshot upstream).
+    let discovered = provider
+        .list_models(Some(&secret))
+        .await
+        .expect("list_models ok");
+    assert!(
+        discovered.iter().any(|m| m.model_id == "kimi-k2.6"),
+        "kimi-k2.6 must be discoverable on OpenCode"
+    );
+
+    let img = smoke_image_png();
+    let out = provider
+        .describe_image(&img, "kimi-k2.6", "alcedo-live-smoke", "zh", Some(&secret))
+        .await
+        .expect("live kimi-k2.6 describe succeeded (no max_tokens cap)");
+    eprintln!(
+        "live kimi-k2.6 no-max-tokens describe: caption='{}' usage={:?} req_id={}",
+        out.caption, out.usage, out.provider_request_id
+    );
+    validate_understanding(&out).expect("live kimi-k2.6 describe validates");
 }
 
 #[tokio::test]

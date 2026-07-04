@@ -141,10 +141,7 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap())
             .collect();
-        assert!(required.contains(&"caption"));
-        assert!(required.contains(&"confidence"));
-        assert!(required.contains(&"scene"));
-        assert!(required.contains(&"tags"));
+        assert_eq!(required, vec!["description"]);
         // provider.require_parameters + data_collection=deny (built-in qwen model).
         assert_eq!(body["provider"]["require_parameters"], true);
         assert_eq!(body["provider"]["data_collection"], "deny");
@@ -404,14 +401,12 @@ mod tests {
     #[tokio::test]
     async fn schema_failure_does_not_produce_active_result() {
         let server = MockServer::start().await;
-        // Valid JSON but violates the understanding contract: empty tags, and a
-        // caption that is fine but tags=[] is rejected by validate_understanding.
+        // Valid JSON but violates the understanding contract: empty description.
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
             .respond_with(
-                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                    r#"{"caption":"c","tags":[],"scene":"","confidence":0.5}"#,
-                )),
+                ResponseTemplate::new(200)
+                    .set_body_json(ok_understanding_body(r#"{"description":""}"#)),
             )
             .mount(&server)
             .await;
@@ -419,7 +414,7 @@ mod tests {
         let err = provider
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
-            .expect_err("empty tags rejected");
+            .expect_err("empty description rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
     }
 
@@ -429,9 +424,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
             .respond_with(
-                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                    "```json\n{\"caption\":\"c\",\"tags\":[\"t\"]}\n```",
-                )),
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body("not json")),
             )
             .mount(&server)
             .await;
@@ -440,7 +433,7 @@ mod tests {
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("fenced json rejected");
-        assert_eq!(err, ProviderError::SchemaValidation);
+        assert!(matches!(err, ProviderError::SchemaValidationMessage(_)));
     }
 
     #[tokio::test]

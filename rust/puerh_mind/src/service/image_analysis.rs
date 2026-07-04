@@ -253,42 +253,13 @@ fn append_understanding_schema_fields(
     if !include {
         return;
     }
-    required.extend(
-        ["caption", "tags", "scene", "confidence"]
-            .into_iter()
-            .map(str::to_string),
-    );
+    required.push("description".to_string());
     properties.insert(
-        "caption".to_string(),
+        "description".to_string(),
         json!({
             "type": "string",
             "minLength": 1,
-            "description": "A concise one-line description of the image."
-        }),
-    );
-    properties.insert(
-        "tags".to_string(),
-        json!({
-            "type": "array",
-            "minItems": 1,
-            "items": { "type": "string", "minLength": 1 },
-            "description": "Searchable tags as a JSON array of strings, not a comma-separated string."
-        }),
-    );
-    properties.insert(
-        "scene".to_string(),
-        json!({
-            "type": "string",
-            "description": "A short scene or category hint, or an empty string."
-        }),
-    );
-    properties.insert(
-        "confidence".to_string(),
-        json!({
-            "type": "number",
-            "minimum": 0.0,
-            "maximum": 1.0,
-            "description": "Confidence in the description."
+            "description": "A concise image description."
         }),
     );
 }
@@ -302,13 +273,9 @@ fn append_rating_schema_fields(
     if !include {
         return;
     }
-    required.extend(
-        ["rating", "rubric_id", "rubric_version"]
-            .into_iter()
-            .map(str::to_string),
-    );
+    required.push("rating".to_string());
     if include_reasons {
-        required.push("reasons".to_string());
+        required.push("rating_reason".to_string());
     }
     properties.insert(
         "rating".to_string(),
@@ -319,24 +286,9 @@ fn append_rating_schema_fields(
             "description": "The app star rating, from 1 (poor) to 5 (excellent)."
         }),
     );
-    properties.insert(
-        "rubric_id".to_string(),
-        json!({
-            "type": "string",
-            "minLength": 1,
-            "description": "The rubric id that was applied."
-        }),
-    );
-    properties.insert(
-        "rubric_version".to_string(),
-        json!({
-            "type": "string",
-            "description": "The rubric version, or an empty string."
-        }),
-    );
     if include_reasons {
         properties.insert(
-            "reasons".to_string(),
+            "rating_reason".to_string(),
             json!({
                 "type": "string",
                 "description": "A concise image-grounded rationale for the rating. Do not restate a numeric score, star count, grade, or a different rating here."
@@ -350,16 +302,8 @@ fn append_rating_schema_fields(
 /// so the service maps it to a non-active provider error (Phase 5b: a schema
 /// failure must not produce an active annotation).
 ///
-/// Rejects an empty `tags` list as well as any blank tag string, mirroring the
-/// generated schema's `minItems: 1` / `minLength: 1`.
 pub fn validate_understanding(out: &DescribeOutcome) -> Result<(), ProviderError> {
     if out.caption.trim().is_empty() {
-        return Err(ProviderError::SchemaValidation);
-    }
-    if !is_valid_confidence(out.confidence) {
-        return Err(ProviderError::SchemaValidation);
-    }
-    if out.tags.is_empty() || out.tags.iter().any(|t| t.trim().is_empty()) {
         return Err(ProviderError::SchemaValidation);
     }
     Ok(())
@@ -370,9 +314,6 @@ pub fn validate_understanding(out: &DescribeOutcome) -> Result<(), ProviderError
 /// remote contract requires 1..=5 so a scored image is never confused with an
 /// unrated one). No confidence is checked — the remote LLM is not asked for one.
 pub fn validate_rating(out: &ScoreOutcome) -> Result<(), ProviderError> {
-    if out.rubric_id.trim().is_empty() {
-        return Err(ProviderError::SchemaValidation);
-    }
     if !(1..=5).contains(&out.rating) {
         return Err(ProviderError::SchemaValidation);
     }
@@ -402,8 +343,54 @@ pub fn validate_batch_analyze(out: &BatchAnalyzeOutcome) -> Result<(), ProviderE
     Ok(())
 }
 
-fn is_valid_confidence(c: f64) -> bool {
-    !c.is_nan() && c >= 0.0 && c <= 1.0
+pub fn output_description(parsed: &Value) -> String {
+    first_string_field(parsed, &["description", "caption"])
+        .trim()
+        .to_string()
+}
+
+pub fn output_tags(parsed: &Value) -> Vec<String> {
+    parsed
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn output_scene(parsed: &Value) -> String {
+    first_string_field(parsed, &["scene"]).to_string()
+}
+
+pub fn output_confidence(parsed: &Value) -> f64 {
+    parsed
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .filter(|c| !c.is_nan() && *c >= 0.0 && *c <= 1.0)
+        .unwrap_or(0.0)
+}
+
+pub fn output_rating_reason(parsed: &Value) -> String {
+    first_string_field(parsed, &["rating_reason", "reasons"]).to_string()
+}
+
+pub fn output_rubric_id(parsed: &Value) -> String {
+    first_string_field(parsed, &["rubric_id"]).to_string()
+}
+
+pub fn output_rubric_version(parsed: &Value) -> String {
+    first_string_field(parsed, &["rubric_version"]).to_string()
+}
+
+fn first_string_field<'a>(parsed: &'a Value, names: &[&str]) -> &'a str {
+    names
+        .iter()
+        .find_map(|name| parsed.get(*name).and_then(|v| v.as_str()))
+        .unwrap_or("")
 }
 
 /// Build the output-language directive appended to a prompt's system message.
@@ -413,9 +400,10 @@ fn is_valid_confidence(c: f64) -> bool {
 /// produces a sentence. Unknown codes produce no directive (fail open to the
 /// default English prompt rather than injecting garbage).
 pub fn language_directive(output_language: &str) -> String {
-    match output_language.trim() {
-        "zh" | "zh-CN" | "zh_CN" | "chinese" => {
-            " Respond in Simplified Chinese (简体中文).".to_string()
+    match output_language.trim().to_ascii_lowercase().as_str() {
+        "zh" | "zh-cn" | "zh_cn" | "zh-hans" | "zh_hans" | "chinese" | "中文"
+        | "简体中文" => {
+            " All user-visible string values in the JSON output must be written in Simplified Chinese (简体中文), especially description and rating_reason. Do not use English unless it is a proper noun, camera model, brand name, file name, or unavoidable technical term.".to_string()
         }
         _ => String::new(),
     }
@@ -898,17 +886,11 @@ mod schema_tests {
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        assert!(required.contains(&"caption"));
-        assert!(required.contains(&"tags"));
-        assert!(required.contains(&"scene"));
-        assert!(required.contains(&"confidence"));
-        assert_eq!(v["properties"]["caption"]["type"], "string");
-        assert_eq!(v["properties"]["confidence"]["maximum"], 1.0);
-        // tags must be a non-empty array of non-empty strings (matches the
-        // validator's empty-list + blank-string rejection and the rating
-        // schema's minItems:1 on scores).
-        assert_eq!(v["properties"]["tags"]["minItems"], 1);
-        assert_eq!(v["properties"]["tags"]["items"]["minLength"], 1);
+        assert_eq!(required, vec!["description"]);
+        assert_eq!(v["properties"]["description"]["type"], "string");
+        assert!(v["properties"].get("tags").is_none());
+        assert!(v["properties"].get("scene").is_none());
+        assert!(v["properties"].get("confidence").is_none());
     }
 
     #[test]
@@ -922,9 +904,7 @@ mod schema_tests {
             .map(|x| x.as_str().unwrap())
             .collect();
         assert!(required.contains(&"rating"));
-        assert!(required.contains(&"rubric_id"));
-        assert!(required.contains(&"rubric_version"));
-        assert!(required.contains(&"reasons"));
+        assert!(required.contains(&"rating_reason"));
         // The rating is a 1..=5 integer; no `scores` array and no `confidence`
         // are requested from the remote LLM (Phase 5f rating-contract change).
         assert_eq!(v["properties"]["rating"]["type"], "integer");
@@ -938,14 +918,16 @@ mod schema_tests {
             v["properties"].get("confidence").is_none(),
             "confidence still present"
         );
+        assert!(v["properties"].get("rubric_id").is_none());
+        assert!(v["properties"].get("rubric_version").is_none());
     }
 
     #[test]
     fn rating_schema_omits_reasons_when_not_requested() {
         let v = image_analysis_schema_value(ImageAnalysisSchemaSpec::score(false));
         assert!(
-            v["properties"].get("reasons").is_none(),
-            "reasons present despite include_rating_reasons=false"
+            v["properties"].get("rating_reason").is_none(),
+            "rating_reason present despite include_rating_reasons=false"
         );
         let required: Vec<&str> = v["required"]
             .as_array()
@@ -953,7 +935,7 @@ mod schema_tests {
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        assert!(!required.contains(&"reasons"));
+        assert!(!required.contains(&"rating_reason"));
     }
 
     #[test]
@@ -988,39 +970,21 @@ mod schema_tests {
     }
 
     #[test]
-    fn validator_rejects_out_of_range_confidence() {
+    fn validator_allows_omitted_legacy_metadata() {
         let out = DescribeOutcome {
             caption: "c".into(),
-            tags: vec!["t".into()],
+            tags: vec![],
             scene: "".into(),
-            confidence: 1.5,
+            confidence: f64::NAN,
             model_id: "m".into(),
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(
-            validate_understanding(&out).unwrap_err(),
-            ProviderError::SchemaValidation
-        );
+        validate_understanding(&out).expect("legacy metadata is no longer required");
     }
 
     #[test]
-    fn validator_rejects_blank_tag_string_and_out_of_range_rating() {
-        // A tag that is a blank string (vec![""]) is rejected for understanding.
-        let bad_tags = DescribeOutcome {
-            caption: "c".into(),
-            tags: vec!["".into()],
-            scene: "".into(),
-            confidence: 0.5,
-            model_id: "m".into(),
-            usage: Usage::default(),
-            provider_request_id: "r".into(),
-        };
-        assert_eq!(
-            validate_understanding(&bad_tags).unwrap_err(),
-            ProviderError::SchemaValidation
-        );
-
+    fn validator_rejects_out_of_range_rating() {
         // An out-of-range rating (0 is the app's "unrated" sentinel and outside
         // the 1..=5 remote contract) is rejected for rating.
         let bad_rating = ScoreOutcome {
@@ -1049,29 +1013,6 @@ mod schema_tests {
         };
         assert_eq!(
             validate_rating(&too_high).unwrap_err(),
-            ProviderError::SchemaValidation
-        );
-    }
-
-    #[test]
-    fn validator_rejects_empty_tags_list() {
-        // An empty tags list (vec![]) is rejected for understanding, not just a
-        // blank-string tag. Previously validate_understanding only checked
-        // .any(|t| t.trim().is_empty()), which is false for an empty list, so
-        // tags: [] slipped through despite the 5b doc promising "reject empty
-        // tags / scores". This is the understanding-side mirror of the rating
-        // empty-scores-list rejection above.
-        let empty_tags = DescribeOutcome {
-            caption: "c".into(),
-            tags: vec![],
-            scene: "".into(),
-            confidence: 0.5,
-            model_id: "m".into(),
-            usage: Usage::default(),
-            provider_request_id: "r".into(),
-        };
-        assert_eq!(
-            validate_understanding(&empty_tags).unwrap_err(),
             ProviderError::SchemaValidation
         );
     }
@@ -1159,11 +1100,22 @@ mod schema_tests {
     fn rating_system_prompt_appends_zh_language_directive() {
         let en = rating_system_prompt("normal", "");
         let zh = rating_system_prompt("normal", "zh");
-        assert!(zh.ends_with(" Respond in Simplified Chinese (简体中文)."));
-        assert_eq!(
-            zh.len(),
-            en.len() + " Respond in Simplified Chinese (简体中文).".len()
-        );
+        let directive = language_directive("zh");
+        assert!(zh.ends_with(&directive));
+        assert!(directive.contains("JSON output"));
+        assert!(directive.contains("description"));
+        assert!(directive.contains("rating_reason"));
+        assert_eq!(zh.len(), en.len() + directive.len());
+    }
+
+    #[test]
+    fn language_directive_accepts_common_chinese_aliases() {
+        for alias in ["zh-CN", "zh_Hans", "Chinese", "中文", "简体中文"] {
+            let directive = language_directive(alias);
+            assert!(directive.contains("Simplified Chinese"), "{alias}");
+            assert!(directive.contains("description"), "{alias}");
+            assert!(directive.contains("rating_reason"), "{alias}");
+        }
     }
 
     #[test]
