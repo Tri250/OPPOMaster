@@ -300,7 +300,8 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
     return;
   }
   last_error_.clear();
-  last_task_ = task;
+  start_canceled_  = false;
+  last_task_       = task;
   last_include_rating_reasons_ =
       task == alcedo::ImageAnalysisTask::kDescribe ? false : includeRatingReasons;
 
@@ -365,17 +366,49 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
     return;
   }
 
-  std::string sidecar_err;
   sidecar_lease_ = env_->AcquireSidecarLease();
   if (!sidecar_lease_) {
     ClearSecret(&secret);
     SetError(Tr("AI sidecar runtime is unavailable. Open a project first."));
     return;
   }
-  if (!env_->EnsureSidecarReady(provider_configs_dirty, &sidecar_err)) {
+
+  // Register the run as a background task and surface "Starting AI sidecar..."
+  // BEFORE the boot so the task bar mirrors the sidecar startup as part of the
+  // job and the UI stays interactive (the interactive boot pumps the event
+  // loop). The boot can take several seconds on a cold sidecar; doing this
+  // first means the user sees live status and can cancel mid-boot.
+  ResetCounters();
+  total_      = static_cast<int>(items.size());
+  running_    = true;
+  can_retry_  = false;
+  last_items_ = items;
+  status_text_ = PL_TEXT("Starting AI sidecar...");
+  emit StateChanged();
+  if (registry_) {
+    background_task_id_ = RegisterBackgroundTask();
+  }
+
+  std::string sidecar_err;
+  if (!env_->EnsureSidecarReadyInteractive(provider_configs_dirty, &sidecar_err)) {
     ClearSecret(&secret);
     sidecar_lease_.reset();
-    SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
+    if (start_canceled_) {
+      // User pressed Cancel during the boot — finish as Canceled, not Failed.
+      start_canceled_ = false;
+      running_    = false;
+      can_retry_  = false;
+      canceled_   = total_;
+      status_text_ = PL_TEXT("Canceled.");
+      if (registry_ && !background_task_id_.isEmpty()) {
+        registry_->FinishTask(background_task_id_, BackgroundTaskState::Canceled,
+                              status_text_.Render());
+        background_task_id_.clear();
+      }
+      emit StateChanged();
+    } else {
+      SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
+    }
     return;
   }
 
@@ -408,20 +441,12 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   if (task == alcedo::ImageAnalysisTask::kScore || task == alcedo::ImageAnalysisTask::kAnalyze) {
     options.rubric_id = "general";
   }
-  ResetCounters();
-  total_       = static_cast<int>(items.size());
-  running_     = true;
-  can_retry_   = false;
-  last_items_  = items;
   status_text_ = task == alcedo::ImageAnalysisTask::kDescribe
                      ? PL_TEXT("Analyzing %1 image(s) for captions and tags...", total_)
                  : task == alcedo::ImageAnalysisTask::kAnalyze
                      ? PL_TEXT("Analyzing and scoring %1 image(s)...", total_)
                      : PL_TEXT("Scoring %1 image(s)...", total_);
   emit StateChanged();
-  if (registry_) {
-    background_task_id_ = RegisterBackgroundTask();
-  }
 
   // Build a fresh service per job, passing the SHARED gate so remote calls
   // serialize app-wide across every controller/service instance.
@@ -460,12 +485,28 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
 }
 
 void ImageAnalysisController::CancelAnalysis() {
-  if (!running_ || !job_) {
+  if (!running_) {
     return;
+  }
+  if (job_) {
+    // Job phase: a real analysis job is in flight on the worker thread.
+    status_text_ = PL_TEXT("Cancelling...");
+    emit StateChanged();
+    job_->Cancel();
+    if (registry_ && !background_task_id_.isEmpty()) {
+      registry_->UpdateTaskState(background_task_id_, BackgroundTaskState::Canceling);
+    }
+    return;
+  }
+  // Boot phase: the interactive sidecar boot is still running (job_ is null).
+  // Flag the cancel so the boot-failure path finishes as Canceled, and ask the
+  // runtime to abort at its next poll checkpoint.
+  start_canceled_ = true;
+  if (env_) {
+    env_->RequestSidecarStartCancel();
   }
   status_text_ = PL_TEXT("Cancelling...");
   emit StateChanged();
-  job_->Cancel();
   if (registry_ && !background_task_id_.isEmpty()) {
     registry_->UpdateTaskState(background_task_id_, BackgroundTaskState::Canceling);
   }
@@ -539,7 +580,10 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
     SetError(Tr("AI sidecar runtime is unavailable. Open a project first."));
     return;
   }
-  if (!env_->EnsureSidecarReady(provider_configs_dirty, &sidecar_err)) {
+  // Interactive boot on the UI thread: pumps the Qt event loop during the
+  // sidecar readiness poll so the "Test" button doesn't freeze the UI while a
+  // cold sidecar comes up.
+  if (!env_->EnsureSidecarReadyInteractive(provider_configs_dirty, &sidecar_err)) {
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
     return;
   }

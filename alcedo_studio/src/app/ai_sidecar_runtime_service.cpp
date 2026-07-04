@@ -5,6 +5,7 @@
 #include "app/ai_sidecar_runtime_service.hpp"
 
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QDir>
 #include <QHostAddress>
 #include <QMetaObject>
@@ -226,19 +227,43 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
         Qt::BlockingQueuedConnection);
     return result;
   }
+  return StartAndWaitBody(options, /*interactive=*/false);
+}
 
+auto AiSidecarRuntimeService::StartAndWaitInteractive(const AiSidecarRuntimeOptions& options)
+    -> bool {
+  // The nested event processing below is only valid on the service's own
+  // thread; callers from other threads must use the synchronous StartAndWait.
+  if (QThread::currentThread() != thread()) {
+    bool result = false;
+    QMetaObject::invokeMethod(
+        this, [this, options, &result]() { result = StartAndWaitInteractive(options); },
+        Qt::BlockingQueuedConnection);
+    return result;
+  }
+  cancel_start_requested_.store(false);
+  interactive_starting_.store(true);
+  const bool result = StartAndWaitBody(options, /*interactive=*/true);
+  interactive_starting_.store(false);
+  return result;
+}
+
+void AiSidecarRuntimeService::RequestCancelStart() { cancel_start_requested_.store(true); }
+
+auto AiSidecarRuntimeService::StartAndWaitBody(const AiSidecarRuntimeOptions& options,
+                                               bool interactive) -> bool {
   if (IsRunning()) {
     const auto requested_options = NormalizeRuntimeOptions(options);
     if (requested_options.require_model_info && !status_.model_info.has_value()) {
       options_.require_model_info   = true;
       options_.startup_timeout      = requested_options.startup_timeout;
       options_.health_poll_interval = requested_options.health_poll_interval;
-      return WaitForReadiness(false);
+      return WaitForReadiness(false, interactive);
     }
     if (status_.state != AiSidecarRuntimeState::kReady) {
       options_.startup_timeout      = requested_options.startup_timeout;
       options_.health_poll_interval = requested_options.health_poll_interval;
-      return WaitForReadiness(false);
+      return WaitForReadiness(false, interactive);
     }
     return true;
   }
@@ -263,12 +288,13 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
   qCInfo(diag::semanticLog).noquote()
       << QStringLiteral(
              "semantic.runtime.start binary=%1 endpoint=%2 model_id=%3 revision=%4 "
-             "model_root=%5 device=%6")
+             "model_root=%5 device=%6 interactive=%7")
              .arg(QString::fromStdString(options_.runtime_binary.string()),
                   QString::fromStdString(endpoint_), QString::fromStdString(options_.model_id),
                   QString::fromStdString(options_.revision),
                   QString::fromStdString(options_.model_root.string()),
-                  QString::fromStdString(options_.device));
+                  QString::fromStdString(options_.device),
+                  interactive ? QStringLiteral("true") : QStringLiteral("false"));
   SetStatus(AiSidecarRuntimeState::kStarting, AiSidecarRuntimeIssue::kNone,
             "Starting semantic runtime");
   process_.setProgram(QString::fromStdString(options_.runtime_binary.string()));
@@ -304,7 +330,7 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
     return false;
   }
 
-  return WaitForReadiness(true);
+  return WaitForReadiness(true, interactive);
 }
 
 auto AiSidecarRuntimeService::AcquireLease() -> std::shared_ptr<void> {
@@ -519,7 +545,8 @@ auto AiSidecarRuntimeService::ChoosePort() const -> uint16_t {
   return 50051;
 }
 
-auto AiSidecarRuntimeService::WaitForReadiness(bool terminate_on_timeout) -> bool {
+auto AiSidecarRuntimeService::WaitForReadiness(bool terminate_on_timeout, bool interactive)
+    -> bool {
   const auto  deadline = std::chrono::steady_clock::now() + options_.startup_timeout;
   std::string last_error;
   while (std::chrono::steady_clock::now() < deadline) {
@@ -549,7 +576,38 @@ auto AiSidecarRuntimeService::WaitForReadiness(bool terminate_on_timeout) -> boo
         last_error = "Semantic runtime responded but semantic model is not ready";
       }
     }
-    std::this_thread::sleep_for(options_.health_poll_interval);
+    if (interactive) {
+      // A cancel request checkpointed between polls: terminate the process and
+      // return to kStopped so the caller can treat it as a user cancellation
+      // rather than a start failure.
+      if (cancel_start_requested_.load()) {
+        SetStatus(AiSidecarRuntimeState::kStopping, AiSidecarRuntimeIssue::kNone,
+                  "Cancelling semantic runtime start");
+        if (process_.state() != QProcess::NotRunning) {
+          process_.terminate();
+          if (!process_.waitForFinished(
+                  static_cast<int>(options_.graceful_stop_timeout.count()))) {
+            process_.kill();
+            process_.waitForFinished(static_cast<int>(options_.kill_timeout.count()));
+          }
+        }
+        ReleaseChildTreeCleanup();
+        client_.reset();
+        status_.process_id = 0;
+        SetStatus(AiSidecarRuntimeState::kStopped, AiSidecarRuntimeIssue::kNone,
+                  "Semantic runtime start was cancelled");
+        return false;
+      }
+      // Pump the UI event loop between polls so the app stays responsive during
+      // a cold boot. Socket notifiers are excluded so the QProcess's own pipe
+      // readers don't race with this thread's blocking waitForReadyRead path
+      // (the readiness poll drains stdout/stderr itself via RefreshProcessExit).
+      // The 16ms budget is roughly one frame — enough to clear paints, timers,
+      // and a queued user input event each iteration without stalling the poll.
+      QCoreApplication::processEvents(QEventLoop::ExcludeSocketNotifiers, 16);
+    } else {
+      std::this_thread::sleep_for(options_.health_poll_interval);
+    }
   }
 
   const std::string message =

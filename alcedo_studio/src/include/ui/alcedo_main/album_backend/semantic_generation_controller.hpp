@@ -153,6 +153,10 @@ class SemanticGenerationController final : public QObject {
   bool                                   prompt_pending_           = false;
   bool                                   activate_prompt_pending_  = false;
   bool                                   running_                  = false;
+  // True when the user pressed Cancel during the interactive sidecar boot
+  // (before job_ exists). The boot-failure path reads this to finish the
+  // background task as Canceled instead of Failed.
+  bool                                   start_canceled_           = false;
   int                                    total_                    = 0;
   int                                    embedded_                 = 0;
   int                                    skipped_                  = 0;

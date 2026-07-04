@@ -266,6 +266,59 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
     return runtime->Status().state == AiSidecarRuntimeState::kReady;
   }
 
+  // Interactive variant used by the UI-thread StartForTargets path: routes the
+  // boot through StartAndWaitInteractive so the Qt event loop keeps pumping
+  // during a cold sidecar start (the UI stays responsive and the boot is
+  // cancellable). The sync EnsureSidecarReady above remains for the
+  // worker-thread ValidateConnectionForProfile path.
+  auto EnsureSidecarReadyInteractive(bool provider_configs_dirty, std::string* error)
+      -> bool override {
+    (void)provider_configs_dirty;
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      if (error) {
+        *error = "no project is open";
+      }
+      return false;
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    if (!runtime) {
+      if (error) {
+        *error = "ai sidecar runtime service is unavailable";
+      }
+      return false;
+    }
+    if (runtime->Status().state == AiSidecarRuntimeState::kReady) {
+      return true;
+    }
+    AiSidecarRuntimeOptions options =
+        backend_.semantic_generation_.RuntimeOptionsForCurrentSidecarSnapshot(false);
+    options.allow_download     = false;
+    options.require_model_info = false;  // remote image analysis: HTTP-provider path.
+    options.startup_timeout    = kImageAnalysisSidecarStartupTimeout;
+    if (!runtime->StartAndWaitInteractive(options)) {
+      if (error) {
+        *error = runtime->Status().message;
+        if (error->empty()) {
+          *error = "ai sidecar failed to start";
+        }
+      }
+      return false;
+    }
+    return runtime->Status().state == AiSidecarRuntimeState::kReady;
+  }
+
+  void RequestSidecarStartCancel() override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return;
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    if (runtime) {
+      runtime->RequestCancelStart();
+    }
+  }
+
  private:
   AlbumBackend&                                    backend_;
   std::shared_ptr<IImageAnalysisThumbnailProvider> thumbnail_provider_;

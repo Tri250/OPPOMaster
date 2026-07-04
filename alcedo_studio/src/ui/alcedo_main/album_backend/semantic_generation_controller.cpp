@@ -514,7 +514,15 @@ void SemanticGenerationController::ActivateSelectedModel() {
       auto runtime_status = runtime->Status();
       if (runtime_status.state != AiSidecarRuntimeState::kReady ||
           !runtime_status.model_info.has_value()) {
-        if (!runtime->StartAndWait(runtime_options)) {
+        // Interactive boot: this runs on the worker thread, but
+        // StartAndWaitInteractive marshals to the runtime's (UI) thread via
+        // BlockingQueuedConnection and pumps the event loop there during the
+        // readiness poll — so the UI stays responsive while the cold sidecar
+        // comes up instead of freezing for the startup timeout. The worker
+        // thread blocks here until the boot finishes; the runtime shared_ptr
+        // captured by this lambda is the keepalive that prevents the service
+        // from being destroyed mid-boot.
+        if (!runtime->StartAndWaitInteractive(runtime_options)) {
           runtime_status = runtime->Status();
           message        = runtime_status.message.empty() ? "semantic runtime failed to start"
                                                           : runtime_status.message;
@@ -566,7 +574,26 @@ void SemanticGenerationController::CancelGeneration() {
     }
     status_text_ = PL_TEXT("Cancelling semantic generation...");
     emit StateChanged();
+    return;
   }
+  if (!running_) {
+    return;
+  }
+  // Boot phase: the interactive sidecar boot is still running (job_ is null).
+  // Flag the cancel so the boot-failure path finishes the task as Canceled, and
+  // ask the runtime to abort at its next poll checkpoint.
+  start_canceled_ = true;
+  auto project = backend_.project_handler_.project();
+  auto runtime = project ? project->GetAiSidecarRuntimeService() : nullptr;
+  if (runtime) {
+    runtime->RequestCancelStart();
+  }
+  if (!background_task_id_.isEmpty()) {
+    backend_.background_task_.UpdateTaskState(background_task_id_,
+                                              BackgroundTaskState::Canceling);
+  }
+  status_text_ = PL_TEXT("Cancelling semantic generation...");
+  emit StateChanged();
 }
 
 void SemanticGenerationController::RefreshAlbumSummary() {
@@ -830,15 +857,41 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       !runtime_status.model_info.has_value()) {
     status_text_ = PL_TEXT("Starting semantic runtime...");
     emit StateChanged();
-
-    if (!runtime->StartAndWait(runtime_options)) {
-      runtime_status        = runtime->Status();
-      const QString message = QString::fromStdString(runtime_status.message);
-      running_              = false;
+    // Register the run as a background task BEFORE the boot so the task bar
+    // mirrors the sidecar startup as part of the job and the user can cancel
+    // mid-boot. The interactive boot pumps the Qt event loop, keeping the UI
+    // responsive while the cold sidecar comes up (a sync StartAndWait here
+    // would freeze the UI for up to the 60s startup timeout).
+    if (background_task_id_.isEmpty()) {
+      background_task_id_ = RegisterBackgroundTask();
+    }
+    start_canceled_ = false;
+    if (!runtime->StartAndWaitInteractive(runtime_options)) {
+      running_ = false;
       pending_items_.clear();
       sidecar_lease_.reset();
-      status_text_ = message.isEmpty() ? PL_TEXT("Semantic runtime failed to start.")
-                                       : PL_TEXT("Semantic runtime failed to start: %1", message);
+      if (start_canceled_) {
+        start_canceled_ = false;
+        status_text_ = PL_TEXT("Semantic generation canceled.");
+        if (!background_task_id_.isEmpty()) {
+          backend_.background_task_.FinishTask(background_task_id_,
+                                               BackgroundTaskState::Canceled,
+                                               status_text_.Render());
+          background_task_id_.clear();
+        }
+      } else {
+        runtime_status        = runtime->Status();
+        const QString message = QString::fromStdString(runtime_status.message);
+        status_text_ = message.isEmpty()
+                           ? PL_TEXT("Semantic runtime failed to start.")
+                           : PL_TEXT("Semantic runtime failed to start: %1", message);
+        if (!background_task_id_.isEmpty()) {
+          backend_.background_task_.FinishTask(background_task_id_,
+                                               BackgroundTaskState::Failed,
+                                               status_text_.Render());
+          background_task_id_.clear();
+        }
+      }
       backend_.SetTaskState(status_text_, 0, false);
       RefreshAlbumSummary();
       emit StateChanged();
@@ -855,6 +908,12 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       status_text_ = message.isEmpty()
                          ? PL_TEXT("Semantic runtime did not report model information.")
                          : PL_TEXT("Semantic runtime is not ready: %1", message);
+      if (!background_task_id_.isEmpty()) {
+        backend_.background_task_.FinishTask(background_task_id_,
+                                             BackgroundTaskState::Failed,
+                                             status_text_.Render());
+        background_task_id_.clear();
+      }
       backend_.SetTaskState(status_text_, 0, false);
       RefreshAlbumSummary();
       emit StateChanged();
@@ -884,6 +943,11 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     sidecar_lease_.reset();
     status_text_ =
         PL_TEXT("Semantic model registration failed: %1", QString::fromUtf8(error.c_str()));
+    if (!background_task_id_.isEmpty()) {
+      backend_.background_task_.FinishTask(background_task_id_, BackgroundTaskState::Failed,
+                                           status_text_.Render());
+      background_task_id_.clear();
+    }
     backend_.SetTaskState(status_text_, 0, false);
     RefreshAlbumSummary();
     emit StateChanged();
@@ -902,6 +966,11 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     running_ = false;
     sidecar_lease_.reset();
     status_text_ = PL_TEXT("All images already have semantic labels.");
+    if (!background_task_id_.isEmpty()) {
+      backend_.background_task_.FinishTask(background_task_id_, BackgroundTaskState::Succeeded,
+                                           status_text_.Render());
+      background_task_id_.clear();
+    }
     backend_.SetTaskState(status_text_, 100, false);
     backend_.ScheduleIdleTaskStateReset(1800);
     RefreshAlbumSummary();
@@ -960,7 +1029,11 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       });
 
   job_                = std::move(job);
-  background_task_id_ = RegisterBackgroundTask();
+  // Register the run as a background task now if it wasn't already registered
+  // before the sidecar boot (the no-boot path — runtime was already ready).
+  if (background_task_id_.isEmpty()) {
+    background_task_id_ = RegisterBackgroundTask();
+  }
 }
 
 auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profileId,

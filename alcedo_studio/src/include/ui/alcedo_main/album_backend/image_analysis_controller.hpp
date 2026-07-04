@@ -50,6 +50,19 @@ class IImageAnalysisEnvironment {
   /// if the sidecar is ready. Does NOT check `model_info` (it is unpopulated when
   /// `require_model_info=false`).
   virtual auto EnsureSidecarReady(bool provider_configs_dirty, std::string* error) -> bool = 0;
+  /// Interactive variant of EnsureSidecarReady: pumps the Qt event loop during
+  /// the sidecar boot so the UI stays responsive. MUST be called on the UI
+  /// thread. The default falls back to the synchronous EnsureSidecarReady so
+  /// unit-test fakes are unaffected (their boot is instant). Production
+  /// overrides this to route through AiSidecarRuntimeService::StartAndWaitInteractive.
+  virtual auto EnsureSidecarReadyInteractive(bool provider_configs_dirty, std::string* error)
+      -> bool {
+    return EnsureSidecarReady(provider_configs_dirty, error);
+  }
+  /// Request that an in-progress interactive boot abort at the next poll
+  /// checkpoint. Default is a no-op (tests don't exercise boot cancel);
+  /// production forwards to AiSidecarRuntimeService::RequestCancelStart.
+  virtual void RequestSidecarStartCancel() {}
 };
 
 /// Drives remote image analysis (caption/tags via `image_understanding.describe`,
@@ -171,6 +184,10 @@ class ImageAnalysisController final : public QObject {
   std::vector<alcedo::ImageAnalysisItem>     last_items_;
   alcedo::ImageAnalysisTask                  last_task_ = alcedo::ImageAnalysisTask::kDescribe;
   bool                                       last_include_rating_reasons_ = true;
+  // True when the user pressed Cancel during the interactive sidecar boot
+  // (before job_ exists). The boot-failure path reads this to finish the task
+  // as Canceled instead of Failed.
+  bool                                       start_canceled_ = false;
 
   i18n::LocalizedText                        status_text_{};
   QString                                    last_error_;
