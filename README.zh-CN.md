@@ -108,6 +108,32 @@ Alcedo Studio 是一个开源 RAW 图像处理与数字资产管理（DAM）项�
 - 简单精炼的项目文件，仅需一个 `.alcd` 文件即可保存整个项目的状态（包括库结构、每张照片的编辑历史和版本信息等），方便迁移和备份。
 - 高级搜索与过滤——按文件名、拍摄日期、相机、镜头、曝光参数组合检索，外加 AI 语义搜索与自动打标，让影库变成一个你能直接对话的东西（详见 [AI 原生工作流](#ai-原生工作流)）。
 
+## RAW 与相机支持
+
+Alcedo Studio 通过补丁版 [LibRaw](https://github.com/zidage/LibRaw) 分支导入主流 RAW 格式：
+
+- Canon CR2 / CR3
+- Nikon NEF
+- Sony ARW
+- Fujifilm RAF
+- Panasonic RW2
+- Olympus / OM System ORF
+- Leica、Hasselblad、Phase One、Pentax、Sigma、Samsung
+- DNG，包括手机和无人机的 DNG
+
+完整格式列表见 [docs/supported_raw_formats.md](docs/supported_raw_formats.md)，相机列表见 [docs/supported_cameras.md](docs/supported_cameras.md)。
+
+### 独家支持：Nikon HE / HE\* NEF
+
+Nikon 高效率压缩 (`HE`) 与高效率压缩* (`HE*`) NEF 在官方 LibRaw 0.22 中仍未支持。Alcedo Studio 内置的 LibRaw 分支可直接解码这些文件，无需转换至 DNG。已验证机型包括：
+
+- Nikon Z 8
+- Nikon Z 9
+- Nikon Z 6 III
+- Nikon Z 50 II
+
+解码器实现位于项目 LibRaw 分支：**https://github.com/zidage/LibRaw**
+
 ## 系统要求
 
 - Windows 10/11 x64：当前完整 CUDA/OpenGL 编辑器构建目标平台。
@@ -120,37 +146,7 @@ Alcedo Studio 是一个开源 RAW 图像处理与数字资产管理（DAM）项�
 
 ## 源码构建
 
-详细构建步骤（中英对照）已单独维护在：
-- [docs/build_from_source.md](docs/build_from_source.md)
-
-Detailed bilingual build instructions:
-- [docs/build_from_source.md](docs/build_from_source.md)
-
-快速命令：
-
-```powershell
-# 当前 CMake 布局所需子模块
-git submodule update --init --recursive `
-  alcedo_studio/src/third_party/lensfun `
-  alcedo_studio/src/third_party/libultrahdr `
-  alcedo_studio/src/third_party/metal-cpp
-
-# Windows Debug（MSVC wrapper + preset）
-cmd /c scripts\msvc_env.cmd --preset win_debug -DCMAKE_PREFIX_PATH="D:/Qt/6.9.3/msvc2022_64/lib/cmake"
-cmd /c scripts\msvc_env.cmd --build --preset win_debug --parallel 8
-
-# Windows Release
-cmd /c scripts\msvc_env.cmd --preset win_release -DCMAKE_PREFIX_PATH="D:/Qt/6.9.3/msvc2022_64/lib/cmake"
-cmd /c scripts\msvc_env.cmd --build --preset win_release --parallel 8
-cmd /c scripts\msvc_env.cmd --install build/release --prefix build/install
-
-# macOS Debug 与打包
-cmake --preset macos_debug
-cmake --build --preset macos_debug --target alcedo_main
-cmake --preset macos_release
-cmake --build --preset macos_release
-cmake --build --preset macos_package
-```
+构建说明（中英对照）单独维护在 [docs/build_from_source.md](docs/build_from_source.md)。
 
 ## 路线图
 

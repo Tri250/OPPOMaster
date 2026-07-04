@@ -1,4 +1,4 @@
-<img src="docs/header.jpg" alt="Alcedo Logo" width="100%"/>
+<img src="docs/header.jpg" alt="Alcedo Studio" width="100%"/>
 
 [Project website](https://zidage.github.io/AlcedoStudio) | [项目网页](https://zidage.github.io/AlcedoStudio)
 
@@ -9,15 +9,13 @@
 ![C++](https://img.shields.io/badge/C++-20-blue)
 ![AI](https://img.shields.io/badge/AI-CLIP%20%2B%20VLM-ff6f00)
 
-**Alcedo Studio** is an open-source RAW photo editor and digital asset management (DAM) project. It is designed to provide a new choice to photographers who seek a lightweight, high-performance, and largely industry-compatible workflow for their photo editing and library management needs. The practical goal is to give the community a RAW workflow with a very gentle learning curve, pleasing default renders, a lightweight footprint, privacy-preserving and fully controllable AI features, and modern asset retrieval for real-world libraries — with a built-in AI layer that tags your photos, answers natural-language searches, and curates your keepers. On-device by default, cloud optional. 
+**Alcedo Studio** is a RAW photo editor and digital asset manager built for photographers who want a fast, lightweight, and privacy-respecting workflow. It handles everything from import and culling to grading, versioning, and export — with optional AI assistance that runs locally by default and only reaches the cloud when you explicitly choose to.
 
->Alcedo Studio is _**NOT an alternative**_ to the existing commercial software nor other open-source projects.
-
+> Alcedo Studio is not positioned as a drop-in replacement for any existing commercial or open-source tool. It is an independent workflow with its own design priorities.
 
 ## Screenshots and Demo
 
-The screenshots below are the current project-website image set from
-`docs/alcedo-website/public/screenshots`, refreshed for the v0.2.6-era UI.
+The screenshots below are taken from the current website image set at `docs/alcedo-website/public/screenshots`, reflecting the v0.2.6-era interface.
 
 <table>
   <colgroup>
@@ -76,11 +74,11 @@ The screenshots below are the current project-website image set from
   </tbody>
 </table>
 
->Some demo RAW files used by the project are from [signatureedits](https://www.signatureedits.com/free-raw-photos/) 100% Free Raw Files.
+> Some demo RAW files used by the project are from [signatureedits](https://www.signatureedits.com/free-raw-photos/) 100% Free Raw Files.
 
 ## What Changed Since v0.2.3
 
-v0.2.3 was the Alcedo Studio rebrand and WebGPU/D3D12 experiment. The releases after it shifted the project from prototype breadth toward a more practical editor and DAM:
+v0.2.3 was the Alcedo Studio rebrand and WebGPU/D3D12 experiment. Subsequent releases moved the project from prototype breadth toward a practical editor and DAM.
 
 | Release cycle | Highlights |
 | --- | --- |
@@ -88,64 +86,94 @@ v0.2.3 was the Alcedo Studio rebrand and WebGPU/D3D12 experiment. The releases a
 | **v0.2.5** | Rebuilt Highlights/Shadows around LLF-style local tone processing, improved OKLCh/HLS color handling, added batch copy/paste adjustment transfer, refreshed geometry/crop interactions, and overhauled HDR export metadata plus UltraHDR writer paths. |
 | **v0.2.6** | Landed the AI-native library work: semantic image labels, model profiles, Jina CLIP / SigLIP handling, HNSW vector search, semantic filtering, model download/activation UX, and async model execution. This cycle also added film grain and Halation effects across CPU/CUDA/OpenCL/Metal, Nikon HE/HE* RAW support through patched LibRaw, macOS CoreML model support, LUT favorites, and the current website screenshot refresh. |
 
-## AI-Native Workflow
+## Core Capabilities
 
-Your library talks back. Alcedo Studio ships a two-tier AI stack — an **on-device vision engine** that runs locally with zero cloud, and **optional remote multimodal LLMs** for the kind of judgment that needs a bigger brain. The result: a RAW archive that tags itself, rates itself, and answers to plain language.
+### Library management
 
-### Your photos describe themselves
+- One project file keeps all metadata, previews, edit histories, and AI embeddings together.
+- Responsive thumbnail grid for large RAW libraries.
+- Filter by date, camera, lens, rating, label, or any combination.
+- Global search across EXIF, filenames, and semantic tags without leaving the app.
 
-A bundled vision sidecar runs CLIP / SigLIP-style models entirely on your machine — no API key, no upload, no photo ever leaves your disk. MobileCLIP2, SigLIP2, Jina CLIP v2, and macOS CoreML profiles can auto-tag images and write labels straight into your library. Switch models anytime; old tags stay neatly isolated until you switch back.
+### Semantic search
 
-### Search by feeling, not by filename
+- Runs entirely on your machine after activating a local vision model.
+- Supports MobileCLIP2, SigLIP2, Jina CLIP v2, and macOS CoreML profiles.
+- Queries rank by meaning through an on-device HNSW vector index.
+- Each model's tags stay isolated, so switching models does not mix incompatible label sets.
 
-Type *"golden-hour portraits by the sea"* and hit enter. Your query becomes a vector and ranks against your library through a fast on-device HNSW index — no scrolling through thousands of thumbnails, no guessing which folder. Direct labels and EXIF-shaped queries still take the instant path; the AI only spins up when you actually mean something fuzzy. All local, all private.
+### Optional AI captioning and rating
 
-### An AI critic that writes stars
+- Connect a remote vision model through OpenAI-compatible, Anthropic, or Volcengine Ark endpoints.
+- Returns a caption, searchable tags, scene label, and a 1–5 star rating with rationale.
+- Star ratings are written back to EXIF.
+- API keys are stored in the OS credential store and never appear in logs or project files.
+- Adjustable strictness from generous to exacting.
 
-Want a second opinion? Point it at your selects and a remote vision LLM returns a caption, searchable tags, and a 1–5 star aesthetic rating with reasons — written back to the EXIF so the score shows up everywhere: the star UI, stats, thumbnail cards. Bring an OpenAI-compatible endpoint, Anthropic, or 火山方舟 Doubao, or plug in your own. Your API key stays in the OS keychain — never in logs, args, or project files. And because critics rarely agree, pick a mood: Lite / Normal / High / xHigh / Max — 水 / 普通 / 大师 / 老法师 / 懂哥 — from generous to *that guy*.
+### Non-destructive, branchable editing
 
-### Long jobs, out of your way
+- Every image keeps its own version tree.
+- Each Version is a named look with an independent undo/redo timeline.
+- Versions replay from the import baseline, so branches never tangle.
+- Switch active versions to compare, or clone a recipe across a shoot.
 
-Tagging a whole album, running the LLM on your selects, pulling down a model — all run as cancellable background tasks with progress, ETA, and download / activation feedback. An interaction lock quietly blocks the mid-run actions that would corrupt state, so you keep editing while the AI works.
+### RAW processing
 
-## Key Technical Features
+- 32-bit floating-point pipeline from demosaicing to output transform.
+- Demosaic algorithms: AHD, Amaze, RCD.
+- Highlight reconstruction and as-shot/custom white balance.
+- Tone controls: exposure, contrast, curves, color temperature.
+- Color controls: HSL, saturation, vibrance, tint, lift/gamma/gain color wheels.
+- Detail controls: local Highlights/Shadows, clarity, sharpening.
+- Output transforms: ACES 2.0 or OpenDRT, with display space, EOTF, and peak-luminance controls.
+- Film looks: curated CUBE LUTs, plus film grain and halation output effects.
 
-### High-Performance Core
+### GPU acceleration
 
-- CUDA, Metal, and OpenCL accelerated image processing paths, with the Windows CUDA preview path reaching ***300 FPS*** at the highest real-time preview resolution on modern NVIDIA GPUs with large RAW files (e.g., 45MP). Even full-resolution 42MP preview generation takes only around **20ms** on a mid-range GPU (RTX 3080 Laptop 8GB).
-- Runtime GPU backend selection for supported operators, including OpenCL coverage for RAW processing, point operators, linear reference conversion, highlight reconstruction, DRT/LMT, lens calibration, geometry adjustment, DNG warp, and scope analysis.
-- Fine-grained memory management, resolution-separated thumbnail requests, and disk-backed thumbnail caching to optimize memory usage during large library browsing. The average DRAM usage for browsing a library of **786 42MP RAW** files is around **767MB** while achieving smooth scrolling and instant preview generation.
-- Written in modern C++20 with a focus on code quality, modularity, and maintainability (unfortunately, still largely a WIP).
+- Windows: CUDA and OpenCL paths.
+- macOS: Metal path.
+- RAW processing, preview, and many operators can run on the GPU.
+- Runtime backend selection for supported operators.
+- LRU image pool with pinned handles and disk-backed thumbnail caching.
+- CUDA preview path reaches hundreds of frames per second at full preview resolution on modern NVIDIA hardware.
 
-### Professional Imaging Pipeline
+### Export
 
-- 32-bit floating-point processing pipeline.
-- Support **ACES 2.0 Output Rendering** and **OpenDRT** with display color space, EOTF, and peak-luminance controls.
-- Film-like highlight transition, highlight reconstruction, LLF-style local Highlights/Shadows, sigmoid contrast curve, and RCD demosaic support for high-quality RAW reconstruction.
-- Nikon HE/HE* RAW support through a patched LibRaw integration based on [zidage/LibRaw](https://github.com/zidage/LibRaw).
-- Film simulation goes beyond a LUT picker: curated Kodak, Fuji, and Agfa **CUBE** LUTs, LUT favorites, Portra-style portrait looks, and output-stage texture controls are tuned for pleasing results quickly while staying fully editable.
-- Film grain and Halation output effects with shared history/pipeline integration across CPU, CUDA, OpenCL, and Metal.
-- Support JPEG/TIFF/PNG/EXR output with metadata write-back, ICC embedding, HDR/SDR export metadata, and UltraHDR writer paths.
-- OpenImageIO/Exiv2-based image output with support for various formats and metadata handling.
+- Renders through the same pipeline used for previews and thumbnails.
+- Output formats: JPEG, PNG, TIFF, WEBP.
+- Bit depths: 8/16/32-bit where the format supports it.
+- HDR output: Ultra HDR gain-map JPEG with ICC profile embedding.
+- Per-batch resize, quality, compression, and metadata handling.
 
-### Branchable, Content-Addressed Edit History
+## RAW and Camera Support
 
-Every photo carries its own version tree. Each **Version** is a named look with its own undo/redo timeline, and every one of them replays from that photo's import baseline — not from one another — so you can branch off a look, keep editing the original, and the two never tangle. Switch the active version to A/B compare, or clone the whole history onto another image to reuse the recipe across a shoot.
+Alcedo Studio imports all major RAW formats through a patched fork of [LibRaw](https://github.com/zidage/LibRaw):
 
-- Undo/redo is just a cursor moving through an ordered edit log — the log is the single source of truth, the rendered image is a cache.
-- Branch by spinning up a new named version; rename it, remove it (the import baseline is permanent), and switch the active one to compare side by side.
-- Every version is content-addressed: a Merkle-tree hash over its ordered edits and cursor, so two identical edit timelines always hash the same.
+- Canon CR2 / CR3
+- Nikon NEF
+- Sony ARW
+- Fujifilm RAF
+- Panasonic RW2
+- Olympus / OM System ORF
+- Leica, Hasselblad, Phase One, Pentax, Sigma, Samsung
+- DNG, including smartphone and drone DNGs
 
-### Asset Management ("Sleeve" System)
+See the full format list in [docs/supported_raw_formats.md](docs/supported_raw_formats.md) and the camera list in [docs/supported_cameras.md](docs/supported_cameras.md).
 
-- A simple but flexible inode-like file system using DuckDB as the storage backend, designed to manage both the original RAW files and the generated metadata (previews, thumbnails, edit history, etc.) in a unified way.
-- Lean project management with a single project file that contains all the metadata and references to the original files, enabling easy project sharing and backup without worrying about missing sidecar files or broken links.
-- Collection membership, folder pagination, cache invalidation, duplicate/history handling, and batch database mutation paths for smoother large-project operations.
-- Advanced search and filtering — EXIF facets, fuzzy/exact global search, star ratings, thumbnail-backed results, plus AI semantic search and auto-tagging that turn the library into something you can talk to (see [AI-Native Workflow](#ai-native-workflow)).
+### Exclusive Nikon HE / HE\* support
+
+Nikon High-Efficiency (`HE`) and High-Efficiency★ (`HE*`) NEFs are still unsupported in upstream LibRaw 0.22. Alcedo Studio ships a patched LibRaw fork that decodes these files directly — no conversion to DNG required. Validated cameras include:
+
+- Nikon Z 8
+- Nikon Z 9
+- Nikon Z 6 III
+- Nikon Z 50 II
+
+The decoder lives in the project's LibRaw fork: **https://github.com/zidage/LibRaw**
 
 ## System Requirements
 
-- Windows 10/11 x64 for the current Qt RHI editor build, with CUDA acceleration on NVIDIA GPUs and OpenCL coverage for supported operators/backends.
+- Windows 10/11 x64 for the Qt RHI editor build, with CUDA acceleration on NVIDIA GPUs and OpenCL coverage for supported operators/backends.
 - macOS on Apple Silicon for the Metal-backed Qt application build.
 - NVIDIA GPU with CUDA support (minimum compute capability 6.0 / 10-series or later, recommended 7.0+ / 20-series or later) for the fastest Windows path; preferably 6GB+ VRAM for smooth work with high-resolution RAW files (40MP+).
 - A Metal-capable Apple Silicon Mac for the macOS/Metal build.
@@ -155,43 +183,11 @@ Every photo carries its own version tree. Each **Version** is a named look with 
 
 ## Build from Source
 
-Detailed bilingual instructions are in:
-- [docs/build_from_source.md](docs/build_from_source.md)
-
-构建细节（中英对照）已单独维护在：
-- [docs/build_from_source.md](docs/build_from_source.md)
-
-Quick commands:
-
-```powershell
-# Required submodules for current CMake layout
-git submodule update --init --recursive `
-  alcedo_studio/src/third_party/lensfun `
-  alcedo_studio/src/third_party/libultrahdr `
-  alcedo_studio/src/third_party/metal-cpp
-
-# Windows debug (MSVC wrapper + preset)
-cmd /c scripts\msvc_env.cmd --preset win_debug -DCMAKE_PREFIX_PATH="D:/Qt/6.9.3/msvc2022_64/lib/cmake"
-cmd /c scripts\msvc_env.cmd --build --preset win_debug --parallel 8
-
-# Windows release
-cmd /c scripts\msvc_env.cmd --preset win_release -DCMAKE_PREFIX_PATH="D:/Qt/6.9.3/msvc2022_64/lib/cmake"
-cmd /c scripts\msvc_env.cmd --build --preset win_release --parallel 8
-cmd /c scripts\msvc_env.cmd --install build/release --prefix build/install
-
-# macOS debug and packaging
-cmake --preset macos_debug
-cmake --build --preset macos_debug --target alcedo_main
-cmake --preset macos_release
-cmake --build --preset macos_release
-cmake --build --preset macos_package
-```
+Build instructions are maintained separately in [docs/build_from_source.md](docs/build_from_source.md) (English and Chinese).
 
 ## Roadmap
 
-Roadmap and ongoing milestones:
-
-- [docs/roadmap/roadmap.md](docs/roadmap/roadmap.md)
+Roadmap and ongoing milestones are tracked in [docs/roadmap/roadmap.md](docs/roadmap/roadmap.md).
 
 ## Acknowledgements
 
