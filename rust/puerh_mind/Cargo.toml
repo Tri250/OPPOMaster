@@ -33,7 +33,7 @@ zeroize = { version = "1", features = ["alloc"] }
 # aws-lc-rs crypto provider; we install `ring` (already used by ort's tls-rustls)
 # as the rustls crypto provider at client construction, reusing the existing native
 # build rather than introducing aws-lc-rs.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 base64 = "0.22"
 

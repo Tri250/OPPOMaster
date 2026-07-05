@@ -13,6 +13,8 @@
 //!   API, the Volcengine Ark Coding Plan).
 //! - [`volcengine_ark::VolcengineArkResponsesProvider`] — `volcengine_ark_responses`,
 //!   OpenAI Responses-compatible `/api/v3/responses`.
+//! - [`openai_codex_oauth::OpenAiCodexOAuthProvider`] — `openai_codex_oauth`,
+//!   ChatGPT/Codex OAuth subscription-auth over the Codex Responses backend.
 //!
 //! All three reuse the shared rustls client, image encoding, bounded retry,
 //! strict-schema injection, response-reading, and redaction discipline from
@@ -23,6 +25,7 @@
 pub mod anthropic_messages;
 pub mod http_util;
 pub mod openai_chat_compatible;
+pub mod openai_codex_oauth;
 pub mod openrouter;
 pub mod volcengine_ark;
 
@@ -98,6 +101,7 @@ pub fn is_driver_wired(driver: &str) -> bool {
         driver,
         "openai_chat_compatible"
             | "openrouter_chat"
+            | "openai_codex_oauth"
             | "volcengine_ark_responses"
             | "anthropic_messages"
     )
@@ -113,6 +117,11 @@ fn build_one(config: &ProviderConfig) -> Result<Arc<dyn ImageAnalysisProvider>, 
         "openai_chat_compatible" | "openrouter_chat" => {
             let p = openai_chat_compatible::OpenAiChatCompatibleProvider::new(config.clone())
                 .map_err(|e| format!("failed to build openai-chat-compatible provider: {e}"))?;
+            Ok(Arc::new(p))
+        }
+        "openai_codex_oauth" => {
+            let p = openai_codex_oauth::OpenAiCodexOAuthProvider::new(config.clone())
+                .map_err(|e| format!("failed to build openai-codex-oauth provider: {e}"))?;
             Ok(Arc::new(p))
         }
         "volcengine_ark_responses" => {
@@ -142,6 +151,7 @@ mod tests {
         for wired in [
             "openai_chat_compatible",
             "openrouter_chat",
+            "openai_codex_oauth",
             "volcengine_ark_responses",
             "anthropic_messages",
         ] {

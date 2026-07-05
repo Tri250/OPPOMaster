@@ -11,9 +11,12 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QStringList>
+#include <QtGlobal>
 #include <QUuid>
 #include <algorithm>
 
@@ -84,7 +87,8 @@ QString NormalizedProtocolDriver(const QString& value) {
   if (v == QStringLiteral("openai_chat_compatible") || v == QStringLiteral("anthropic_messages") ||
       v == QStringLiteral("volcengine_ark_responses") ||
       v == QStringLiteral("volcengine_ark_chat") || v == QStringLiteral("openai_responses") ||
-      v == QStringLiteral("gemini_generate_content") || v == QStringLiteral("generic_json_http")) {
+      v == QStringLiteral("openai_codex_oauth") || v == QStringLiteral("gemini_generate_content") ||
+      v == QStringLiteral("generic_json_http")) {
     return v;
   }
   return QStringLiteral("anthropic_messages");
@@ -200,8 +204,8 @@ constexpr TemplateConfig kTemplates[] = {
      4194304},
     {"opencode_go_openai", "OpenCode - OpenAI-compatible chat", "openai_chat_compatible",
      "https://opencode.ai/zen/go/v1", "/chat/completions", "", "", "bearer", "kimi-k2.7-code",
-     "Kimi K2.7 Code", "response_format_json_schema", "/choices/0/message/content", "/usage", "/id", "",
-     "preview", true, true, 60000, 4194304},
+     "Kimi K2.7 Code", "response_format_json_schema", "/choices/0/message/content", "/usage",
+     "/id", "", "preview", true, true, 60000, 4194304},
     {"volcengine_ark", "Volcengine Ark / 火山方舟", "volcengine_ark_responses",
      "https://ark.cn-beijing.volces.com/api/v3", "/responses", "", "", "bearer",
      "doubao-seed-2-0-lite-260428", "Doubao Seed 2.0 Lite (260428)", "responses_json_schema", "",
@@ -210,6 +214,10 @@ constexpr TemplateConfig kTemplates[] = {
      "anthropic_messages", "https://ark.cn-beijing.volces.com/api/coding", "/v1/messages", "", "",
      "bearer", "doubao-seed-2.0-lite", "Doubao Seed 2.0 Lite", "tool", "", "/usage", "/id", "",
      "preview", true, true, 60000, 4194304},
+    {"openai_codex_oauth", "OpenAI Codex OAuth", "openai_codex_oauth",
+     "https://chatgpt.com/backend-api/codex", "/responses", "/models", "/models", "bearer",
+     "gpt-5.3-codex", "GPT-5.3 Codex", "responses_json_schema", "/output_text", "/usage", "/id",
+     "x-request-id", "preview", true, true, 60000, 4194304},
     {"custom", "Custom", "openai_chat_compatible", "http://localhost:11434/v1", "/chat/completions",
      "", "", "none", "unconfigured", "Unconfigured", "response_format_json_schema",
      "/choices/0/message/content", "/usage", "/id", "", "preview", true, true, 60000, 4194304},
@@ -236,8 +244,9 @@ AiProviderModelEntry ModelFromTemplate(const TemplateConfig& t) {
   return m;
 }
 
-void AddOrUpdateModel(AiProviderProfile* profile, const QString& model_id, const QString& display_name,
-                      bool supports_vision, bool supports_structured_output) {
+void AddOrUpdateModel(AiProviderProfile* profile, const QString& model_id,
+                      const QString& display_name, bool supports_vision,
+                      bool supports_structured_output) {
   if (profile == nullptr || model_id.isEmpty()) {
     return;
   }
@@ -265,8 +274,8 @@ void EnsureOpenCodeGoOpenAiModelAliases(AiProviderProfile* profile) {
   if (profile == nullptr || profile->based_on_template != QStringLiteral("opencode_go_openai")) {
     return;
   }
-  AddOrUpdateModel(profile, QStringLiteral("kimi-k2.7-code"), QStringLiteral("Kimi K2.7 Code"), true,
-                   true);
+  AddOrUpdateModel(profile, QStringLiteral("kimi-k2.7-code"), QStringLiteral("Kimi K2.7 Code"),
+                   true, true);
   AddOrUpdateModel(profile, QStringLiteral("kimi-k2.7"), QStringLiteral("Kimi K2.7"), true, true);
 }
 
@@ -293,9 +302,8 @@ void MigrateOpenCodeGoProfileDefaults(AiProviderProfile* profile) {
 }
 
 void MigrateCcSwitchProfileDefaults(AiProviderProfile* profile) {
-  if (profile == nullptr ||
-      (profile->based_on_template != QStringLiteral("ccswitch_openai") &&
-       profile->based_on_template != QStringLiteral("ccswitch_anthropic"))) {
+  if (profile == nullptr || (profile->based_on_template != QStringLiteral("ccswitch_openai") &&
+                             profile->based_on_template != QStringLiteral("ccswitch_anthropic"))) {
     return;
   }
   if (profile->models_response_data_json_pointer.trimmed().isEmpty()) {
@@ -303,25 +311,139 @@ void MigrateCcSwitchProfileDefaults(AiProviderProfile* profile) {
   }
 }
 
+bool IsCodexOAuthProfile(const AiProviderProfile& profile) {
+  return profile.driver == QStringLiteral("openai_codex_oauth") ||
+         profile.based_on_template == QStringLiteral("openai_codex_oauth");
+}
+
+QJsonObject CodexOAuthTokenObject(const QJsonObject& root) {
+  const QJsonValue tokens = root.value(QStringLiteral("tokens"));
+  return tokens.isObject() ? tokens.toObject() : root;
+}
+
+QString CodexOAuthAccountId(const QJsonObject& root) {
+  const QJsonObject tokens = CodexOAuthTokenObject(root);
+  return SanitizedNonSecretString(
+      tokens.value(QStringLiteral("account_id"))
+          .toString(tokens.value(QStringLiteral("accountId")).toString()));
+}
+
+QString CodexOAuthMaskedLabel(const QJsonObject& root) {
+  const QString account_id = CodexOAuthAccountId(root);
+  if (account_id.isEmpty()) {
+    return QStringLiteral("Codex OAuth");
+  }
+  const int visible = std::min<int>(6, static_cast<int>(account_id.size()));
+  return QStringLiteral("Codex OAuth ****") + account_id.right(visible);
+}
+
+QStringList CodexAuthFileCandidates() {
+  QStringList candidates;
+  auto        add_home = [&](const QString& root) {
+    const QString trimmed = root.trimmed();
+    if (!trimmed.isEmpty()) {
+      candidates.push_back(QDir(trimmed).filePath(QStringLiteral("auth.json")));
+    }
+  };
+  add_home(qEnvironmentVariable("CODEX_HOME"));
+  add_home(qEnvironmentVariable("OPENAI_CODEX_HOME"));
+  add_home(QDir::home().filePath(QStringLiteral(".codex")));
+
+  QStringList deduped;
+  for (const QString& path : candidates) {
+    const QString clean = QDir::cleanPath(path);
+    if (!deduped.contains(clean)) {
+      deduped.push_back(clean);
+    }
+  }
+  return deduped;
+}
+
+bool ReadCodexAuthFile(QJsonObject* root, QString* compact_json, QString* path, QString* error) {
+  QStringList checked;
+  for (const QString& candidate : CodexAuthFileCandidates()) {
+    checked.push_back(candidate);
+    QFile file(candidate);
+    if (!file.exists()) {
+      continue;
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+      if (error) {
+        *error = QStringLiteral("Could not read Codex auth file: %1").arg(candidate);
+      }
+      return false;
+    }
+    QByteArray          raw = file.readAll();
+    QJsonParseError     parse_error{};
+    const QJsonDocument doc = QJsonDocument::fromJson(raw, &parse_error);
+    raw.fill('\0');
+    raw.clear();
+    if (parse_error.error != QJsonParseError::NoError || !doc.isObject()) {
+      if (error) {
+        *error = QStringLiteral("Codex auth file is not valid JSON: %1").arg(candidate);
+      }
+      return false;
+    }
+    const QJsonObject parsed = doc.object();
+    const QJsonObject tokens = CodexOAuthTokenObject(parsed);
+    if (tokens.value(QStringLiteral("access_token")).toString().trimmed().isEmpty()) {
+      if (error) {
+        *error = QStringLiteral("Codex auth file has no access token: %1").arg(candidate);
+      }
+      return false;
+    }
+    if (root) {
+      *root = parsed;
+    }
+    if (compact_json) {
+      *compact_json = QString::fromUtf8(QJsonDocument(parsed).toJson(QJsonDocument::Compact));
+    }
+    if (path) {
+      *path = candidate;
+    }
+    return true;
+  }
+  if (error) {
+    *error = QStringLiteral("No Codex auth file found. Checked: %1")
+                 .arg(checked.join(QStringLiteral(", ")));
+  }
+  return false;
+}
+
+QString FindCodexExecutable() {
+#ifdef _WIN32
+  for (const QString& name :
+       {QStringLiteral("codex.cmd"), QStringLiteral("codex.exe"), QStringLiteral("codex")}) {
+#else
+  for (const QString& name : {QStringLiteral("codex")}) {
+#endif
+    const QString found = QStandardPaths::findExecutable(name);
+    if (!found.isEmpty()) {
+      return found;
+    }
+  }
+  return {};
+}
+
 AiProviderProfile ProfileFromTemplate(const TemplateConfig& t) {
   const QString     suffix = NewIdSuffix();
   AiProviderProfile p;
-  p.uuid                          = QUuid::createUuid().toString(QUuid::WithoutBraces);
-  p.display_name                  = QString::fromUtf8(t.label);
-  p.based_on_template             = QString::fromLatin1(t.template_id);
-  p.credential_slot               = QStringLiteral("alcedo_ai_") + suffix;
-  p.provider_id                   = QStringLiteral("profile_") + suffix;
-  p.driver                        = QString::fromLatin1(t.driver);
-  p.base_url                      = QString::fromLatin1(t.base_url);
-  p.endpoint                      = QString::fromLatin1(t.endpoint);
-  p.models_endpoint               = QString::fromLatin1(t.models_endpoint);
+  p.uuid                              = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  p.display_name                      = QString::fromUtf8(t.label);
+  p.based_on_template                 = QString::fromLatin1(t.template_id);
+  p.credential_slot                   = QStringLiteral("alcedo_ai_") + suffix;
+  p.provider_id                       = QStringLiteral("profile_") + suffix;
+  p.driver                            = QString::fromLatin1(t.driver);
+  p.base_url                          = QString::fromLatin1(t.base_url);
+  p.endpoint                          = QString::fromLatin1(t.endpoint);
+  p.models_endpoint                   = QString::fromLatin1(t.models_endpoint);
   p.models_response_data_json_pointer = QString::fromLatin1(t.models_response_data_json_pointer);
-  p.auth_type                     = QString::fromLatin1(t.auth_type);
-  p.model_id                      = QString::fromLatin1(t.model_id);
-  p.model_display_name            = QString::fromUtf8(t.model_display_name);
-  p.structured_output_mode        = QString::fromLatin1(t.structured_output_mode);
-  p.response_content_json_pointer = QString::fromLatin1(t.response_content_json_pointer);
-  p.response_usage_json_pointer   = QString::fromLatin1(t.response_usage_json_pointer);
+  p.auth_type                         = QString::fromLatin1(t.auth_type);
+  p.model_id                          = QString::fromLatin1(t.model_id);
+  p.model_display_name                = QString::fromUtf8(t.model_display_name);
+  p.structured_output_mode            = QString::fromLatin1(t.structured_output_mode);
+  p.response_content_json_pointer     = QString::fromLatin1(t.response_content_json_pointer);
+  p.response_usage_json_pointer       = QString::fromLatin1(t.response_usage_json_pointer);
   p.response_provider_request_id_json_pointer =
       QString::fromLatin1(t.response_provider_request_id_json_pointer);
   p.response_provider_request_id_header =
@@ -588,8 +710,7 @@ QVariantMap ProfileToVariant(const AiProviderProfile&                   p,
   m.insert(QStringLiteral("baseUrl"), p.base_url);
   m.insert(QStringLiteral("endpoint"), p.endpoint);
   m.insert(QStringLiteral("modelsEndpoint"), p.models_endpoint);
-  m.insert(QStringLiteral("modelsResponseDataJsonPointer"),
-           p.models_response_data_json_pointer);
+  m.insert(QStringLiteral("modelsResponseDataJsonPointer"), p.models_response_data_json_pointer);
   m.insert(QStringLiteral("authType"), p.auth_type);
   m.insert(QStringLiteral("modelId"), p.model_id);
   m.insert(QStringLiteral("modelDisplayName"), p.model_display_name);
@@ -902,6 +1023,70 @@ QString AiProviderProfileController::SaveApiKey(const QString& profile_id, const
   return {};
 }
 
+QString AiProviderProfileController::ImportCodexAuth(const QString& profile_id) {
+  auto* p = FindProfile(profile_id);
+  if (!p || !credential_store_) {
+    return QStringLiteral("Image analysis provider profile is unavailable.");
+  }
+  if (!IsCodexOAuthProfile(*p)) {
+    return QStringLiteral("This provider profile does not use OpenAI Codex OAuth.");
+  }
+  if (p->credential_slot.isEmpty()) {
+    return QStringLiteral("Configure a credential slot before importing Codex OAuth.");
+  }
+
+  QJsonObject root;
+  QString     compact_json;
+  QString     error;
+  if (!ReadCodexAuthFile(&root, &compact_json, nullptr, &error)) {
+    return error.isEmpty() ? QStringLiteral("Could not import Codex OAuth credentials.") : error;
+  }
+
+  QByteArray  secret_bytes = compact_json.toUtf8();
+  std::string raw(secret_bytes.constData(), static_cast<size_t>(secret_bytes.size()));
+  secret_bytes.fill('\0');
+  secret_bytes.clear();
+
+  std::string store_error;
+  const bool  ok =
+      credential_store_->SaveCredential(p->credential_slot.toStdString(), raw, &store_error);
+  ClearSecret(&raw);
+  if (!ok) {
+    return store_error.empty()
+               ? QStringLiteral("Could not save Codex OAuth credentials to the credential store.")
+               : QString::fromStdString(store_error);
+  }
+
+  p->masked_key_label = CodexOAuthMaskedLabel(root);
+  p->remember_key     = true;
+  Save();
+  emit ProfilesChanged();
+  return {};
+}
+
+QString AiProviderProfileController::OpenCodexLogin() {
+  const QString codex = FindCodexExecutable();
+  if (codex.isEmpty()) {
+    return QStringLiteral("Codex CLI was not found on PATH. Run `codex login` manually, then use "
+                          "Codex Login again.");
+  }
+
+#ifdef _WIN32
+  QString escaped_codex = codex;
+  escaped_codex.replace(QLatin1Char('"'), QString{});
+  const QString command =
+      QStringLiteral("start \"Codex Login\" \"%1\" login").arg(escaped_codex);
+  if (!QProcess::startDetached(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), command})) {
+    return QStringLiteral("Could not start `codex login`.");
+  }
+#else
+  if (!QProcess::startDetached(codex, {QStringLiteral("login")})) {
+    return QStringLiteral("Could not start `codex login`.");
+  }
+#endif
+  return {};
+}
+
 void AiProviderProfileController::DeleteApiKey(const QString& profile_id) {
   auto* p = FindProfile(profile_id);
   if (!p || !credential_store_ || p->credential_slot.isEmpty()) {
@@ -929,18 +1114,16 @@ void AiProviderProfileController::SetDiscoveredModels(const QString&      profil
     }
     const QString display =
         SanitizedNonSecretString(map.value(QStringLiteral("displayName")).toString());
-    auto it = std::find_if(p->models.begin(), p->models.end(),
-                           [&](const auto& model) { return model.model_id == id; });
-    const bool discovered_supports_vision =
-        VariantBoolWithFallback(map, QStringLiteral("supportsVision"),
-                                QStringLiteral("supports_vision"), true);
+    auto       it                         = std::find_if(p->models.begin(), p->models.end(),
+                                                         [&](const auto& model) { return model.model_id == id; });
+    const bool discovered_supports_vision = VariantBoolWithFallback(
+        map, QStringLiteral("supportsVision"), QStringLiteral("supports_vision"), true);
     const bool discovered_supports_structured_output =
         VariantBoolWithFallback(map, QStringLiteral("supportsStructuredOutput"),
                                 QStringLiteral("supports_structured_output"),
                                 p->structured_output_mode != QStringLiteral("none"));
-    const bool discovered_live_confirmed =
-        VariantBoolWithFallback(map, QStringLiteral("liveConfirmed"),
-                                QStringLiteral("live_confirmed"), false);
+    const bool discovered_live_confirmed = VariantBoolWithFallback(
+        map, QStringLiteral("liveConfirmed"), QStringLiteral("live_confirmed"), false);
     if (it == p->models.end()) {
       AiProviderModelEntry model;
       model.model_id                   = id;

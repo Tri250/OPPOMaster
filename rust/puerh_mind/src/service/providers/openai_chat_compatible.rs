@@ -830,12 +830,8 @@ impl OpenAiChatCompatibleProvider {
         if !content_null {
             return false;
         }
-        let has_tool_args = body
-            .pointer("/choices/0/message/tool_calls")
-            .is_some()
-            || body
-                .pointer("/choices/0/message/function_call")
-                .is_some();
+        let has_tool_args = body.pointer("/choices/0/message/tool_calls").is_some()
+            || body.pointer("/choices/0/message/function_call").is_some();
         !has_tool_args && finish_reason_of(body) == Some("length")
     }
 
@@ -2669,9 +2665,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
 

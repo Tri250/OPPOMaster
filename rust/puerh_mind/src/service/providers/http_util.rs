@@ -518,7 +518,10 @@ pub async fn send_get_with_retry(
                     attempt += 1;
                     continue;
                 }
-                return Err(ProviderError::Transient);
+                return Err(ProviderError::Provider(transport_error_message(
+                    "provider model-list transport error",
+                    &err,
+                )));
             }
         }
     }
@@ -534,6 +537,10 @@ fn transport_error_category(err: &reqwest::Error) -> &'static str {
     } else {
         "other"
     }
+}
+
+fn transport_error_message(context: &str, err: &reqwest::Error) -> String {
+    format!("{context}: {} ({err})", transport_error_category(err))
 }
 
 /// Parse a `Retry-After` header (seconds form only; the HTTP-date form is

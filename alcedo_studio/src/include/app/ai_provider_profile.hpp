@@ -115,6 +115,8 @@ class AiProviderProfileController final : public QObject {
   Q_INVOKABLE bool         SetProfileField(const QString& profile_id, const QString& field,
                                            const QVariant& value);
   Q_INVOKABLE QString      SaveApiKey(const QString& profile_id, const QString& secret);
+  Q_INVOKABLE QString      ImportCodexAuth(const QString& profile_id);
+  Q_INVOKABLE QString      OpenCodexLogin();
   Q_INVOKABLE void         DeleteApiKey(const QString& profile_id);
 
   void SetDiscoveredModels(const QString& profile_id, const QVariantList& models);

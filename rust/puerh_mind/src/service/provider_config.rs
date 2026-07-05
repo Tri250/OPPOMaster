@@ -55,6 +55,7 @@ pub const KNOWN_DRIVER_IDS: &[&str] = &[
     "volcengine_ark_responses",
     "volcengine_ark_chat",
     "openai_responses",
+    "openai_codex_oauth",
     "openai_chat_compatible",
     "anthropic_messages",
     "gemini_generate_content",
@@ -366,6 +367,10 @@ const BUILTIN_PROVIDER_CONFIGS: &[(&str, &str)] = &[
     (
         "ccswitch_openai",
         include_str!("../../configs/providers/ccswitch_openai.json"),
+    ),
+    (
+        "openai_codex_oauth",
+        include_str!("../../configs/providers/openai_codex_oauth.json"),
     ),
 ];
 
@@ -1043,8 +1048,9 @@ mod tests {
     fn loads_built_in_configs() {
         let registry = builtin_registry();
         // OpenRouter + Volcengine Ark + Volcengine Ark Coding Plan + Opencode Go
-        // (Anthropic) + Opencode Go (OpenAI) + 2 CC Switch routing presets.
-        assert_eq!(registry.len(), 7);
+        // (Anthropic) + Opencode Go (OpenAI) + 2 CC Switch routing presets +
+        // OpenAI Codex OAuth.
+        assert_eq!(registry.len(), 8);
         let openrouter = registry.get("openrouter").expect("openrouter present");
         assert_eq!(openrouter.driver, "openrouter_chat");
         assert_eq!(openrouter.base_url, "https://openrouter.ai/api/v1");
@@ -1702,11 +1708,11 @@ mod tests {
     fn built_ins_advertise_understanding_and_rating_descriptors() {
         let registry = builtin_registry();
         let caps = build_provider_capability_descriptors(&registry);
-        // 8 advertised provider/model pairs (OpenRouter, Volcengine Ark,
+        // 9 advertised provider/model pairs (OpenRouter, Volcengine Ark,
         // Volcengine Ark Coding Plan, OpenCode Go Anthropic, and 2 OpenCode Go
-        // OpenAI models, plus the 2 CC Switch routing presets), each emitting 2
-        // descriptors (understanding + rating) = 16.
-        assert_eq!(caps.len(), 16);
+        // OpenAI models, plus the 2 CC Switch routing presets and OpenAI Codex
+        // OAuth), each emitting 2 descriptors (understanding + rating) = 18.
+        assert_eq!(caps.len(), 18);
 
         let understanding: Vec<_> = caps
             .iter()
@@ -1716,8 +1722,8 @@ mod tests {
             .iter()
             .filter(|c| c.task_id == "image_rating.score")
             .collect();
-        assert_eq!(understanding.len(), 8);
-        assert_eq!(rating.len(), 8);
+        assert_eq!(understanding.len(), 9);
+        assert_eq!(rating.len(), 9);
         assert!(
             caps.iter()
                 .any(|c| c.provider_id == "opencode_go_anthropic"),

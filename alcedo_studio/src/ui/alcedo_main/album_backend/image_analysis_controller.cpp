@@ -561,7 +561,7 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
   std::string slot = profile.credential_slot.toStdString();
   if (requires_credential && !store->HasCredential(slot)) {
     credential_available_ = false;
-    SetError(Tr("No API key stored for credential slot '%1'. Save a key first.")
+    SetError(Tr("No credential stored for credential slot '%1'. Connect or save credentials first.")
                  .arg(profile.credential_slot));
     return;
   }

@@ -9,12 +9,12 @@ use tonic::{Request, Response, Status};
 
 use crate::proto::alcedo::ai::{AiRequestHeader, AiResponseHeader, AiResponseStatus};
 use crate::proto::semantic::{
-    EmbedImageBatchRequest, EmbedImageBatchRequestV2, EmbedImageItemV2, EmbedImageRequest,
-    EmbedImageRequestV2, EmbedTextBatchRequest, EmbedTextBatchRequestV2, EmbedTextItemV2,
-    EmbedTextRequest, EmbedTextRequestV2, EmbeddingBatchItem, EmbeddingBatchItemV2,
-    EmbeddingBatchResponse, EmbeddingBatchResponseV2, EmbeddingResponse, EmbeddingResponseV2,
-    GetModelInfoRequest, GetModelInfoResponse, GetRuntimeStatusRequest, GetRuntimeStatusResponse,
-    PingRequest, PingResponse, semantic_service_server::SemanticService,
+    EmbedImageBatchRequest, EmbedImageBatchRequestV2, EmbedImageRequest, EmbedImageRequestV2,
+    EmbedTextBatchRequest, EmbedTextBatchRequestV2, EmbedTextRequest, EmbedTextRequestV2,
+    EmbeddingBatchItem, EmbeddingBatchItemV2, EmbeddingBatchResponse, EmbeddingBatchResponseV2,
+    EmbeddingResponse, EmbeddingResponseV2, GetModelInfoRequest, GetModelInfoResponse,
+    GetRuntimeStatusRequest, GetRuntimeStatusResponse, PingRequest, PingResponse,
+    semantic_service_server::SemanticService,
 };
 use crate::service::embedding::EmbeddingEngine;
 
@@ -763,6 +763,7 @@ mod tests {
 
     use super::*;
     use crate::config::SemanticConfig;
+    use crate::proto::semantic::{EmbedImageItemV2, EmbedTextItemV2};
     use crate::service::embedding::{EmbeddingEngine, EngineModelInfo, MockEmbeddingEngine};
     use crate::service::ort_clip::OrtClipEngine;
 

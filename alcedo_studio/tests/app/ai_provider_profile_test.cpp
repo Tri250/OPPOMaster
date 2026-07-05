@@ -15,6 +15,7 @@
 #include <QSet>
 #include <QString>
 #include <QTemporaryDir>
+#include <QtGlobal>
 #include <QVariantList>
 #include <QVariantMap>
 #include <filesystem>
@@ -84,7 +85,7 @@ class AiProviderProfileTest : public ::testing::Test {
 
 QCoreApplication* AiProviderProfileTest::app_ = nullptr;
 
-TEST_F(AiProviderProfileTest, StartsEmptyAndOffersOnlyFrontend1bTemplates) {
+TEST_F(AiProviderProfileTest, StartsEmptyAndOffersProviderTemplates) {
   EXPECT_TRUE(controller_.Profiles().isEmpty());
   EXPECT_TRUE(controller_.ActiveProfileId().isEmpty());
   EXPECT_FALSE(controller_.HasProfiles());
@@ -93,11 +94,14 @@ TEST_F(AiProviderProfileTest, StartsEmptyAndOffersOnlyFrontend1bTemplates) {
   for (const auto& option : controller_.TemplateOptions()) {
     ids.insert(option.toMap().value(QStringLiteral("templateId")).toString());
   }
-  EXPECT_EQ(ids.size(), 5);
+  EXPECT_EQ(ids.size(), 8);
+  EXPECT_TRUE(ids.contains(QStringLiteral("ccswitch_anthropic")));
+  EXPECT_TRUE(ids.contains(QStringLiteral("ccswitch_openai")));
   EXPECT_TRUE(ids.contains(QStringLiteral("opencode_go_anthropic")));
   EXPECT_TRUE(ids.contains(QStringLiteral("opencode_go_openai")));
   EXPECT_TRUE(ids.contains(QStringLiteral("volcengine_ark")));
   EXPECT_TRUE(ids.contains(QStringLiteral("volcengine_ark_coding")));
+  EXPECT_TRUE(ids.contains(QStringLiteral("openai_codex_oauth")));
   EXPECT_TRUE(ids.contains(QStringLiteral("custom")));
   EXPECT_FALSE(ids.contains(QStringLiteral("openrouter")));
 }
@@ -212,7 +216,8 @@ TEST_F(AiProviderProfileTest, SettingsPersistInOneAiProvidersJsonFile) {
 }
 
 TEST_F(AiProviderProfileTest, ReloadMigratesOldOpencodeGoDefaultModels) {
-  const QString openai_id = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
+  const QString openai_id =
+      controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
   const QString anthropic_id =
       controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_anthropic"));
 
@@ -301,7 +306,7 @@ TEST_F(AiProviderProfileTest, OpenCodeOpenAiConfigIncludesDocumentedAndDiscovera
 }
 
 TEST_F(AiProviderProfileTest, CcSwitchTemplatesWriteModelsResponsePath) {
-  const QString     id = controller_.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
+  const QString     id      = controller_.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
   const QVariantMap profile = Profile(id);
   EXPECT_EQ(profile.value(QStringLiteral("modelsResponseDataJsonPointer")).toString(),
             QStringLiteral("/models"));
@@ -318,10 +323,108 @@ TEST_F(AiProviderProfileTest, CcSwitchTemplatesWriteModelsResponsePath) {
             QStringLiteral("/models"));
 }
 
+TEST_F(AiProviderProfileTest, OpenAiCodexOAuthTemplateWritesCodexSidecarConfig) {
+  const QString     id = controller_.AddProfileFromTemplate(QStringLiteral("openai_codex_oauth"));
+  const QVariantMap profile = Profile(id);
+  EXPECT_EQ(profile.value(QStringLiteral("driver")).toString(),
+            QStringLiteral("openai_codex_oauth"));
+  EXPECT_EQ(profile.value(QStringLiteral("baseUrl")).toString(),
+            QStringLiteral("https://chatgpt.com/backend-api/codex"));
+  EXPECT_EQ(profile.value(QStringLiteral("endpoint")).toString(), QStringLiteral("/responses"));
+  EXPECT_EQ(profile.value(QStringLiteral("modelsEndpoint")).toString(), QStringLiteral("/models"));
+  EXPECT_EQ(profile.value(QStringLiteral("modelsResponseDataJsonPointer")).toString(),
+            QStringLiteral("/models"));
+  EXPECT_EQ(profile.value(QStringLiteral("modelId")).toString(), QStringLiteral("gpt-5.3-codex"));
+  EXPECT_TRUE(profile.value(QStringLiteral("credentialRequired")).toBool());
+  EXPECT_FALSE(profile.value(QStringLiteral("credentialAvailable")).toBool());
+
+  std::string error;
+  ASSERT_TRUE(controller_.PrepareSidecarConfigDir(&error)) << error;
+
+  const QJsonObject root =
+      ReadJsonFile(ConfigFileQt(profile.value(QStringLiteral("providerId")).toString()));
+  EXPECT_EQ(root.value(QStringLiteral("driver")).toString(), QStringLiteral("openai_codex_oauth"));
+  EXPECT_EQ(root.value(QStringLiteral("base_url")).toString(),
+            QStringLiteral("https://chatgpt.com/backend-api/codex"));
+  EXPECT_EQ(root.value(QStringLiteral("auth"))
+                .toObject()
+                .value(QStringLiteral("credential_slot"))
+                .toString(),
+            profile.value(QStringLiteral("credentialSlot")).toString());
+  EXPECT_EQ(root.value(QStringLiteral("structured_output"))
+                .toObject()
+                .value(QStringLiteral("mode"))
+                .toString(),
+            QStringLiteral("responses_json_schema"));
+  EXPECT_EQ(root.value(QStringLiteral("response"))
+                .toObject()
+                .value(QStringLiteral("content_json_pointer"))
+                .toString(),
+            QStringLiteral("/output_text"));
+}
+
+TEST_F(AiProviderProfileTest, ImportCodexAuthStoresTokenJsonOnlyInCredentialStore) {
+  const QString     id = controller_.AddProfileFromTemplate(QStringLiteral("openai_codex_oauth"));
+  const QVariantMap profile       = Profile(id);
+  const QString     slot          = profile.value(QStringLiteral("credentialSlot")).toString();
+  const QString     access_token  = QStringLiteral("codex-access-token-never-persist");
+  const QString     refresh_token = QStringLiteral("codex-refresh-token-never-persist");
+  const QString     codex_home    = temp_.filePath(QStringLiteral("codex_home"));
+  ASSERT_TRUE(QDir().mkpath(codex_home));
+
+  QFile auth_file(QDir(codex_home).filePath(QStringLiteral("auth.json")));
+  ASSERT_TRUE(auth_file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  QJsonObject tokens;
+  tokens.insert(QStringLiteral("access_token"), access_token);
+  tokens.insert(QStringLiteral("refresh_token"), refresh_token);
+  tokens.insert(QStringLiteral("account_id"), QStringLiteral("acct_test_abcdef"));
+  QJsonObject root;
+  root.insert(QStringLiteral("tokens"), tokens);
+  auth_file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+  auth_file.close();
+
+  const bool       had_codex_home = qEnvironmentVariableIsSet("CODEX_HOME");
+  const QByteArray old_codex_home = qgetenv("CODEX_HOME");
+  qputenv("CODEX_HOME", codex_home.toUtf8());
+  const QString import_error = controller_.ImportCodexAuth(id);
+  if (had_codex_home) {
+    qputenv("CODEX_HOME", old_codex_home);
+  } else {
+    qunsetenv("CODEX_HOME");
+  }
+  ASSERT_TRUE(import_error.isEmpty()) << import_error.toStdString();
+
+  std::string stored_secret;
+  std::string store_error;
+  ASSERT_TRUE(store_->LoadCredential(slot.toStdString(), &stored_secret, &store_error))
+      << store_error;
+  EXPECT_NE(stored_secret.find(access_token.toStdString()), std::string::npos);
+  EXPECT_NE(stored_secret.find(refresh_token.toStdString()), std::string::npos);
+  EXPECT_TRUE(Profile(id).value(QStringLiteral("credentialAvailable")).toBool());
+  EXPECT_EQ(Profile(id).value(QStringLiteral("maskedKeyLabel")).toString(),
+            QStringLiteral("Codex OAuth ****abcdef"));
+
+  std::string error;
+  ASSERT_TRUE(controller_.PrepareSidecarConfigDir(&error)) << error;
+  QFile store_file(StorageFileQt());
+  ASSERT_TRUE(store_file.open(QIODevice::ReadOnly));
+  const QString stored_json = QString::fromUtf8(store_file.readAll());
+  EXPECT_FALSE(stored_json.contains(access_token));
+  EXPECT_FALSE(stored_json.contains(refresh_token));
+
+  const QString provider_id = Profile(id).value(QStringLiteral("providerId")).toString();
+  QFile         config_file(ConfigFileQt(provider_id));
+  ASSERT_TRUE(config_file.open(QIODevice::ReadOnly));
+  const QString config_json = QString::fromUtf8(config_file.readAll());
+  EXPECT_FALSE(config_json.contains(access_token));
+  EXPECT_FALSE(config_json.contains(refresh_token));
+  EXPECT_TRUE(config_json.contains(slot));
+}
+
 TEST_F(AiProviderProfileTest, ExistingCcSwitchProfilesMigrateModelsResponsePath) {
   const QString id = controller_.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
 
-  QFile file(StorageFileQt());
+  QFile         file(StorageFileQt());
   ASSERT_TRUE(file.open(QIODevice::ReadOnly));
   QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
   file.close();
@@ -387,7 +490,7 @@ TEST_F(AiProviderProfileTest, DiscoveredModelsDefaultToImageAnalysisCandidate) {
 
   controller_.SetDiscoveredModels(id, models);
   const auto options = controller_.ModelOptions(id);
-  auto it = std::find_if(options.begin(), options.end(), [](const QVariant& value) {
+  auto       it      = std::find_if(options.begin(), options.end(), [](const QVariant& value) {
     return value.toMap().value(QStringLiteral("modelId")).toString() ==
            QStringLiteral("listed-code-model");
   });

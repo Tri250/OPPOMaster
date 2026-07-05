@@ -5,11 +5,12 @@
 #include "app/ai_sidecar_runtime_service.hpp"
 
 #include <QCoreApplication>
-#include <QEventLoop>
 #include <QDir>
+#include <QEventLoop>
 #include <QHostAddress>
 #include <QMetaObject>
 #include <QPointer>
+#include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTcpServer>
@@ -23,6 +24,7 @@
 #include "utils/diagnostics/app_logging.hpp"
 
 #ifdef _WIN32
+#include <QSettings>
 #include <windows.h>
 #endif
 
@@ -149,6 +151,70 @@ auto DefaultRuntimeModelRoot() -> std::filesystem::path {
 
   return app_path / kDefaultModelDirectory;
 }
+
+#ifdef _WIN32
+auto ProxyValueForScheme(const QString& proxy_server, const QString& scheme) -> QString {
+  const QString trimmed = proxy_server.trimmed();
+  if (trimmed.isEmpty()) {
+    return {};
+  }
+  const QString prefix = scheme + QStringLiteral("=");
+  for (const QString& part : trimmed.split(';', Qt::SkipEmptyParts)) {
+    const QString entry = part.trimmed();
+    if (entry.startsWith(prefix, Qt::CaseInsensitive)) {
+      return entry.mid(prefix.size()).trimmed();
+    }
+  }
+  if (!trimmed.contains('=')) {
+    return trimmed;
+  }
+  return {};
+}
+
+auto NormalizeProxyUrl(QString value) -> QString {
+  value = value.trimmed();
+  if (value.isEmpty()) {
+    return {};
+  }
+  if (!value.contains(QStringLiteral("://"))) {
+    value.prepend(QStringLiteral("http://"));
+  }
+  return value;
+}
+
+auto AddWindowsUserProxyEnvironment(QProcessEnvironment env) -> QProcessEnvironment {
+  if (env.contains(QStringLiteral("HTTPS_PROXY")) || env.contains(QStringLiteral("HTTP_PROXY")) ||
+      env.contains(QStringLiteral("https_proxy")) || env.contains(QStringLiteral("http_proxy"))) {
+    return env;
+  }
+
+  QSettings internet(
+      QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet "
+                     "Settings"),
+      QSettings::NativeFormat);
+  if (internet.value(QStringLiteral("ProxyEnable")).toInt() == 0) {
+    return env;
+  }
+
+  const QString proxy_server = internet.value(QStringLiteral("ProxyServer")).toString();
+  const QString http_proxy   = NormalizeProxyUrl(ProxyValueForScheme(proxy_server, "http"));
+  QString       https_proxy  = NormalizeProxyUrl(ProxyValueForScheme(proxy_server, "https"));
+  if (https_proxy.isEmpty()) {
+    https_proxy = http_proxy;
+  }
+
+  if (!http_proxy.isEmpty()) {
+    env.insert(QStringLiteral("HTTP_PROXY"), http_proxy);
+  }
+  if (!https_proxy.isEmpty()) {
+    env.insert(QStringLiteral("HTTPS_PROXY"), https_proxy);
+  }
+  if (!env.contains(QStringLiteral("NO_PROXY")) && !env.contains(QStringLiteral("no_proxy"))) {
+    env.insert(QStringLiteral("NO_PROXY"), QStringLiteral("localhost,127.0.0.1,::1"));
+  }
+  return env;
+}
+#endif
 
 }  // namespace
 
@@ -300,6 +366,10 @@ auto AiSidecarRuntimeService::StartAndWaitBody(const AiSidecarRuntimeOptions& op
   process_.setProgram(QString::fromStdString(options_.runtime_binary.string()));
   process_.setArguments(BuildArguments());
   process_.setProcessChannelMode(QProcess::SeparateChannels);
+#ifdef _WIN32
+  process_.setProcessEnvironment(
+      AddWindowsUserProxyEnvironment(QProcessEnvironment::systemEnvironment()));
+#endif
   process_.start();
 
   if (!process_.waitForStarted(static_cast<int>(options_.startup_timeout.count()))) {

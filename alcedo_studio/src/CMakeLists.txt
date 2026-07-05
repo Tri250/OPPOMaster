@@ -1116,7 +1116,7 @@ def_library(AiCredentialStore
         include/app/ai_credential_store.hpp
 )
 if(WIN32)
-    target_link_libraries(AiCredentialStore PRIVATE Advapi32)
+    target_link_libraries(AiCredentialStore PRIVATE Advapi32 Crypt32)
 elseif(APPLE)
     target_link_libraries(AiCredentialStore PRIVATE "-framework Security" "-framework CoreFoundation")
 endif()
