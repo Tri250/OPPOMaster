@@ -264,5 +264,29 @@ TEST_F(AlbumBackendInteractionPolicyTests, NullRegistry_PolicyStaysOpen) {
   EXPECT_TRUE(policy.CanEditFocusedDescription());
 }
 
+TEST_F(AlbumBackendInteractionPolicyTests, NaturalLanguageSearchGate_DisablesFieldFilters) {
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
+  QSignalSpy                  spy(&policy, &InteractionPolicyController::PolicyChanged);
+  // Default: NL off → field filters changeable, no reason surfaced.
+  EXPECT_TRUE(policy.CanChangeSearchFieldFilters());
+  EXPECT_TRUE(policy.SearchFieldFiltersReason().isEmpty());
+  // Turn NL on → field filters disabled with a reason, PolicyChanged fires.
+  // This gate is UI-only (no task lock); it is the documented exception to the
+  // locks-only model — see the interaction_policy_controller header comment.
+  policy.SetNaturalLanguageSearchEnabled(true);
+  EXPECT_FALSE(policy.CanChangeSearchFieldFilters());
+  EXPECT_FALSE(policy.SearchFieldFiltersReason().isEmpty());
+  EXPECT_GT(spy.count(), 0);
+  // Idempotent: setting the same value again does not notify.
+  const int after_first = spy.count();
+  policy.SetNaturalLanguageSearchEnabled(true);
+  EXPECT_EQ(spy.count(), after_first);
+  // Turn NL off → field filters changeable again, reason clears.
+  policy.SetNaturalLanguageSearchEnabled(false);
+  EXPECT_TRUE(policy.CanChangeSearchFieldFilters());
+  EXPECT_TRUE(policy.SearchFieldFiltersReason().isEmpty());
+}
+
 }  // namespace
 }  // namespace alcedo::ui::test

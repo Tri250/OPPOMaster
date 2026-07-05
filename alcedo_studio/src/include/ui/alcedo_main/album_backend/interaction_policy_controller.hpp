@@ -44,6 +44,15 @@ class InteractionPolicyController final : public QObject {
                  SetPendingDeleteTargets NOTIFY PolicyChanged)
   Q_PROPERTY(QVariantList pendingAnalysisTargets READ PendingAnalysisTargets WRITE
                  SetPendingAnalysisTargets NOTIFY PolicyChanged)
+  // Search-settings natural-language toggle (UI mutual-exclusion input). When
+  // true the search field-filter checkboxes are disabled (see
+  // CanChangeSearchFieldFilters). This is a UI-only gate — it does NOT go
+  // through the task-lock model (no InteractionCapability, no lock); it is the
+  // documented exception to the locks-only design because the
+  // natural-language / field-filter exclusion is a pure UI concern, not a
+  // background-task conflict.
+  Q_PROPERTY(bool naturalLanguageSearchEnabled READ NaturalLanguageSearchEnabled WRITE
+                 SetNaturalLanguageSearchEnabled NOTIFY PolicyChanged)
 
   // Focused-image edit gates (depend on focusedElementId + locks).
   Q_PROPERTY(bool canEditFocusedDescription READ CanEditFocusedDescription NOTIFY PolicyChanged)
@@ -63,6 +72,10 @@ class InteractionPolicyController final : public QObject {
                  PolicyChanged)
   Q_PROPERTY(bool canChangeImageAnalysisProvider READ CanChangeImageAnalysisProvider NOTIFY
                  PolicyChanged)
+  // Search field-filter gate (depends on naturalLanguageSearchEnabled only).
+  Q_PROPERTY(bool canChangeSearchFieldFilters READ CanChangeSearchFieldFilters NOTIFY
+                 PolicyChanged)
+  Q_PROPERTY(QString searchFieldFiltersReason READ SearchFieldFiltersReason NOTIFY PolicyChanged)
 
  public:
   explicit InteractionPolicyController(BackgroundTaskController* registry = nullptr,
@@ -75,6 +88,8 @@ class InteractionPolicyController final : public QObject {
   void             SetPendingDeleteTargets(const QVariantList& targets);
   QVariantList     PendingAnalysisTargets() const { return pending_analysis_targets_; }
   void             SetPendingAnalysisTargets(const QVariantList& targets);
+  bool             NaturalLanguageSearchEnabled() const { return natural_language_search_enabled_; }
+  void             SetNaturalLanguageSearchEnabled(bool enabled);
 
   // ── Cached output Q_PROPERTYs (for `enabled:` bindings) ───────────────
   bool    CanEditFocusedDescription() const;
@@ -89,6 +104,8 @@ class InteractionPolicyController final : public QObject {
   bool    CanRunSemanticGeneration() const;
   bool    CanChangeModelDownloadSettings() const;
   bool    CanChangeImageAnalysisProvider() const;
+  bool    CanChangeSearchFieldFilters() const;
+  QString SearchFieldFiltersReason() const;
 
   // ── Q_INVOKABLE one-shot queries (return {allowed, reason, blockingTaskIds}) ─
   // Named `Evaluate*` (not `Can*`) so they do not collide with the no-arg
@@ -134,6 +151,7 @@ class InteractionPolicyController final : public QObject {
   uint                           focused_element_id_      = 0;
   QVariantList                   pending_delete_targets_  = {};
   QVariantList                   pending_analysis_targets_ = {};
+  bool                           natural_language_search_enabled_ = false;
 };
 
 }  // namespace alcedo::ui

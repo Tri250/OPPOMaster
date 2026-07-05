@@ -178,32 +178,65 @@ auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
 // file with no AI understanding into an empty document contribution. Only
 // active-for-search rows participate, so a failed/partial remote call that was never
 // persisted (or a deactivated row) cannot surface in search.
-auto AiUnderstandingExpr() -> std::wstring {
-  return L"(SELECT string_agg(u.caption || ' ' || u.tags_json || ' ' || u.scene, ' ') "
+// JoinWith is defined further down; forward-declared so the masked document
+// builder below can compose field parts before the helper is in scope.
+auto JoinWith(const std::vector<std::wstring>& parts, const std::wstring& sep) -> std::wstring;
+
+// Phase 5f's AI understanding is split so the search-settings drawer can scope to
+// "AI description" (caption + scene — the descriptive prose) independently of
+// "AI tags" (the tags_json array). Each is a correlated subquery against the
+// outer `Element e` row (e.id is the file id / inode the AI rows bind to).
+// string_agg over zero active rows is NULL, so COALESCE at the call site turns
+// a file with no AI understanding into an empty contribution. Only
+// active-for-search rows participate, so a failed/partial remote call that was
+// never persisted (or a deactivated row) cannot surface in search.
+auto AiCaptionExpr() -> std::wstring {
+  return L"(SELECT string_agg(u.caption || ' ' || u.scene, ' ') "
+         L"FROM AiImageUnderstanding u WHERE u.file_id = e.id AND u.active = TRUE)";
+}
+auto AiTagsExpr() -> std::wstring {
+  return L"(SELECT string_agg(u.tags_json, ' ') "
          L"FROM AiImageUnderstanding u WHERE u.file_id = e.id AND u.active = TRUE)";
 }
 
-auto SearchDocumentExpr(const std::string& active_model_key) -> std::wstring {
-  return L"CONCAT_WS(' ', "
-         L"COALESCE(e.element_name, ''), "
-         L"COALESCE(i.file_name, ''), "
-         L"COALESCE(i.image_path, ''), "
-         L"COALESCE(json_extract_string(i.metadata, '$.Make'), ''), "
-         L"COALESCE(json_extract_string(i.metadata, '$.Model'), ''), "
-         L"COALESCE(json_extract_string(i.metadata, '$.Lens'), ''), "
-         L"COALESCE(json_extract_string(i.metadata, '$.LensMake'), ''), "
-         L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), ''), "
-         L"COALESCE(" +
-         SemanticLabelExpr(active_model_key) +
-         L", ''), "
-         L"COALESCE(" +
-         AiUnderstandingExpr() +
-         L", ''), "
-         L"COALESCE(CAST(i.metadata AS VARCHAR), ''))";
+// Concatenates the enabled field groups into one search document. The folded
+// separator-match path and the whole-query LIKE both run against this. When no
+// field is enabled the result is the empty string; callers guard mask == 0
+// before reaching here so the empty-document case never reaches SQL.
+auto SearchDocumentExpr(const std::string& active_model_key, SearchFieldMask mask)
+    -> std::wstring {
+  std::vector<std::wstring> parts;
+  if (mask & SearchField::Filename) {
+    parts.push_back(L"COALESCE(e.element_name, '')");
+    parts.push_back(L"COALESCE(i.file_name, '')");
+    parts.push_back(L"COALESCE(i.image_path, '')");
+  }
+  if (mask & SearchField::Exif) {
+    parts.push_back(L"COALESCE(json_extract_string(i.metadata, '$.Make'), '')");
+    parts.push_back(L"COALESCE(json_extract_string(i.metadata, '$.Model'), '')");
+    parts.push_back(L"COALESCE(json_extract_string(i.metadata, '$.Lens'), '')");
+    parts.push_back(L"COALESCE(json_extract_string(i.metadata, '$.LensMake'), '')");
+    parts.push_back(L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), '')");
+    parts.push_back(L"COALESCE(CAST(i.metadata AS VARCHAR), '')");
+  }
+  if (mask & SearchField::AiDescription) {
+    parts.push_back(L"COALESCE(" + AiCaptionExpr() + L", '')");
+  }
+  if (mask & SearchField::AiTags) {
+    parts.push_back(L"COALESCE(" + SemanticLabelExpr(active_model_key) + L", '')");
+    parts.push_back(L"COALESCE(" + AiTagsExpr() + L", '')");
+  }
+  if (parts.empty()) {
+    return L"''";
+  }
+  return L"CONCAT_WS(' ', " + JoinWith(parts, L", ") + L")";
 }
 
-auto FoldedDocumentClause(const std::wstring& token, const std::string& active_model_key)
-    -> std::optional<std::wstring> {
+auto FoldedDocumentClause(const std::wstring& token, const std::string& active_model_key,
+                           SearchFieldMask mask) -> std::optional<std::wstring> {
+  if (mask == 0) {
+    return std::nullopt;
+  }
   if (token.find(L'%') != std::wstring::npos || token.find(L'*') != std::wstring::npos ||
       token.find(L'?') != std::wstring::npos || token.find(L'\'') != std::wstring::npos ||
       token.find(L'"') != std::wstring::npos) {
@@ -215,7 +248,7 @@ auto FoldedDocumentClause(const std::wstring& token, const std::string& active_m
     return std::nullopt;
   }
 
-  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr(active_model_key));
+  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr(active_model_key, mask));
   const auto pattern    = std::format(L"'%{}%'", SqlLikeEscape(folded_token));
   return std::format(L"({} LIKE {} ESCAPE '~')", folded_doc, pattern);
 }
@@ -365,8 +398,8 @@ auto JoinWith(const std::vector<std::wstring>& parts, const std::wstring& sep) -
   return out;
 }
 
-auto TokenSearchClause(const std::wstring& token, const std::string& active_model_key)
-    -> std::wstring {
+auto TokenSearchClause(const std::wstring& token, const std::string& active_model_key,
+                       SearchFieldMask mask) -> std::wstring {
   std::vector<std::wstring> search_terms{token};
   if (const auto token_u8 = WStringToUtf8(token); token_u8.has_value()) {
     if (const auto canonical = CanonicalSemanticLabel(*token_u8); canonical.has_value()) {
@@ -383,29 +416,39 @@ auto TokenSearchClause(const std::wstring& token, const std::string& active_mode
     }
   }
 
-  std::vector<std::wstring> clauses{
-      LikeClause(L"e.element_name", token),
-      LikeClause(L"i.file_name", token),
-      LikeClause(L"i.image_path", token),
-      LikeClause(L"json_extract_string(i.metadata, '$.Make')", token),
-      LikeClause(L"json_extract_string(i.metadata, '$.Model')", token),
-      LikeClause(L"json_extract_string(i.metadata, '$.Lens')", token),
-      LikeClause(L"json_extract_string(i.metadata, '$.LensMake')", token),
-      LikeClause(L"CAST(i.metadata AS VARCHAR)", token),
-      LikeClause(L"CAST(json_extract(i.metadata, '$.ISO') AS VARCHAR)", token),
-      LikeClause(L"CAST(json_extract(i.metadata, '$.FocalLength') AS VARCHAR)", token),
-      LikeClause(L"CAST(json_extract(i.metadata, '$.Aperture') AS VARCHAR)", token),
-  };
-  if (!active_model_key.empty()) {
-    for (const auto& term : search_terms) {
-      clauses.push_back(LikeClause(SemanticLabelExpr(active_model_key), term));
+  std::vector<std::wstring> clauses;
+  if (mask & SearchField::Filename) {
+    clauses.push_back(LikeClause(L"e.element_name", token));
+    clauses.push_back(LikeClause(L"i.file_name", token));
+    clauses.push_back(LikeClause(L"i.image_path", token));
+  }
+  if (mask & SearchField::Exif) {
+    clauses.push_back(LikeClause(L"json_extract_string(i.metadata, '$.Make')", token));
+    clauses.push_back(LikeClause(L"json_extract_string(i.metadata, '$.Model')", token));
+    clauses.push_back(LikeClause(L"json_extract_string(i.metadata, '$.Lens')", token));
+    clauses.push_back(LikeClause(L"json_extract_string(i.metadata, '$.LensMake')", token));
+    clauses.push_back(LikeClause(L"CAST(i.metadata AS VARCHAR)", token));
+    clauses.push_back(LikeClause(L"CAST(json_extract(i.metadata, '$.ISO') AS VARCHAR)", token));
+    clauses.push_back(
+        LikeClause(L"CAST(json_extract(i.metadata, '$.FocalLength') AS VARCHAR)", token));
+    clauses.push_back(
+        LikeClause(L"CAST(json_extract(i.metadata, '$.Aperture') AS VARCHAR)", token));
+    auto date_clauses = DateMatchClauses(token);
+    clauses.insert(clauses.end(), date_clauses.begin(), date_clauses.end());
+  }
+  if (mask & SearchField::AiDescription) {
+    clauses.push_back(LikeClause(AiCaptionExpr(), token));
+  }
+  if (mask & SearchField::AiTags) {
+    clauses.push_back(LikeClause(AiTagsExpr(), token));
+    if (!active_model_key.empty()) {
+      for (const auto& term : search_terms) {
+        clauses.push_back(LikeClause(SemanticLabelExpr(active_model_key), term));
+      }
     }
   }
 
-  auto date_clauses = DateMatchClauses(token);
-  clauses.insert(clauses.end(), date_clauses.begin(), date_clauses.end());
-
-  if (auto folded_clause = FoldedDocumentClause(token, active_model_key);
+  if (auto folded_clause = FoldedDocumentClause(token, active_model_key, mask);
       folded_clause.has_value()) {
     clauses.push_back(*folded_clause);
   }
@@ -413,12 +456,18 @@ auto TokenSearchClause(const std::wstring& token, const std::string& active_mode
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
-auto SearchDocumentClause(const std::wstring& query, const std::string& active_model_key)
-    -> std::wstring {
-  std::vector<std::wstring> clauses{LikeClause(SearchDocumentExpr(active_model_key), query)};
-  if (auto folded_clause = FoldedDocumentClause(query, active_model_key);
+auto SearchDocumentClause(const std::wstring& query, const std::string& active_model_key,
+                           SearchFieldMask mask) -> std::wstring {
+  std::vector<std::wstring> clauses;
+  if (mask != 0) {
+    clauses.push_back(LikeClause(SearchDocumentExpr(active_model_key, mask), query));
+  }
+  if (auto folded_clause = FoldedDocumentClause(query, active_model_key, mask);
       folded_clause.has_value()) {
     clauses.push_back(*folded_clause);
+  }
+  if (clauses.empty()) {
+    return L"(1=0)";
   }
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
@@ -523,11 +572,17 @@ auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  pare
   return out;
 }
 
-auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
+auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query,
+                                                 SearchFieldMask      mask) const
     -> std::optional<std::wstring> {
   const auto trimmed = TrimCopy(query);
   if (trimmed.empty()) {
     return std::nullopt;
+  }
+  if (mask == 0) {
+    // No field selected → nothing can match. Distinct from nullopt (which would
+    // mean "no filter", i.e. match everything).
+    return L"FALSE";
   }
 
   auto tokens = SplitTokens(trimmed);
@@ -544,14 +599,20 @@ auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
   std::vector<std::wstring> token_clauses;
   token_clauses.reserve(tokens.size());
   for (const auto& token : tokens) {
-    token_clauses.push_back(TokenSearchClause(token, active_model_key));
+    token_clauses.push_back(TokenSearchClause(token, active_model_key, mask));
   }
 
   std::wstring where = L"(" + JoinWith(token_clauses, L" AND ") + L")";
   if (tokens.size() > 1) {
-    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed, active_model_key) + L")";
+    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed, active_model_key, mask) + L")";
   }
-  if (has_ai_fts) {
+  // The AI FTS index body is caption + tags_json + scene concatenated; a BM25
+  // hit cannot be attributed to one sub-field, so only run it when both AI
+  // field groups are enabled. A single-bit AI scope falls back to the
+  // per-field LIKE clauses built above (AiCaptionExpr / AiTagsExpr).
+  const bool ai_fts_applicable =
+      has_ai_fts && (mask & SearchField::AiDescription) && (mask & SearchField::AiTags);
+  if (ai_fts_applicable) {
     where = L"(" + where + L" OR " + AiUnderstandingFtsClause(trimmed) + L")";
   }
   return where;
@@ -562,13 +623,13 @@ auto SleeveFilterService::BuildExactFileWhere(sl_element_id_t file_id) const -> 
 }
 
 auto SleeveFilterService::SearchFolder(sl_element_id_t parent_id, const std::wstring& query,
-                                       size_t offset, size_t limit) const
+                                       size_t offset, size_t limit, SearchFieldMask mask) const
     -> std::vector<FuzzySearchMatch> {
   std::vector<FuzzySearchMatch> out;
   if (!storage_service_) {
     return out;
   }
-  const auto where = BuildFuzzySearchWhere(query);
+  const auto where = BuildFuzzySearchWhere(query, mask);
   if (!where.has_value()) {
     return out;
   }
@@ -601,11 +662,12 @@ auto SleeveFilterService::SearchFolderSemantic(sl_element_id_t parent_id, const 
 }
 
 auto SleeveFilterService::CountSearchResults(sl_element_id_t     parent_id,
-                                             const std::wstring& query) const -> size_t {
+                                             const std::wstring& query,
+                                             SearchFieldMask      mask) const -> size_t {
   if (!storage_service_) {
     return 0;
   }
-  const auto where = BuildFuzzySearchWhere(query);
+  const auto where = BuildFuzzySearchWhere(query, mask);
   if (!where.has_value()) {
     return 0;
   }

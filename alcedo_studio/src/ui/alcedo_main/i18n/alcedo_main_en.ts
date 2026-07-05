@@ -192,6 +192,10 @@
 <context>
     <name>Alcedo</name>
     <message>
+        <source>Natural language search is enabled — field filters are disabled.</source>
+        <translation>Natural language search is enabled — field filters are disabled.</translation>
+    </message>
+    <message>
         <location filename="../album_backend/image_controller.cpp" line="40"/>
         <source>Capture</source>
         <translation>Capture</translation>
@@ -1223,6 +1227,54 @@ Alcedo will use %1 instead.</translation>
         <location filename="../qml/GlobalSearchDialog.qml" line="330"/>
         <source>Suggestion</source>
         <translation>Suggestion</translation>
+    </message>
+    <message>
+        <source>Search settings ▾</source>
+        <translation>Search settings ▾</translation>
+    </message>
+    <message>
+        <source>Search settings — choose which fields the search scans, or enable natural-language search</source>
+        <translation>Search settings — choose which fields the search scans, or enable natural-language search</translation>
+    </message>
+    <message>
+        <source>Search conditions</source>
+        <translation>Search conditions</translation>
+    </message>
+    <message>
+        <source>Filename</source>
+        <translation>Filename</translation>
+    </message>
+    <message>
+        <source>EXIF info</source>
+        <translation>EXIF info</translation>
+    </message>
+    <message>
+        <source>AI description</source>
+        <translation>AI description</translation>
+    </message>
+    <message>
+        <source>AI tags</source>
+        <translation>AI tags</translation>
+    </message>
+    <message>
+        <source>Natural language search</source>
+        <translation>Natural language search</translation>
+    </message>
+    <message>
+        <source>Natural language search — use the CLIP model to search by meaning (Enter or Search button to run). Mutually exclusive with the field filters above.</source>
+        <translation>Natural language search — use the CLIP model to search by meaning (Enter or Search button to run). Mutually exclusive with the field filters above.</translation>
+    </message>
+    <message>
+        <source>Query is too long for natural language search</source>
+        <translation>Query is too long for natural language search</translation>
+    </message>
+    <message>
+        <source>Natural language search is not available yet</source>
+        <translation>Natural language search is not available yet</translation>
+    </message>
+    <message>
+        <source>Press Enter or click Search for natural language search</source>
+        <translation>Press Enter or click Search for natural language search</translation>
     </message>
 </context>
 <context>

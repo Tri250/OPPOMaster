@@ -683,6 +683,60 @@ TEST_F(FilterServiceTests, AiUnderstandingCaptionAndTagsSearchableOnlyAfterActiv
   ASSERT_EQ(filter_service.SearchFolder(0, L"saharasunset", 0, 10).size(), 1u);
 }
 
+// The search-settings drawer field mask scopes which field groups contribute to the
+// WHERE. The AiDescription bit gates the new per-field LIKE on caption+scene; the
+// AiTags bit gates the per-field LIKE on tags_json (plus the local SemanticImageLabel
+// clauses); the combined BM25 FTS clause only runs when BOTH AI bits are set (its
+// body merges caption + tags_json + scene and cannot attribute a hit to one sub-field).
+TEST_F(FilterServiceTests, FieldMaskScopesResultsByFieldGroup) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     alpha_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_    = L"mask_scope_alpha.dng",
+                                                     .camera_model_ = "Neutral Body",
+                                                     .lens_         = "Plain Lens"});
+  ASSERT_NE(alpha_id, 0u);
+
+  // Distinctive caption + tag + scene tokens that do NOT appear in the filename or
+  // EXIF, so a match can only come from the AiImageUnderstanding row.
+  StoreAiUnderstanding(project, alpha_id, "describe", "sahara dunes at sunset", {"desert"},
+                       "saharasunset");
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  // Single-bit masks used below; SearchField is an enum class so the bits must
+  // be cast to SearchFieldMask before they can be passed as the mask argument.
+  constexpr SearchFieldMask kDescOnly =
+      static_cast<SearchFieldMask>(SearchField::AiDescription);
+  constexpr SearchFieldMask kTagsOnly = static_cast<SearchFieldMask>(SearchField::AiTags);
+  constexpr SearchFieldMask kFileOnly = static_cast<SearchFieldMask>(SearchField::Filename);
+  constexpr SearchFieldMask kNoFields  = static_cast<SearchFieldMask>(0);
+
+  // Default (all fields): caption, tag, and filename tokens all match.
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara", kAllSearchFields), 1u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"desert", kAllSearchFields), 1u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"mask_scope_alpha", kAllSearchFields), 1u);
+
+  // AI-description only: caption + scene match; the tag token does NOT (it lives
+  // only in tags_json, gated to the AiTags bit).
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara", kDescOnly), 1u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"desert", kDescOnly), 0u);
+
+  // AI-tags only: the tag token matches; the caption token does NOT.
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"desert", kTagsOnly), 1u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara", kTagsOnly), 0u);
+
+  // Filename-only: neither AI token matches (they are not in the filename); the
+  // filename token matches under the Filename bit and not under an AI-only mask.
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara", kFileOnly), 0u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"desert", kFileOnly), 0u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"mask_scope_alpha", kFileOnly), 1u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"mask_scope_alpha", kDescOnly), 0u);
+
+  // No field selected → match nothing (the WHERE becomes the literal FALSE).
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara", kNoFields), 0u);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"mask_scope_alpha", kNoFields), 0u);
+}
+
 // Phase 5f: the remote LLM rating is NOT part of full-text search. A distinctive word that
 // appears only in the rating's reasons must not be searchable, even though the rating row
 // is persisted and the word exists in the database.
