@@ -615,9 +615,8 @@ pub fn extract_json_from_text_block(text: &str) -> Option<Value> {
     first_balanced_json(trimmed)
 }
 
-/// Extract the inner content of the first markdown code fence (```…```),
-/// without the opening ``` (and its optional language-tag line) or the closing
-/// ```.
+/// Extract the inner content of the first markdown code fence, without the
+/// opening fence line or the closing fence.
 fn extract_fenced_inner(text: &str) -> Option<&str> {
     let start = text.find("```")?;
     let after_open = &text[start + 3..];
