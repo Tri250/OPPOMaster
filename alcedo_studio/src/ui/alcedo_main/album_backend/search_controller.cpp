@@ -34,9 +34,18 @@ namespace {
   i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
 
-// QSettings key for the semantic-search toggle. Default is off for both new and
-// existing users (see roadmap 5b).
-constexpr auto kSemanticSearchEnabledKey = "search/semanticEnabled";
+// QSettings key for the natural-language-search toggle (the user-facing name
+// for the CLIP semantic route). Default is off for both new and existing users
+// (see roadmap 5b). Renamed from "search/semanticEnabled"; the legacy key is
+// read once in the ctor for migration so existing users keep their toggle.
+constexpr auto kNaturalLanguageSearchEnabledKey = "search/naturalLanguageSearchEnabled";
+constexpr auto kLegacySemanticSearchEnabledKey  = "search/semanticEnabled";
+// Search-settings drawer field-scope toggles. Each defaults to on (the
+// pre-mask behavior searched every field).
+constexpr auto kSearchFieldFilenameKey      = "search/fieldFilename";
+constexpr auto kSearchFieldExifKey          = "search/fieldExif";
+constexpr auto kSearchFieldAiDescriptionKey = "search/fieldAiDescription";
+constexpr auto kSearchFieldAiTagsKey        = "search/fieldAiTags";
 
 auto SearchPreviewThumbnailResolution(uint maxEdge) -> ThumbnailResolution {
   return maxEdge <= 256   ? ThumbnailResolution::k256
@@ -143,8 +152,18 @@ auto ExecuteSearchTask(const SearchTask& task) -> SearchCoreResult {
 }  // namespace
 
 SearchController::SearchController(AlbumBackend& backend) : backend_(backend) {
-  semantic_search_enabled_ =
-      QSettings{}.value(QLatin1String(kSemanticSearchEnabledKey), false).toBool();
+  QSettings settings;
+  if (!settings.contains(QLatin1String(kNaturalLanguageSearchEnabledKey))) {
+    // One-time migration: carry over the pre-rename "Semantic" toggle so
+    // existing users keep their natural-language-search preference.
+    natural_language_search_enabled_ =
+        settings.value(QLatin1String(kLegacySemanticSearchEnabledKey), false).toBool();
+    settings.setValue(QLatin1String(kNaturalLanguageSearchEnabledKey),
+                      natural_language_search_enabled_);
+  } else {
+    natural_language_search_enabled_ =
+        settings.value(QLatin1String(kNaturalLanguageSearchEnabledKey), false).toBool();
+  }
 }
 
 SearchController::~SearchController() { CancelSearchPreviewThumbnails(); }
@@ -157,6 +176,65 @@ auto SearchController::ActiveSearchFilterWhere() const -> const std::optional<st
   return active_search_filter_where_;
 }
 
+auto SearchController::SearchFieldFilenameEnabled() const -> bool {
+  return QSettings{}.value(QLatin1String(kSearchFieldFilenameKey), true).toBool();
+}
+auto SearchController::SearchFieldExifEnabled() const -> bool {
+  return QSettings{}.value(QLatin1String(kSearchFieldExifKey), true).toBool();
+}
+auto SearchController::SearchFieldAiDescriptionEnabled() const -> bool {
+  return QSettings{}.value(QLatin1String(kSearchFieldAiDescriptionKey), true).toBool();
+}
+auto SearchController::SearchFieldAiTagsEnabled() const -> bool {
+  return QSettings{}.value(QLatin1String(kSearchFieldAiTagsKey), true).toBool();
+}
+
+auto SearchController::BuildSearchFieldMask() const -> SearchFieldMask {
+  SearchFieldMask mask = 0;
+  if (SearchFieldFilenameEnabled()) {
+    mask |= SearchField::Filename;
+  }
+  if (SearchFieldExifEnabled()) {
+    mask |= SearchField::Exif;
+  }
+  if (SearchFieldAiDescriptionEnabled()) {
+    mask |= SearchField::AiDescription;
+  }
+  if (SearchFieldAiTagsEnabled()) {
+    mask |= SearchField::AiTags;
+  }
+  return mask;
+}
+
+void SearchController::ApplySearchFieldEnabled(const char* key, bool enabled) {
+  QSettings{}.setValue(QLatin1String(key), enabled);
+  emit SearchStateChanged();
+  // The cached WHERE drives not just the search dialog preview but also the
+  // thumbnail grid and the stats panel (via StatsEngine). When a search is
+  // active, re-apply it so the new mask regenerates the WHERE for all three
+  // surfaces. When no search is active this is a no-op (the next search will
+  // pick up the new mask).
+  if (HasActiveSearchFilter()) {
+    ApplyFuzzySearch(active_search_query_);
+  }
+}
+
+void SearchController::SetSearchFieldFilenameEnabled(bool enabled) {
+  ApplySearchFieldEnabled(kSearchFieldFilenameKey, enabled);
+}
+
+void SearchController::SetSearchFieldExifEnabled(bool enabled) {
+  ApplySearchFieldEnabled(kSearchFieldExifKey, enabled);
+}
+
+void SearchController::SetSearchFieldAiDescriptionEnabled(bool enabled) {
+  ApplySearchFieldEnabled(kSearchFieldAiDescriptionKey, enabled);
+}
+
+void SearchController::SetSearchFieldAiTagsEnabled(bool enabled) {
+  ApplySearchFieldEnabled(kSearchFieldAiTagsKey, enabled);
+}
+
 auto SearchController::SearchRecommendations(int limit) -> QVariantList {
   if (limit <= 0) {
     return {};
@@ -167,7 +245,7 @@ auto SearchController::SearchRecommendations(int limit) -> QVariantList {
 auto SearchController::SearchPreview(const QString& query, int offset, int limit) -> QVariantMap {
   const QString trimmed = query.trimmed();
   const auto    classification =
-      ClassifySearchQuery(trimmed.toStdWString(), semantic_search_enabled_);
+      ClassifySearchQuery(trimmed.toStdWString(), natural_language_search_enabled_);
   const auto route_name = std::string(SearchQueryRouteName(classification.route_));
 
   // Semantic preview must not run on every keystroke. Typing only signals that
@@ -212,11 +290,12 @@ auto SearchController::RunTraditionalPreview(const QString& query, int offset, i
   try {
     const auto safe_offset = std::max(0, offset);
     const auto safe_limit  = std::max(0, limit);
+    const auto field_mask  = BuildSearchFieldMask();
     const auto total       = filter_service->CountSearchResults(folder_id.value(),
-                                                                trimmed.toStdWString());
+                                                                trimmed.toStdWString(), field_mask);
     const auto matches     = filter_service->SearchFolder(
         folder_id.value(), trimmed.toStdWString(), static_cast<size_t>(safe_offset),
-        static_cast<size_t>(safe_limit));
+        static_cast<size_t>(safe_limit), field_mask);
     response["offset"]  = safe_offset;
     response["limit"]   = safe_limit;
     response["total"]   = static_cast<int>(std::min<size_t>(
@@ -289,7 +368,7 @@ auto SearchController::BuildResultRows(const std::vector<alcedo::FuzzySearchMatc
 auto SearchController::SubmitSearch(const QString& query, int offset, int limit) -> QVariantMap {
   const QString trimmed = query.trimmed();
   const auto    classification =
-      ClassifySearchQuery(trimmed.toStdWString(), semantic_search_enabled_);
+      ClassifySearchQuery(trimmed.toStdWString(), natural_language_search_enabled_);
   const auto route_name = std::string(SearchQueryRouteName(classification.route_));
 
   if (classification.route_ == SearchQueryRoute::Empty) {
@@ -355,7 +434,7 @@ auto SearchController::RequestSearch(const QString& query, int offset, int limit
                                      const QString& mode, bool submit) -> qulonglong {
   const auto request_id = static_cast<qulonglong>(++search_response_request_sequence_);
   const auto trimmed    = query.trimmed();
-  const auto classification = ClassifySearchQuery(trimmed.toStdWString(), semantic_search_enabled_);
+  const auto classification = ClassifySearchQuery(trimmed.toStdWString(), natural_language_search_enabled_);
 
   if (!submit || classification.route_ != SearchQueryRoute::Semantic) {
     auto response = submit ? SubmitSearch(trimmed, offset, limit)
@@ -409,17 +488,17 @@ auto SearchController::RequestSearch(const QString& query, int offset, int limit
 
 auto SearchController::ClassifyQuery(const QString& query) const -> QString {
   const auto classification =
-      ClassifySearchQuery(query.trimmed().toStdWString(), semantic_search_enabled_);
+      ClassifySearchQuery(query.trimmed().toStdWString(), natural_language_search_enabled_);
   return QString::fromUtf8(SearchQueryRouteName(classification.route_).data(),
                            static_cast<int>(SearchQueryRouteName(classification.route_).size()));
 }
 
-void SearchController::SetSemanticSearchEnabled(bool enabled) {
-  if (semantic_search_enabled_ == enabled) {
+void SearchController::SetNaturalLanguageSearchEnabled(bool enabled) {
+  if (natural_language_search_enabled_ == enabled) {
     return;
   }
-  semantic_search_enabled_ = enabled;
-  QSettings{}.setValue(QLatin1String(kSemanticSearchEnabledKey), enabled);
+  natural_language_search_enabled_ = enabled;
+  QSettings{}.setValue(QLatin1String(kNaturalLanguageSearchEnabledKey), enabled);
   emit SearchStateChanged();
 }
 
@@ -439,7 +518,8 @@ void SearchController::ApplyFuzzySearch(const QString& query) {
     return;
   }
 
-  auto where = filter_service->BuildFuzzySearchWhere(trimmed.toStdWString());
+  auto where = filter_service->BuildFuzzySearchWhere(trimmed.toStdWString(),
+                                                       BuildSearchFieldMask());
   if (!where.has_value()) {
     ClearFuzzySearch();
     return;

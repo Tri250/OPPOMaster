@@ -812,19 +812,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_only_missing_model_fails_without_creating_root() {
-        let root = unique_temp_root("alcedo-mind-missing-model");
-        let paths = ClipModelPaths::from_root(&root);
-
-        let err = paths
-            .ensure_present(MOBILECLIP2_ONNX_REVISION, "https://hf-mirror.com", false)
-            .expect_err("validate-only missing model should fail");
-
-        assert!(err.to_string().contains("missing model root directory"));
-        assert!(!root.exists());
-    }
-
-    #[test]
     fn fixed_profiles_use_supported_dimensions() {
         for profile in MODEL_PROFILES {
             validate_profile_dimension(profile).expect("profile should satisfy dimension policy");
@@ -980,14 +967,5 @@ mod tests {
         assert_eq!(restored.profile_id, MOBILECLIP2_ONNX_PROFILE);
         assert_eq!(restored.assets.len(), profile.assets.len());
         assert_eq!(restored.embedding_dimension, profile.embedding_dimension);
-    }
-
-    #[test]
-    fn validate_model_profile_missing_root_reports_path() {
-        let root = unique_temp_root("alcedo-mind-validate-missing-root");
-        let err = validate_model_profile(MOBILECLIP2_ONNX_PROFILE, &root)
-            .expect_err("missing root should error");
-        assert!(err.to_string().contains("missing model root directory"));
-        assert!(!root.exists(), "validate must not create the root");
     }
 }

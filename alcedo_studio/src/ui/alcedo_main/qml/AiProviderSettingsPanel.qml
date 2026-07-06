@@ -21,6 +21,10 @@ SwipeView {
     property string dataFontFamily: appTheme.dataFontFamily
     property int dataRevision: 0
     property string editingProfileId: ""
+    property string openAiOAuthStatusText: ""
+    property bool openAiOAuthStatusIsError: false
+    property string codexLoginPollProfileId: ""
+    property int codexLoginPollRemaining: 0
     property Item backgroundSource: null
     readonly property bool hasProfilesController: profileController !== null
     readonly property bool hasAnalysis: analysisController !== null
@@ -33,6 +37,9 @@ SwipeView {
         return hasProfilesController && editingProfileId.length > 0
                 ? profileController.Profile(editingProfileId) : ({})
     }
+    readonly property bool isOpenAiOAuthProfile: editProfile
+                                                 && (editProfile.driver === "openai_codex_oauth"
+                                                     || editProfile.basedOnTemplate === "openai_codex_oauth")
     readonly property var modelOptions: {
         dataRevision
         return hasProfilesController && editingProfileId.length > 0
@@ -51,11 +58,84 @@ SwipeView {
         }
     }
 
-    function openEditor(profileId) {
-        editingProfileId = profileId
-        currentIndex = 1
+    Timer {
+        id: codexLoginPollTimer
+        interval: 3000
+        repeat: true
+        onTriggered: {
+            if (panel.codexLoginPollRemaining <= 0 || panel.codexLoginPollProfileId.length === 0) {
+                stop()
+                panel.codexLoginPollProfileId = ""
+                panel.setOpenAiOAuthStatus(qsTr("Codex login did not finish yet. Complete `codex login`, then use Codex Login again."), true)
+                return
+            }
+            panel.codexLoginPollRemaining -= 1
+            if (panel.tryImportOpenAiOAuth(panel.codexLoginPollProfileId, true)) {
+                stop()
+                panel.codexLoginPollProfileId = ""
+            }
+        }
     }
 
+    function openEditor(profileId) {
+        editingProfileId = profileId
+        openAiOAuthStatusText = ""
+        openAiOAuthStatusIsError = false
+        currentIndex = 1
+        tryImportOpenAiOAuth(profileId, true)
+    }
+
+    function setOpenAiOAuthStatus(message, isError) {
+        openAiOAuthStatusText = message
+        openAiOAuthStatusIsError = isError
+    }
+
+    function refreshOpenAiOAuthModels(profileId, quiet) {
+        if (!hasAnalysis) {
+            setOpenAiOAuthStatus(qsTr("Codex OAuth is connected. Open a project to refresh models."), false)
+            return
+        }
+        if (!quiet) {
+            setOpenAiOAuthStatus(qsTr("Loading Codex models..."), false)
+        }
+        analysisController.ValidateConnectionForProfile(profileId)
+    }
+
+    function tryImportOpenAiOAuth(profileId, quiet) {
+        if (!hasProfilesController || profileId.length === 0) {
+            return false
+        }
+        const profile = profileController.Profile(profileId)
+        const isOAuth = profile
+                        && (profile.driver === "openai_codex_oauth"
+                            || profile.basedOnTemplate === "openai_codex_oauth")
+        if (!isOAuth) {
+            return false
+        }
+        if (profile.credentialAvailable) {
+            refreshOpenAiOAuthModels(profileId, quiet)
+            return true
+        }
+        if (typeof profileController.ImportCodexAuth !== "function") {
+            setOpenAiOAuthStatus(qsTr("This build does not include Codex OAuth import. Rebuild Alcedo Studio."), true)
+            return false
+        }
+        setOpenAiOAuthStatus(qsTr("Checking local Codex login..."), false)
+        const err = profileController.ImportCodexAuth(profileId)
+        if (err.length > 0) {
+            setOpenAiOAuthStatus(err, true)
+            if (!quiet) {
+                messageRequested(err)
+            }
+            return false
+        }
+        setOpenAiOAuthStatus(qsTr("Codex OAuth connected. Loading models..."), false)
+        if (!quiet) {
+            messageRequested(qsTr("Codex OAuth connected. Loading models..."))
+        }
+        refreshOpenAiOAuthModels(profileId, true)
+        return true
+    }
 
     function languageIndexFor(value) {
         const options = languageModel
@@ -295,7 +375,9 @@ SwipeView {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: modelData.baseUrl
+                                        text: modelData.driver === "openai_codex_oauth"
+                                              ? qsTr("ChatGPT / Codex OAuth")
+                                              : modelData.baseUrl
                                         color: panel.mutedTextColor
                                         font.family: panel.dataFontFamily
                                         font.pixelSize: 12
@@ -455,6 +537,9 @@ SwipeView {
                                     addDialog.close()
                                     if (id.length > 0) {
                                         panel.openEditor(id)
+                                        if (chip.templateId === "openai_codex_oauth") {
+                                            panel.tryImportOpenAiOAuth(id, false)
+                                        }
                                     }
                                 }
                             }
@@ -536,8 +621,84 @@ SwipeView {
                         Layout.topMargin: 20
                         Layout.leftMargin: 34
                         Layout.rightMargin: 34
+                        title: qsTr("OpenAI OAuth")
+                        visible: panel.isOpenAiOAuthProfile
+                        enabled: visible
+                        Layout.preferredHeight: visible ? implicitHeight : 0
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            AiButton {
+                                Layout.preferredHeight: 38
+                                primary: true
+                                text: qsTr("Use Codex Login")
+                                enabled: panel.hasProfilesController && panel.canChangeProvider
+                                onClicked: {
+                                    panel.tryImportOpenAiOAuth(panel.editingProfileId, false)
+                                }
+                            }
+
+                            AiButton {
+                                Layout.preferredHeight: 38
+                                text: qsTr("Open Login")
+                                enabled: panel.canChangeProvider
+                                onClicked: {
+                                    if (typeof panel.profileController.OpenCodexLogin !== "function") {
+                                        panel.setOpenAiOAuthStatus(qsTr("This build does not include Codex login launch. Run `codex login` manually."), true)
+                                        return
+                                    }
+                                    const err = panel.profileController.OpenCodexLogin()
+                                    if (err.length > 0) {
+                                        panel.setOpenAiOAuthStatus(err, true)
+                                        panel.messageRequested(err)
+                                        return
+                                    }
+                                    panel.setOpenAiOAuthStatus(qsTr("Codex login started. Complete the browser flow; models will load when login finishes."), false)
+                                    panel.codexLoginPollProfileId = panel.editingProfileId
+                                    panel.codexLoginPollRemaining = 40
+                                    codexLoginPollTimer.restart()
+                                }
+                            }
+
+                            AiButton {
+                                Layout.preferredHeight: 38
+                                danger: true
+                                text: qsTr("Disconnect")
+                                enabled: panel.editProfile.credentialAvailable && panel.canChangeProvider
+                                onClicked: {
+                                    panel.profileController.DeleteApiKey(panel.editingProfileId)
+                                    panel.messageRequested(qsTr("Codex OAuth disconnected"))
+                                }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.openAiOAuthStatusText.length > 0
+                                  ? panel.openAiOAuthStatusText
+                                  : panel.editProfile.credentialAvailable
+                                  ? (panel.editProfile.maskedKeyLabel && panel.editProfile.maskedKeyLabel.length > 0
+                                     ? panel.editProfile.maskedKeyLabel : qsTr("Codex OAuth connected"))
+                                  : qsTr("No Codex OAuth credential imported")
+                            color: panel.openAiOAuthStatusText.length > 0
+                                   ? (panel.openAiOAuthStatusIsError ? panel.dangerColor : panel.secondaryAccent)
+                                   : panel.editProfile.credentialAvailable ? panel.secondaryAccent : panel.mutedTextColor
+                            font.family: panel.dataFontFamily
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    SettingsSection {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 20
+                        Layout.leftMargin: 34
+                        Layout.rightMargin: 34
                         title: qsTr("API key")
                         visible: panel.editProfile.credentialRequired !== false
+                                 && !panel.isOpenAiOAuthProfile
                         enabled: visible
                         Layout.preferredHeight: visible ? implicitHeight : 0
 
@@ -667,6 +828,9 @@ SwipeView {
                         Layout.leftMargin: 34
                         Layout.rightMargin: 34
                         title: qsTr("Advanced")
+                        visible: !panel.isOpenAiOAuthProfile
+                        enabled: visible
+                        Layout.preferredHeight: visible ? implicitHeight : 0
 
                         GridLayout {
                             Layout.fillWidth: true

@@ -1,10 +1,4 @@
-mod bootstrap;
-mod config;
-mod logging;
-mod proto;
-mod server;
-mod service;
-
+use alcedo_mind::{bootstrap, config, logging, service};
 use anyhow::{Context, anyhow};
 use std::collections::HashMap;
 use std::sync::Arc;

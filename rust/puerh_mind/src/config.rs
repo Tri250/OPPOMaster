@@ -1,9 +1,11 @@
 use std::env;
+use std::net::IpAddr;
 
 #[derive(Debug)]
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
+    pub allow_remote_bind: bool,
     pub semantic: SemanticConfig,
     pub max_message_bytes: usize,
     pub credential_ttl_ms: u64,
@@ -41,6 +43,7 @@ impl AppConfig {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--host" => config.host = next_value(&mut args, "--host")?,
+                "--allow-remote-bind" => config.allow_remote_bind = true,
                 "--port" => config.port = parse_next(&mut args, "--port")?,
                 "--model-root" => {
                     config.semantic.model_root = next_value(&mut args, "--model-root")?
@@ -80,6 +83,7 @@ impl AppConfig {
         Ok(Self {
             host: env_value("ALCEDO_MIND_HOST", "127.0.0.1"),
             port: parse_env("ALCEDO_MIND_PORT", 50051)?,
+            allow_remote_bind: parse_bool_env("ALCEDO_MIND_ALLOW_REMOTE_BIND", false)?,
             max_message_bytes: parse_env("ALCEDO_MIND_MAX_MESSAGE_BYTES", 16 * 1024 * 1024)?,
             semantic: SemanticConfig {
                 model_id: env_value("ALCEDO_MIND_MODEL_ID", "plhery/mobileclip2-onnx:s2"),
@@ -109,6 +113,12 @@ impl AppConfig {
         if self.host.trim().is_empty() {
             anyhow::bail!("host must not be empty");
         }
+        if !self.allow_remote_bind && !is_loopback_host(&self.host) {
+            anyhow::bail!(
+                "host {:?} is not loopback; pass --allow-remote-bind or set ALCEDO_MIND_ALLOW_REMOTE_BIND=1 to expose the unauthenticated sidecar",
+                self.host
+            );
+        }
         if self.semantic.model_root.trim().is_empty() {
             anyhow::bail!("model-root must not be empty");
         }
@@ -131,8 +141,18 @@ impl AppConfig {
     }
 
     fn usage() -> &'static str {
-        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N] [--credential-ttl-ms N] [--provider-config-dir PATH]"
+        "usage: alcedo_mind [--host HOST] [--allow-remote-bind] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N] [--credential-ttl-ms N] [--provider-config-dir PATH]"
     }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim();
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>()
+        .map(|addr| addr.is_loopback())
+        .unwrap_or(false)
 }
 
 fn env_value(name: &str, default: &str) -> String {
@@ -190,6 +210,7 @@ mod tests {
         let config = AppConfig::from_args([
             "--host",
             "0.0.0.0",
+            "--allow-remote-bind",
             "--port",
             "5555",
             "--model-root",
@@ -213,6 +234,7 @@ mod tests {
         .expect("config should parse");
 
         assert_eq!(config.host, "0.0.0.0");
+        assert!(config.allow_remote_bind);
         assert_eq!(config.port, 5555);
         assert_eq!(config.semantic.model_root, "C:/models/mobileclip");
         assert_eq!(config.semantic.model_id, "repo/model:s2");
@@ -236,6 +258,20 @@ mod tests {
     fn rejects_empty_host() {
         let err = AppConfig::from_args(["--host", "  "]).expect_err("empty host rejected");
         assert!(err.to_string().contains("host must not be empty"));
+    }
+
+    #[test]
+    fn rejects_remote_host_without_explicit_opt_in() {
+        let err = AppConfig::from_args(["--host", "0.0.0.0"]).expect_err("remote host rejected");
+        assert!(err.to_string().contains("not loopback"), "{err}");
+    }
+
+    #[test]
+    fn accepts_remote_host_with_explicit_opt_in() {
+        let config = AppConfig::from_args(["--host", "0.0.0.0", "--allow-remote-bind"])
+            .expect("explicit remote bind accepted");
+        assert_eq!(config.host, "0.0.0.0");
+        assert!(config.allow_remote_bind);
     }
 
     #[test]

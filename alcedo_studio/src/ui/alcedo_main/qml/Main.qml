@@ -1746,6 +1746,9 @@ ApplicationWindow {
                             onRatingReasonSaveRequested: function(reasons) {
                                 root.requestSaveFocusedRatingReason(reasons)
                             }
+                            onContextMenuRequested: function(item, sceneX, sceneY) {
+                                root.openImageContextMenu(item, sceneX, sceneY)
+                            }
                         }
                     }
 

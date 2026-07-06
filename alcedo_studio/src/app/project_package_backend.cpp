@@ -470,6 +470,10 @@ auto QueryHasHnswIndex(duckdb_connection conn, bool* hasHnswIndexOut,
 // both by the snapshot import path and by EnsureVssExtensionForExistingHnswIndexes
 // (normal project open), so the "ForSnapshot" suffix was misleading.
 auto LoadVssExtension(duckdb_connection conn, QString* errorOut) -> bool {
+  QString autoinstall_error;
+  RunDuckDbQuery(conn, "SET autoinstall_known_extensions=false;", "disable DuckDB extension autoinstall",
+                 &autoinstall_error);
+
   std::vector<std::filesystem::path> candidates;
   if (const char* env_path = std::getenv("ALCEDO_DUCKDB_VSS_EXTENSION")) {
     if (*env_path != '\0') {
@@ -479,6 +483,10 @@ auto LoadVssExtension(duckdb_connection conn, QString* errorOut) -> bool {
 
   const auto exe_dir = ExecutableDirectory();
   if (!exe_dir.empty()) {
+#ifdef __APPLE__
+    candidates.push_back(exe_dir.parent_path() / "Resources" / "duckdb_extensions" /
+                         "vss.duckdb_extension");
+#endif
     candidates.push_back(exe_dir / "duckdb_extensions" / "vss.duckdb_extension");
     candidates.push_back(exe_dir / "extensions" / "vss.duckdb_extension");
   }

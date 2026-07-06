@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.7] (65f25b2..91008037) — 2026-06-24 ~ 2026-07-06
+
+### Features
+- **Generalized AI sidecar architecture**: Rebuilt the AI sidecar around a protocol-first, multi-provider design — a runtime control plane, credential vault, cancellation registry, and capability descriptors; a provider config loader/registry with built-in and user configs plus Alcedo image-analysis task schemas; OpenRouter and Volcengine HTTP drivers over reqwest + rustls; a C++ host service and client with an image encoder and in-flight gate; a prefill queue; DuckDB-backed AI understanding/rating storage with FTS search; a protocol-first preset model and a generic OpenAI-compatible driver; an AiCredentialStore; a standalone QML ImageAnalysisController; and persistence/EXIF-star wiring for analysis results. (`7e9483f5`, `5d2c8dbc`, `65b87fcd`, `da59a47e`, `a5a54357`, `7f52fb61`, `db242253`, `6dc60306`, `02a1f102`, `5a0ecc3c`, `47e28839`, `ee399503`, `cf0d6e10`, `2770c83c`, `280d9494`, `e6180db7`, `c2aa3fbe`, `b951f2f1`, `4e9b95c0`, `2f3f440e`)
+- **AI image rating**: Added AI star rating with a configurable rating-severity option (Lite/Normal/XHigh) and a segmented severity slider, threaded through the proto, server, every cloud provider, the controller, and the inspector UI. (`431c41c9`, `47e96ab2`, `78370f66`, `6d4358d3`)
+- **Batch image analysis with schema repair**: Added batch image analysis in the OpenAI-compatible provider with automatic schema repair on validation failures, JSON sanitization/extraction utilities that tolerate markdown-fenced and prose-embedded JSON, and prompt-profile-driven system prompts. (`1d68ccbb`, `92c9cf5b`, `dd42af20`, `7de2cc2d`)
+- **Codex OAuth provider**: Added an OpenAI Codex OAuth provider with streaming SSE responses, DPAPI-backed large-credential storage, and Windows proxy passthrough into the sidecar. (`befd5661`)
+- **Background task management**: Added a background task registry with a task bar and popover, an interaction-policy controller and project DB write barrier for lock-driven task gating, run-in-background for semantic generation, analysis-rendition rendering from pipeline snapshots without disturbing the live guard, and an interactive, cancellable sidecar boot for UI responsiveness. (`1ed12de4`, `2a6b9b11`, `7bbe5ace`, `672b5634`, `311cd5c2`, `1b8397c7`)
+- **Field-specific and natural-language search**: Added per-field search settings and natural-language search dispatching in the global search dialog. (`435ef26d`)
+- **Color-temperature accuracy**: Generated a Planckian-locus uv table from the CIE 1931 CMF for more accurate correlated-color-temperature mapping, and populated as-shot neutral from LibRaw camera multipliers for a correct white-balance starting point. (`992f628e`, `79ae6d9c`)
+- **DuckDB FTS and macOS credentials**: Added DuckDB FTS extension loading and FTS-backed AI understanding persistence with FTS/VSS extension packaging for macOS and Windows, and added macOS keychain credential handling for the AI credential store. (`ffe1d9cc`, `bdfbb104`)
+
+### UI
+- **AI provider settings UI**: Added a ccswitch-style provider selector (AiProviderProfile), a dedicated AI provider settings panel, a searchable model selector, and config-panel refinements. (`da44a3d7`, `a566ae91`, `d771c266`, `4b887d43`, `6dc35e0c`, `a46a107d`, `c70f2598`)
+- **Advanced analysis and inspector UI**: Added the advanced content analysis launcher dialog, an image detail panel showing AI descriptions, an image/album inspector switch, context-menu actions, and new AI-feature icons. (`4f5394e1`, `7e06bf14`, `5fe50abd`, `dc01ce87`)
+- **Background task UI**: Added an IconButton component, task kind badges, a Details button for running image-analysis tasks, and run-in-background controls in the semantic generation dialog. (`672b5634`, `7bbe5ace`)
+
+### Bug Fixes
+- **Editor and preview stability**: Fixed ROI render failure after crop/rotation. (`9a1d682f`)
+- **Cloud AI security and correctness**: Hardened cloud AI calling (explicit opt-in for non-loopback binds, provider URL validation, bounded response reads, image payload limits), switched the OpenAI-compatible driver to structured tool output for image analysis, removed the max-token cap that starved reasoning models (e.g. kimi-k2.6) of output budget, and fixed schema-checking logic. (`db66809c`, `249474ef`, `ed44c13e`, `a3a331c4`)
+- **Sidecar boot**: Fixed sidecar boot parameter inconsistency. (`7ef39d35`)
+- **DuckDB extensions**: Fixed DuckDB extension packing logic and Windows extension handling. (`5c91d542`, `91008037`)
+- **macOS packaging**: Fixed macOS signing and removed unsupported macOS models. (`5a1424ec`, `c840749a`)
+- **Background task and AI dialog fixes**: Fixed the incomplete phase 1/2 background-task implementation and the AI dialog ask logic. (`d12c02a6`, `91008037`)
+
 ## [0.2.6] (8399448..c4cf768) — 2026-06-11 ~ 2026-06-24
 
 ### Features
@@ -186,6 +211,31 @@
 ---
 
 # 更新日志
+
+## [0.2.7] (65f25b2..91008037) — 2026-06-24 ~ 2026-07-06
+
+### 新功能
+- **通用化 AI sidecar 架构**：围绕协议优先的多供应商设计重建 AI sidecar —— 运行时控制平面、凭据保险库、取消注册表与能力描述符；带内置与用户配置的供应商配置加载/注册表及 Alcedo 图像分析任务 schema；基于 reqwest + rustls 的 OpenRouter 与 Volcengine HTTP 驱动；带图像编码器与在途门控的 C++ 宿主服务与客户端；预填充队列；带 FTS 搜索的 DuckDB AI 理解/评分存储；协议优先的预设模型与通用 OpenAI 兼容驱动；AiCredentialStore；独立的 QML ImageAnalysisController；以及分析结果的持久化/EXIF 星标写入。(`7e9483f5`, `5d2c8dbc`, `65b87fcd`, `da59a47e`, `a5a54357`, `7f52fb61`, `db242253`, `6dc60306`, `02a1f102`, `5a0ecc3c`, `47e28839`, `ee399503`, `cf0d6e10`, `2770c83c`, `280d9494`, `e6180db7`, `c2aa3fbe`, `b951f2f1`, `4e9b95c0`, `2f3f440e`)
+- **AI 图像评分**：新增 AI 星级评分，带可配置的评分严苛程度选项（Lite/Normal/XHigh）与分段严苛程度滑块，贯穿 proto、服务端、所有云端供应商、控制器与检查器 UI。(`431c41c9`, `47e96ab2`, `78370f66`, `6d4358d3`)
+- **批量图像分析与 schema 修复**：在 OpenAI 兼容供应商中新增批量图像分析，校验失败时自动修复 schema；新增 JSON 净化/抽取工具以容忍 markdown 代码块与正文内嵌 JSON；并引入由 prompt profile 驱动的系统提示词。(`1d68ccbb`, `92c9cf5b`, `dd42af20`, `7de2cc2d`)
+- **Codex OAuth 供应商**：新增 OpenAI Codex OAuth 供应商，支持流式 SSE 响应、基于 DPAPI 的大凭据存储，并将 Windows 代理设置传入 sidecar。(`befd5661`)
+- **后台任务管理**：新增后台任务注册表与任务栏/弹出面板、用于锁驱动任务门控的交互策略控制器与项目数据库写屏障、语义生成的"移至后台"能力、基于流水线快照的分析渲染（不影响实时 guard），以及可交互、可取消的 sidecar 启动以保持 UI 响应。(`1ed12de4`, `2a6b9b11`, `7bbe5ace`, `672b5634`, `311cd5c2`, `1b8397c7`)
+- **按字段与自然语言搜索**：在全局搜索对话框中新增按字段搜索设置与自然语言搜索分发。(`435ef26d`)
+- **色温精准度**：基于 CIE 1931 CMF 生成 Planckian 轨迹 uv 表以更准确地映射相关色温，并从 LibRaw 相机乘数填充 as-shot neutral 以获得正确的白平衡起点。(`992f628e`, `79ae6d9c`)
+- **DuckDB FTS 与 macOS 凭据**：新增 DuckDB FTS 扩展加载与基于 FTS 的 AI 理解持久化（并为 macOS/Windows 打包 FTS/VSS 扩展），以及 AI 凭据存储的 macOS 钥匙串处理。(`ffe1d9cc`, `bdfbb104`)
+
+### 界面
+- **AI 供应商设置 UI**：新增 ccswitch 风格的供应商选择器（AiProviderProfile）、专用 AI 供应商设置面板、可搜索模型选择器，以及配置面板细节改进。(`da44a3d7`, `a566ae91`, `d771c266`, `4b887d43`, `6dc35e0c`, `a46a107d`, `c70f2598`)
+- **高级分析与检查器 UI**：新增高级内容分析启动对话框、展示 AI 描述的图像详情面板、图像/相册检查器切换、上下文菜单操作，以及新的 AI 功能图标。(`4f5394e1`, `7e06bf14`, `5fe50abd`, `dc01ce87`)
+- **后台任务 UI**：新增 IconButton 组件、任务类型徽章、运行中图像分析任务的"详情"按钮，以及语义生成对话框中的"移至后台"控件。(`672b5634`, `7bbe5ace`)
+
+### 缺陷修复
+- **编辑器与预览稳定性**：修复裁切/旋转后 ROI 渲染失败的问题。(`9a1d682f`)
+- **云端 AI 安全与正确性**：加固云端 AI 调用（非回环绑定需显式 opt-in、供应商 URL 校验、响应读取上限、图像载荷限制），将 OpenAI 兼容驱动切换为图像分析的结构化工具输出，移除耗尽推理模型（如 kimi-k2.6）输出预算的 max-token 上限，并修复 schema 校验逻辑。(`db66809c`, `249474ef`, `ed44c13e`, `a3a331c4`)
+- **Sidecar 启动**：修复 sidecar 启动参数不一致的问题。(`7ef39d35`)
+- **DuckDB 扩展**：修复 DuckDB 扩展打包逻辑与 Windows 扩展处理。(`5c91d542`, `91008037`)
+- **macOS 打包**：修复 macOS 签名问题并移除不支持的 macOS 模型。(`5a1424ec`, `c840749a`)
+- **后台任务与 AI 对话框修复**：修复阶段 1/2 后台任务实现不完整的问题，以及 AI 对话框询问逻辑。(`d12c02a6`, `91008037`)
 
 ## [0.2.6] (8399448..c4cf768) — 2026-06-11 ~ 2026-06-24
 

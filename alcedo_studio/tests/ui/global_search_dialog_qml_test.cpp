@@ -540,7 +540,7 @@ TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemantic
   // assertion is meaningful and isolated, then clean up the key.
   QCoreApplication::setOrganizationName(QStringLiteral("PuerhLabTest"));
   QCoreApplication::setApplicationName(QStringLiteral("GlobalSearchDialogQmlTest"));
-  QSettings{}.remove(QStringLiteral("search/semanticEnabled"));
+  QSettings{}.remove(QStringLiteral("search/naturalLanguageSearchEnabled"));
 
   AlbumBackend backend;
   ASSERT_TRUE(CreateTestProject(backend));
@@ -549,8 +549,8 @@ TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemantic
   ASSERT_NE(searchController, nullptr);
 
   // Deterministic start state (QSettings persists across runs).
-  searchController->SetSemanticSearchEnabled(false);
-  ASSERT_FALSE(searchController->semantic_search_enabled());
+  searchController->SetNaturalLanguageSearchEnabled(false);
+  ASSERT_FALSE(searchController->natural_language_search_enabled());
 
   EXPECT_EQ(searchController->ClassifyQuery(QString()).toStdString(), "empty");
   EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("portrait")).toStdString(), "label");
@@ -563,8 +563,8 @@ TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemantic
                 .toStdString(),
             "traditional");
 
-  searchController->SetSemanticSearchEnabled(true);
-  ASSERT_TRUE(searchController->semantic_search_enabled());
+  searchController->SetNaturalLanguageSearchEnabled(true);
+  ASSERT_TRUE(searchController->natural_language_search_enabled());
   // Toggle on: label and metadata routes are unchanged; only NL goes semantic.
   EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("portrait")).toStdString(), "label");
   EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("Canon")).toStdString(), "traditional");
@@ -574,7 +574,7 @@ TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemantic
 
   // Persistence: the toggle writes through to QSettings.
   EXPECT_TRUE(
-      QSettings{}.value(QStringLiteral("search/semanticEnabled"), false).toBool());
+      QSettings{}.value(QStringLiteral("search/naturalLanguageSearchEnabled"), false).toBool());
 
   // SubmitSearch routing: semantic route surfaces an unavailable state when the
   // active model/runtime path is not ready; it must not fall back to a C++ vector scan.
@@ -604,8 +604,10 @@ TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemantic
                 .toStdString(),
             "empty");
 
-  // Restore default to avoid polluting other tests / future runs.
-  searchController->SetSemanticSearchEnabled(false);
+  // Restore default to avoid polluting other tests / future runs. Remove the
+  // legacy pre-rename key too so a stale "true" can never migrate back in.
+  searchController->SetNaturalLanguageSearchEnabled(false);
+  QSettings{}.remove(QStringLiteral("search/naturalLanguageSearchEnabled"));
   QSettings{}.remove(QStringLiteral("search/semanticEnabled"));
 }
 
@@ -622,7 +624,7 @@ TEST_F(GlobalSearchDialogQmlTests, SemanticTypingShowsAwaitingSubmitAndLabelUses
 
   auto* searchController = qobject_cast<SearchController*>(backend.SearchControllerObject());
   ASSERT_NE(searchController, nullptr);
-  searchController->SetSemanticSearchEnabled(true);
+  searchController->SetNaturalLanguageSearchEnabled(true);
 
   QQmlApplicationEngine engine;
   engine.addImportPath(QStringLiteral("qrc:/"));
@@ -658,23 +660,95 @@ TEST_F(GlobalSearchDialogQmlTests, SemanticTypingShowsAwaitingSubmitAndLabelUses
   ProcessEvents(200);
   EXPECT_EQ(dialog->property("currentRoute").toString().toStdString(), "semantic");
   EXPECT_TRUE(dialog->property("results").toList().empty());
-  EXPECT_FALSE(dialog->property("semanticStatusText").toString().isEmpty());
+  EXPECT_FALSE(dialog->property("naturalLanguageStatusText").toString().isEmpty());
 
   // A label query still uses the ordinary path on typing even with the toggle on.
   searchField->setProperty("text", QStringLiteral("portrait"));
   ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "refreshPreview"));
   ProcessEvents(200);
   EXPECT_EQ(dialog->property("currentRoute").toString().toStdString(), "label");
-  EXPECT_FALSE(dialog->property("semanticPreviewActive").toBool());
+  EXPECT_FALSE(dialog->property("naturalLanguagePreviewActive").toBool());
 
   // Turning the toggle off restores ordinary routing for natural language.
-  searchController->SetSemanticSearchEnabled(false);
+  searchController->SetNaturalLanguageSearchEnabled(false);
   searchField->setProperty("text", QStringLiteral("sunset over the mountains"));
   ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "refreshPreview"));
   ProcessEvents(200);
   EXPECT_EQ(dialog->property("currentRoute").toString().toStdString(), "traditional");
 
   ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "close"));
+}
+
+// Regression: when natural-language search is enabled and the app is restarted,
+// the persisted NL state is restored into SearchController (read from QSettings in
+// its ctor), but InteractionPolicyController's naturalLanguageSearchEnabled copy is
+// only pushed imperatively on toggle — so on restart it lags and the field-filter
+// checkboxes would wrongly enable. The dialog's onOpened re-syncs the policy
+// controller to SearchController's state so the drawer shows the correct disabled
+// state on the first open after restart.
+TEST_F(GlobalSearchDialogQmlTests, NaturalLanguageSearchGate_SyncedOnDialogOpen) {
+  auto* app = qobject_cast<QApplication*>(QCoreApplication::instance());
+  ASSERT_NE(app, nullptr);
+
+  QQuickStyle::setStyle(QStringLiteral("Material"));
+  AppTheme::RegisterFonts();
+  AppTheme::ApplyApplicationFont(*app);
+
+  QCoreApplication::setOrganizationName(QStringLiteral("PuerhLabTest"));
+  QCoreApplication::setApplicationName(QStringLiteral("GlobalSearchDialogQmlTest"));
+  QSettings{}.remove(QStringLiteral("search/naturalLanguageSearchEnabled"));
+  QSettings{}.remove(QStringLiteral("search/semanticEnabled"));
+
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend));
+
+  auto* searchController = qobject_cast<SearchController*>(backend.SearchControllerObject());
+  ASSERT_NE(searchController, nullptr);
+  ASSERT_NE(backend.InteractionPolicyControllerObject(), nullptr);
+
+  // Persist NL enabled (what a restart would restore). SearchController knows it
+  // now; the policy controller does NOT — the gate is still open.
+  searchController->SetNaturalLanguageSearchEnabled(true);
+  ASSERT_TRUE(searchController->natural_language_search_enabled());
+  EXPECT_TRUE(backend.InteractionPolicyControllerObject()
+                  ->property("canChangeSearchFieldFilters")
+                  .toBool())
+      << "Before the dialog syncs, the policy controller should still allow field filters.";
+
+  QQmlApplicationEngine engine;
+  engine.addImportPath(QStringLiteral("qrc:/"));
+  engine.rootContext()->setContextProperty(QStringLiteral("albumBackend"), &backend);
+  engine.rootContext()->setContextProperty(QStringLiteral("appTheme"), &AppTheme::Instance());
+  engine.rootContext()->setContextProperty(QStringLiteral("dialogSourceUrl"),
+                                           GlobalSearchDialogFileUrl());
+  engine.loadData(QByteArray{kHarnessQml},
+                  QUrl(QStringLiteral("file:///GlobalSearchDialogGateSyncHarness.qml")));
+
+  ASSERT_FALSE(engine.rootObjects().empty()) << "QML harness failed to load.";
+  QObject* windowRoot = engine.rootObjects().front();
+  ASSERT_NE(windowRoot, nullptr);
+
+  QObject* dialog = nullptr;
+  ASSERT_TRUE(WaitUntil([&]() {
+    dialog = qvariant_cast<QObject*>(windowRoot->property("dialog"));
+    return dialog != nullptr;
+  }, 10000));
+  // Opening the dialog must re-sync the policy controller's NL state from the
+  // persisted SearchController value via onOpened.
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "openFromCollection"));
+  ASSERT_TRUE(WaitUntil([&]() { return dialog->property("visible").toBool(); }, 5000));
+
+  EXPECT_FALSE(backend.InteractionPolicyControllerObject()
+                   ->property("canChangeSearchFieldFilters")
+                   .toBool())
+      << "Opening the dialog must sync the NL gate so field filters are disabled.";
+
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "close"));
+
+  // Restore default to avoid polluting other tests / future runs.
+  searchController->SetNaturalLanguageSearchEnabled(false);
+  QSettings{}.remove(QStringLiteral("search/naturalLanguageSearchEnabled"));
+  QSettings{}.remove(QStringLiteral("search/semanticEnabled"));
 }
 
 }  // namespace alcedo::ui::test

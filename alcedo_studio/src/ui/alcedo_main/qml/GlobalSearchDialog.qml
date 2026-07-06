@@ -10,6 +10,13 @@ Dialog {
 
     property var backend
     readonly property var searchController: backend ? backend.searchController : null
+    readonly property var interactionPolicyController: backend ? backend.interactionPolicyController : null
+    // Gate driven by InteractionPolicyController: when natural-language search is
+    // on, the field-filter checkboxes are disabled (mutual exclusion). Defaults
+    // to enabled when the controller is unavailable (e.g. null backend in tests).
+    readonly property bool searchFieldFiltersEnabled: interactionPolicyController
+        ? interactionPolicyController.canChangeSearchFieldFilters
+        : true
     property var theme
     property var recommendations: []
     property var results: []
@@ -34,12 +41,12 @@ Dialog {
     property int pendingSearchGeneration: 0
     property var activeSearchRequestId: 0
     property bool previewSyncForcePending: false
-    // Semantic-search control-layer state (5B). The toggle itself lives on
+    // Natural-language-search control-layer state (5B). The toggle itself lives on
     // searchController; these track the in-dialog preview lifecycle so QML only
     // reflects state and never decides runtime behavior.
-    property bool semanticPreviewActive: false
+    property bool naturalLanguagePreviewActive: false
     property string currentRoute: ""
-    property string semanticStatusText: ""
+    property string naturalLanguageStatusText: ""
     property Item blurSource: null
     property real cornerRadius: 0
 
@@ -92,9 +99,9 @@ Dialog {
         previewThumbs = ({})
         lastWindowDropCount = 0
         lastWindowPrependCount = 0
-        semanticPreviewActive = false
+        naturalLanguagePreviewActive = false
         currentRoute = ""
-        semanticStatusText = ""
+        naturalLanguageStatusText = ""
         pendingSearchKind = ""
         pendingSearchQuery = ""
         activeSearchRequestId = 0
@@ -114,6 +121,17 @@ Dialog {
         searchHasPrevious = false
         searchLoading = false
         recommendations = searchController ? searchController.SearchRecommendations(12) : []
+        // Re-sync the interaction-policy NL gate to the persisted SearchController
+        // state BEFORE opening. The policy controller's naturalLanguageSearchEnabled
+        // copy is only pushed imperatively (on toggle below), so after a restart it
+        // lags the persisted value and the field-filter checkboxes would wrongly
+        // enable. Doing this here (synchronously, before open()) makes the drawer's
+        // disabled state correct from the first visible frame; onOpened is a backup
+        // for any direct open() call.
+        if (interactionPolicyController && searchController) {
+            interactionPolicyController.naturalLanguageSearchEnabled =
+                searchController.naturalLanguageSearchEnabled
+        }
         open()
         Qt.callLater(function() { searchField.forceActiveFocus() })
     }
@@ -228,8 +246,8 @@ Dialog {
         }
         const query = searchField.text.trim()
         lastQuery = query
-        semanticPreviewActive = false
-        semanticStatusText = ""
+        naturalLanguagePreviewActive = false
+        naturalLanguageStatusText = ""
         searchController.CancelSearchPreviewThumbnails()
         previewThumbs = ({})
         resultWindowStart = 0
@@ -261,7 +279,7 @@ Dialog {
         if (query.length === 0) {
             return
         }
-        if (searchController.semanticSearchEnabled
+        if (searchController.naturalLanguageSearchEnabled
                 && searchController.ClassifyQuery(query) === "semantic") {
             runSemanticSubmit(0, "replace")
         } else {
@@ -278,8 +296,8 @@ Dialog {
             return
         }
         lastQuery = query
-        semanticPreviewActive = true
-        semanticStatusText = ""
+        naturalLanguagePreviewActive = true
+        naturalLanguageStatusText = ""
         searchController.CancelSearchPreviewThumbnails()
         if (mode === "replace") {
             previewThumbs = ({})
@@ -348,13 +366,13 @@ Dialog {
         const generation = pendingSearchGeneration
         currentRoute = response && response.route ? String(response.route) : "semantic"
         if (response && response.tooLong === true) {
-            semanticStatusText = qsTr("Query is too long for semantic search")
+            naturalLanguageStatusText = qsTr("Query is too long for natural language search")
         } else if (response && response.semanticUnavailable === true) {
-            semanticStatusText = response.semanticErrorText
+            naturalLanguageStatusText = response.semanticErrorText
                     ? String(response.semanticErrorText)
-                    : qsTr("Semantic search is not available yet")
+                    : qsTr("Natural language search is not available yet")
         } else if (response && response.awaitingSubmit === true) {
-            semanticStatusText = qsTr("Press Enter or click Search for semantic search")
+            naturalLanguageStatusText = qsTr("Press Enter or click Search for natural language search")
         }
         readPreviewResponse(response, mode)
         if (mode === "append" && lastWindowDropCount > 0) {
@@ -384,7 +402,7 @@ Dialog {
         if (query.length === 0 || query !== lastQuery) {
             return
         }
-        beginSearchRequest(semanticPreviewActive ? "submit" : "preview", query, searchOffset,
+        beginSearchRequest(naturalLanguagePreviewActive ? "submit" : "preview", query, searchOffset,
                            resultPageSize, "append")
     }
 
@@ -401,7 +419,7 @@ Dialog {
         if (nextLimit <= 0) {
             return
         }
-        beginSearchRequest(semanticPreviewActive ? "submit" : "preview", query, nextOffset,
+        beginSearchRequest(naturalLanguagePreviewActive ? "submit" : "preview", query, nextOffset,
                            nextLimit, "prepend")
     }
 
@@ -429,7 +447,18 @@ Dialog {
         close()
     }
 
-    onOpened: recommendations = searchController ? searchController.SearchRecommendations(12) : []
+    onOpened: {
+        recommendations = searchController ? searchController.SearchRecommendations(12) : []
+        // Re-sync the interaction-policy NL gate to the persisted SearchController
+        // state. The policy controller's naturalLanguageSearchEnabled copy is only
+        // pushed imperatively (on toggle below), so after a restart it lags the
+        // persisted value and the field-filter checkboxes would wrongly enable.
+        // Sync on every open so the drawer shows the correct disabled state.
+        if (interactionPolicyController && searchController) {
+            interactionPolicyController.naturalLanguageSearchEnabled =
+                searchController.naturalLanguageSearchEnabled
+        }
+    }
     onClosed: resetPreviewState()
 
     Connections {
@@ -613,21 +642,42 @@ Dialog {
                             }
                         }
 
-                        Switch {
+                        Button {
+                            id: searchSettingsButton
                             Layout.preferredHeight: 40
-                            text: qsTr("Semantic")
-                            checked: searchController ? searchController.semanticSearchEnabled : false
-                            onToggled: {
-                                if (searchController) {
-                                    searchController.SetSemanticSearchEnabled(checked)
-                                    // Re-run the typed query so the preview reflects the new route.
-                                    previewTimer.restart()
+                            text: qsTr("Search settings ▾")
+                            contentItem: Text {
+                                text: searchSettingsButton.text
+                                color: searchSettingsButton.enabled
+                                       ? dialog.textColor
+                                       : dialog.withAlpha(dialog.textColor, 0.4)
+                                font.family: dialog.dataFontFamily
+                                font.pixelSize: 14
+                                font.weight: 660
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: searchSettingsPopup.visible
+                                       ? dialog.withAlpha(dialog.accentColor, 0.34)
+                                       : (searchSettingsButton.down
+                                              ? dialog.withAlpha(dialog.accentColor, 0.55)
+                                              : (searchSettingsButton.hovered
+                                                     ? dialog.withAlpha(dialog.accentColor, 0.22)
+                                                     : "transparent"))
+                                border.width: searchSettingsPopup.visible ? 1 : 0
+                                border.color: dialog.withAlpha(dialog.accentColor, 0.48)
+                            }
+                            onClicked: {
+                                if (searchSettingsPopup.visible) {
+                                    searchSettingsPopup.close()
+                                } else {
+                                    searchSettingsPopup.open()
                                 }
                             }
-                            Material.foreground: dialog.withAlpha(dialog.textColor, 0.78)
-                            Material.accent: dialog.accentColor
                             ToolTip.visible: hovered
-                            ToolTip.text: qsTr("语义搜索 — use natural-language search via the CLIP model (Enter or Search button to run)")
+                            ToolTip.text: qsTr("Search settings — choose which fields the search scans, or enable natural-language search")
                         }
 
                         Button {
@@ -669,6 +719,134 @@ Dialog {
                                 color: parent.down
                                        ? dialog.withAlpha(dialog.textColor, 0.08)
                                        : (parent.hovered ? dialog.hoverColor : "transparent")
+                            }
+                        }
+                    }
+
+                    Popup {
+                        id: searchSettingsPopup
+                        parent: searchSettingsButton
+                        x: searchSettingsButton.width - width
+                        y: searchSettingsButton.height + 8
+                        width: 288
+                        modal: false
+                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                        padding: 16
+
+                        background: Rectangle {
+                            radius: 10
+                            color: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g,
+                                           dialog.panelColor.b, 0.98)
+                            border.width: 1
+                            border.color: dialog.withAlpha(dialog.textColor, 0.12)
+                        }
+
+                        contentItem: ColumnLayout {
+                            spacing: 10
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Search conditions")
+                                color: dialog.withAlpha(dialog.textColor, 0.68)
+                                font.pixelSize: 13
+                                font.weight: 760
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                visible: !dialog.searchFieldFiltersEnabled
+                                text: dialog.interactionPolicyController
+                                      ? dialog.interactionPolicyController.searchFieldFiltersReason
+                                      : ""
+                                color: dialog.withAlpha(dialog.textColor, 0.46)
+                                font.pixelSize: 11
+                                wrapMode: Text.WordWrap
+                            }
+
+                            CheckBox {
+                                Layout.fillWidth: true
+                                text: qsTr("Filename")
+                                checked: searchController ? searchController.searchFieldFilenameEnabled : true
+                                enabled: dialog.searchFieldFiltersEnabled
+                                onToggled: {
+                                    if (searchController) {
+                                        searchController.SetSearchFieldFilenameEnabled(checked)
+                                        previewTimer.restart()
+                                    }
+                                }
+                                Material.foreground: dialog.textColor
+                                Material.accent: dialog.accentColor
+                            }
+
+                            CheckBox {
+                                Layout.fillWidth: true
+                                text: qsTr("EXIF info")
+                                checked: searchController ? searchController.searchFieldExifEnabled : true
+                                enabled: dialog.searchFieldFiltersEnabled
+                                onToggled: {
+                                    if (searchController) {
+                                        searchController.SetSearchFieldExifEnabled(checked)
+                                        previewTimer.restart()
+                                    }
+                                }
+                                Material.foreground: dialog.textColor
+                                Material.accent: dialog.accentColor
+                            }
+
+                            CheckBox {
+                                Layout.fillWidth: true
+                                text: qsTr("AI description")
+                                checked: searchController ? searchController.searchFieldAiDescriptionEnabled : true
+                                enabled: dialog.searchFieldFiltersEnabled
+                                onToggled: {
+                                    if (searchController) {
+                                        searchController.SetSearchFieldAiDescriptionEnabled(checked)
+                                        previewTimer.restart()
+                                    }
+                                }
+                                Material.foreground: dialog.textColor
+                                Material.accent: dialog.accentColor
+                            }
+
+                            CheckBox {
+                                Layout.fillWidth: true
+                                text: qsTr("AI tags")
+                                checked: searchController ? searchController.searchFieldAiTagsEnabled : true
+                                enabled: dialog.searchFieldFiltersEnabled
+                                onToggled: {
+                                    if (searchController) {
+                                        searchController.SetSearchFieldAiTagsEnabled(checked)
+                                        previewTimer.restart()
+                                    }
+                                }
+                                Material.foreground: dialog.textColor
+                                Material.accent: dialog.accentColor
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 1
+                                color: dialog.dividerColor
+                            }
+
+                            Switch {
+                                Layout.fillWidth: true
+                                text: qsTr("Natural language search")
+                                checked: searchController ? searchController.naturalLanguageSearchEnabled : false
+                                onToggled: {
+                                    if (searchController) {
+                                        searchController.SetNaturalLanguageSearchEnabled(checked)
+                                        if (dialog.interactionPolicyController) {
+                                            dialog.interactionPolicyController.naturalLanguageSearchEnabled = checked
+                                        }
+                                        // Re-run the typed query so the preview reflects the new route.
+                                        previewTimer.restart()
+                                    }
+                                }
+                                Material.foreground: dialog.withAlpha(dialog.textColor, 0.78)
+                                Material.accent: dialog.accentColor
+                                ToolTip.visible: hovered
+                                ToolTip.text: qsTr("Natural language search — use the CLIP model to search by meaning (Enter or Search button to run). Mutually exclusive with the field filters above.")
                             }
                         }
                     }
@@ -867,8 +1045,8 @@ Dialog {
                             anchors.centerIn: parent
                             visible: !dialog.searchLoading && resultList.count === 0
                                      && searchField.text.trim().length > 0
-                            text: semanticStatusText.length > 0
-                                  ? semanticStatusText
+                            text: naturalLanguageStatusText.length > 0
+                                  ? naturalLanguageStatusText
                                   : qsTr("No matches")
                             color: dialog.withAlpha(dialog.textColor, 0.48)
                             font.pixelSize: 13

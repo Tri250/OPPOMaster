@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -91,6 +92,20 @@ class AiSidecarRuntimeService final : public QObject {
   ~AiSidecarRuntimeService() override;
 
   auto               StartAndWait(const AiSidecarRuntimeOptions& options) -> bool;
+  // Starts the sidecar on the service's own (UI) thread but pumps the Qt event
+  // loop (excluding socket notifiers) between readiness polls so the UI stays
+  // responsive during a cold boot. MUST be called on the service's thread — the
+  // nested event processing is only valid there. Checkpoints
+  // RequestCancelStart() each poll and aborts the boot (terminating the
+  // process, returning to kStopped) if cancellation is requested. Emits
+  // statusChanged() for each state transition, exactly like StartAndWait.
+  auto               StartAndWaitInteractive(const AiSidecarRuntimeOptions& options) -> bool;
+  // Requests that an in-progress StartAndWaitInteractive abort at the next poll
+  // checkpoint. Safe to call from any thread; a no-op when no interactive boot
+  // is running.
+  void               RequestCancelStart();
+  // True while an interactive boot is in progress on the service's thread.
+  bool               IsStartingInteractive() const { return interactive_starting_.load(); }
   [[nodiscard]] auto AcquireLease() -> std::shared_ptr<void>;
   void               Stop();
   void               StopForProjectClose();
@@ -116,7 +131,13 @@ class AiSidecarRuntimeService final : public QObject {
   void RefreshProcessExit();
   auto BuildArguments() const -> QStringList;
   auto ChoosePort() const -> uint16_t;
-  auto WaitForReadiness(bool terminate_on_timeout) -> bool;
+  // Shared boot body for StartAndWait (non-interactive) and
+  // StartAndWaitInteractive (interactive). When `interactive`, the readiness
+  // poll pumps the Qt event loop between iterations and checkpoints
+  // cancel_start_requested_ so the UI stays responsive and the boot is
+  // cancellable. Must run on the service's own thread.
+  auto StartAndWaitBody(const AiSidecarRuntimeOptions& options, bool interactive) -> bool;
+  auto WaitForReadiness(bool terminate_on_timeout, bool interactive) -> bool;
   void AttachChildTreeCleanup();
   void ReleaseChildTreeCleanup();
   void ReleaseLease();
@@ -128,6 +149,11 @@ class AiSidecarRuntimeService final : public QObject {
   AiSidecarRuntimeStatusSnapshot          status_;
   std::string                             endpoint_;
   int                                     active_leases_ = 0;
+  // Interactive-boot state. `interactive_starting_` is set for the duration of
+  // a StartAndWaitInteractive boot so IsStartingInteractive() can report it;
+  // `cancel_start_requested_` is the cancel flag checkpointed each poll.
+  std::atomic<bool>                       interactive_starting_{false};
+  std::atomic<bool>                       cancel_start_requested_{false};
 #ifdef _WIN32
   void* job_object_ = nullptr;
 #endif

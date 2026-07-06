@@ -5,12 +5,17 @@
 #include "app/ai_credential_store.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #include <windows.h>
 #include <wincred.h>
+#include <wincrypt.h>
 #elif defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
@@ -25,9 +30,33 @@ namespace {
 // and do not collide with other applications in the OS store. The full target
 // name is `AlcedoStudio/AiCredential/<slot>`.
 constexpr const char* kTargetPrefix = "AlcedoStudio/AiCredential/";
+constexpr const char* kFilePrefix   = "ALCEDO_DPAPI_FILE_CREDENTIAL_V1:";
+constexpr const char* kSplitPrefix  = "ALCEDO_SPLIT_CREDENTIAL_V1:";
+constexpr size_t      kWinCredInlineBytes = 2000;
 
 auto TargetName(const std::string& slot) -> std::string {
   return std::string(kTargetPrefix) + slot;
+}
+
+auto FileManifest(const std::string& slot) -> std::string {
+  return std::string(kFilePrefix) + slot + ".bin";
+}
+
+auto ParseFileManifest(const std::string& value, std::string* filename) -> bool {
+  if (!value.starts_with(kFilePrefix)) {
+    return false;
+  }
+  const std::string name = value.substr(std::char_traits<char>::length(kFilePrefix));
+  if (name.empty() || name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
+      name.find("..") != std::string::npos) {
+    return false;
+  }
+  if (filename) *filename = name;
+  return true;
+}
+
+auto ChunkSlot(const std::string& slot, size_t index) -> std::string {
+  return slot + "_chunk_" + std::to_string(index);
 }
 #endif  // _WIN32
 
@@ -105,8 +134,8 @@ auto FromWide(const wchar_t* wide, int wide_len) -> std::string {
   return out;
 }
 
-auto WinCredAiCredentialStore::SaveCredential(const std::string& slot, const std::string& secret,
-                                              std::string* error) -> bool {
+auto WriteWinCredentialBlob(const std::string& slot, const std::string& secret, std::string* error)
+    -> bool {
   if (!IsValidSlot(slot)) {
     if (error) *error = "invalid credential slot";
     return false;
@@ -131,8 +160,8 @@ auto WinCredAiCredentialStore::SaveCredential(const std::string& slot, const std
   return true;
 }
 
-auto WinCredAiCredentialStore::LoadCredential(const std::string& slot, std::string* secret,
-                                              std::string* error) -> bool {
+auto ReadWinCredentialBlob(const std::string& slot, std::string* secret, std::string* error)
+    -> bool {
   if (!IsValidSlot(slot)) {
     if (error) *error = "invalid credential slot";
     return false;
@@ -167,8 +196,7 @@ auto WinCredAiCredentialStore::LoadCredential(const std::string& slot, std::stri
   return ok;
 }
 
-auto WinCredAiCredentialStore::DeleteCredential(const std::string& slot, std::string* error)
-    -> bool {
+auto DeleteWinCredentialBlob(const std::string& slot, std::string* error) -> bool {
   if (!IsValidSlot(slot)) {
     if (error) *error = "invalid credential slot";
     return false;
@@ -184,6 +212,243 @@ auto WinCredAiCredentialStore::DeleteCredential(const std::string& slot, std::st
     }
   }
   return true;
+}
+
+auto LocalAppDataDir() -> std::string {
+  char*  value = nullptr;
+  size_t len   = 0;
+  if (_dupenv_s(&value, &len, "LOCALAPPDATA") != 0 || value == nullptr) {
+    return {};
+  }
+  std::string out = value;
+  std::free(value);
+  return out;
+}
+
+auto CredentialFileRoot() -> std::filesystem::path {
+  const std::string local_app_data = LocalAppDataDir();
+  if (!local_app_data.empty()) {
+    return std::filesystem::path(local_app_data) / "AlcedoStudio" / "AiCredentialStore";
+  }
+  return std::filesystem::temp_directory_path() / "AlcedoStudio" / "AiCredentialStore";
+}
+
+auto CredentialFilePath(const std::string& filename) -> std::filesystem::path {
+  return CredentialFileRoot() / filename;
+}
+
+auto ProtectSecret(const std::string& secret, std::vector<unsigned char>* encrypted,
+                   std::string* error) -> bool {
+  DATA_BLOB input{};
+  input.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(secret.data()));
+  input.cbData = static_cast<DWORD>(secret.size());
+
+  DATA_BLOB output{};
+  if (!CryptProtectData(&input, L"Alcedo Studio AI credential", nullptr, nullptr, nullptr,
+                        CRYPTPROTECT_UI_FORBIDDEN, &output)) {
+    if (error) *error = "CryptProtectData failed (code " + std::to_string(GetLastError()) + ")";
+    return false;
+  }
+  encrypted->assign(output.pbData, output.pbData + output.cbData);
+  LocalFree(output.pbData);
+  return true;
+}
+
+auto UnprotectSecret(const std::vector<unsigned char>& encrypted, std::string* secret,
+                     std::string* error) -> bool {
+  DATA_BLOB input{};
+  input.pbData = const_cast<BYTE*>(encrypted.data());
+  input.cbData = static_cast<DWORD>(encrypted.size());
+
+  DATA_BLOB output{};
+  if (!CryptUnprotectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN,
+                          &output)) {
+    if (error) *error = "CryptUnprotectData failed (code " + std::to_string(GetLastError()) + ")";
+    return false;
+  }
+  if (secret) {
+    secret->assign(reinterpret_cast<const char*>(output.pbData), output.cbData);
+  }
+  LocalFree(output.pbData);
+  return true;
+}
+
+auto WriteEncryptedCredentialFile(const std::string& filename, const std::string& secret,
+                                  std::string* error) -> bool {
+  std::vector<unsigned char> encrypted;
+  if (!ProtectSecret(secret, &encrypted, error)) {
+    return false;
+  }
+
+  const auto path = CredentialFilePath(filename);
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  if (ec) {
+    if (error) *error = "could not create credential directory: " + ec.message();
+    return false;
+  }
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out) {
+    if (error) *error = "could not open credential file for writing";
+    return false;
+  }
+  out.write(reinterpret_cast<const char*>(encrypted.data()),
+            static_cast<std::streamsize>(encrypted.size()));
+  if (!out) {
+    if (error) *error = "could not write credential file";
+    return false;
+  }
+  return true;
+}
+
+auto ReadEncryptedCredentialFile(const std::string& filename, std::string* secret,
+                                 std::string* error) -> bool {
+  const auto path = CredentialFilePath(filename);
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    if (error) *error = "credential file is missing";
+    return false;
+  }
+  std::vector<unsigned char> encrypted((std::istreambuf_iterator<char>(in)),
+                                       std::istreambuf_iterator<char>());
+  if (encrypted.empty()) {
+    if (error) *error = "credential file is empty";
+    return false;
+  }
+  return UnprotectSecret(encrypted, secret, error);
+}
+
+auto DeleteCredentialFile(const std::string& filename, std::string* error) -> bool {
+  std::error_code ec;
+  std::filesystem::remove(CredentialFilePath(filename), ec);
+  if (ec) {
+    if (error) *error = "could not delete credential file: " + ec.message();
+    return false;
+  }
+  return true;
+}
+
+auto ParseSplitManifest(const std::string& value, size_t* count, size_t* total_bytes) -> bool {
+  if (!value.starts_with(kSplitPrefix)) {
+    return false;
+  }
+  const std::string rest = value.substr(std::char_traits<char>::length(kSplitPrefix));
+  const size_t      sep  = rest.find(':');
+  if (sep == std::string::npos || sep == 0 || sep + 1 >= rest.size()) {
+    return false;
+  }
+  const std::string count_text = rest.substr(0, sep);
+  const std::string total_text = rest.substr(sep + 1);
+  char*       count_end = nullptr;
+  char*       total_end = nullptr;
+  const auto  parsed_count = std::strtoull(count_text.c_str(), &count_end, 10);
+  const auto  parsed_total = std::strtoull(total_text.c_str(), &total_end, 10);
+  const bool count_ok = count_end != nullptr && *count_end == '\0' && parsed_count > 0;
+  const bool total_ok = total_end != nullptr && *total_end == '\0';
+  if (!count_ok || !total_ok) {
+    return false;
+  }
+  if (count) *count = static_cast<size_t>(parsed_count);
+  if (total_bytes) *total_bytes = static_cast<size_t>(parsed_total);
+  return true;
+}
+
+auto DeleteWinCredentialChunks(const std::string& slot, size_t count, std::string* error) -> bool {
+  for (size_t i = 0; i < count; ++i) {
+    if (!DeleteWinCredentialBlob(ChunkSlot(slot, i), error)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+auto WinCredAiCredentialStore::SaveCredential(const std::string& slot, const std::string& secret,
+                                              std::string* error) -> bool {
+  if (!IsValidSlot(slot)) {
+    if (error) *error = "invalid credential slot";
+    return false;
+  }
+
+  // WinCred generic credentials have a small blob limit. Keep small secrets in
+  // WinCred; store large token bundles as a DPAPI-encrypted local secret and put
+  // only a tiny manifest in WinCred.
+  if (secret.size() <= kWinCredInlineBytes) {
+    std::string ignored;
+    DeleteCredential(slot, &ignored);
+    return WriteWinCredentialBlob(slot, secret, error);
+  }
+
+  std::string ignored;
+  DeleteCredential(slot, &ignored);
+  const std::string filename = slot + ".bin";
+  if (!WriteEncryptedCredentialFile(filename, secret, error)) {
+    return false;
+  }
+  if (!WriteWinCredentialBlob(slot, FileManifest(slot), error)) {
+    DeleteCredentialFile(filename, &ignored);
+    return false;
+  }
+  return true;
+}
+
+auto WinCredAiCredentialStore::LoadCredential(const std::string& slot, std::string* secret,
+                                              std::string* error) -> bool {
+  std::string main;
+  if (!ReadWinCredentialBlob(slot, &main, error)) {
+    return false;
+  }
+  size_t count       = 0;
+  size_t total_bytes = 0;
+  if (!ParseSplitManifest(main, &count, &total_bytes)) {
+    std::string filename;
+    if (ParseFileManifest(main, &filename)) {
+      return ReadEncryptedCredentialFile(filename, secret, error);
+    }
+    if (secret) *secret = std::move(main);
+    return true;
+  }
+
+  std::string joined;
+  joined.reserve(total_bytes);
+  for (size_t i = 0; i < count; ++i) {
+    std::string chunk;
+    if (!ReadWinCredentialBlob(ChunkSlot(slot, i), &chunk, error)) {
+      if (error && error->empty()) *error = "credential chunk is missing";
+      return false;
+    }
+    joined += chunk;
+  }
+  if (joined.size() != total_bytes) {
+    if (error) *error = "credential chunks were malformed";
+    return false;
+  }
+  if (secret) *secret = std::move(joined);
+  return true;
+}
+
+auto WinCredAiCredentialStore::DeleteCredential(const std::string& slot, std::string* error)
+    -> bool {
+  if (!IsValidSlot(slot)) {
+    if (error) *error = "invalid credential slot";
+    return false;
+  }
+
+  std::string main;
+  std::string read_error;
+  if (ReadWinCredentialBlob(slot, &main, &read_error)) {
+    size_t count       = 0;
+    size_t total_bytes = 0;
+    std::string filename;
+    if (ParseFileManifest(main, &filename) && !DeleteCredentialFile(filename, error)) {
+      return false;
+    }
+    if (ParseSplitManifest(main, &count, &total_bytes) &&
+        !DeleteWinCredentialChunks(slot, count, error)) {
+      return false;
+    }
+  }
+  return DeleteWinCredentialBlob(slot, error);
 }
 
 auto WinCredAiCredentialStore::HasCredential(const std::string& slot) -> bool {

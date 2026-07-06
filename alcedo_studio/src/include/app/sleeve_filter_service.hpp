@@ -17,6 +17,50 @@
 #include "utils/id/id_generator.hpp"
 
 namespace alcedo {
+
+/// Optional field-scope mask for the fuzzy search path. Each bit restricts the
+/// search to one contributing field group so the search-settings drawer can
+/// scope results. Bits are combinable; `kAllSearchFields` reproduces the
+/// pre-mask behavior (every field contributes — the default).
+///   - `Filename`:      element name + image file name + image path.
+///   - `Exif`:          EXIF metadata JSON (Make/Model/Lens/LensMake/ISO/Focal/
+///                      Aperture) + date matching.
+///   - `AiDescription`: remote AI understanding caption + scene text.
+///   - `AiTags`:        remote AI understanding tags_json + the local CLIP
+///                      `SemanticImageLabel` taxonomy (AI-derived labels).
+///
+/// Declared `enum class` (scoped) deliberately: an unscoped enum would leak the
+/// enumerator names (notably `AiDescription`, which collides with the
+/// `alcedo::AiDescription` struct in ai/ai_description.hpp) into the `alcedo`
+/// namespace. The bitmask operators below let callers write
+/// `mask |= SearchField::Filename` / `mask & SearchField::Exif` directly.
+enum class SearchField : std::uint8_t {
+  Filename      = 1u << 0u,
+  Exif          = 1u << 1u,
+  AiDescription = 1u << 2u,
+  AiTags        = 1u << 3u,
+};
+using SearchFieldMask = std::uint8_t;
+inline constexpr SearchFieldMask kAllSearchFields =
+    static_cast<SearchFieldMask>(SearchField::Filename)
+    | static_cast<SearchFieldMask>(SearchField::Exif)
+    | static_cast<SearchFieldMask>(SearchField::AiDescription)
+    | static_cast<SearchFieldMask>(SearchField::AiTags);
+
+inline constexpr SearchFieldMask operator|(SearchFieldMask m, SearchField f) {
+  return m | static_cast<SearchFieldMask>(f);
+}
+inline constexpr SearchFieldMask operator|(SearchField f, SearchFieldMask m) {
+  return static_cast<SearchFieldMask>(f) | m;
+}
+inline constexpr SearchFieldMask& operator|=(SearchFieldMask& m, SearchField f) {
+  m = m | static_cast<SearchFieldMask>(f);
+  return m;
+}
+inline constexpr SearchFieldMask operator&(SearchFieldMask m, SearchField f) {
+  return m & static_cast<SearchFieldMask>(f);
+}
+
 struct StatsBucket {
   std::string label_{};
   int         count_ = 0;
@@ -76,18 +120,21 @@ class SleeveFilterService {
   auto BuildFolderStats(sl_element_id_t                  parent_id,
                         const std::optional<FilterNode>& extra_filter = std::nullopt) const
       -> AlbumStatsView;
-  [[nodiscard]] auto BuildFuzzySearchWhere(const std::wstring& query) const
+  [[nodiscard]] auto BuildFuzzySearchWhere(const std::wstring& query,
+                                          SearchFieldMask      mask = kAllSearchFields) const
       -> std::optional<std::wstring>;
   [[nodiscard]] auto BuildExactFileWhere(sl_element_id_t file_id) const -> std::wstring;
   [[nodiscard]] auto SearchFolder(sl_element_id_t parent_id, const std::wstring& query,
-                                  size_t offset = 0, size_t limit = 48) const
+                                  size_t offset = 0, size_t limit = 48,
+                                  SearchFieldMask mask = kAllSearchFields) const
       -> std::vector<FuzzySearchMatch>;
   void               SetSemanticSearchProvider(std::shared_ptr<SemanticSearchProvider> provider);
   [[nodiscard]] auto HasSemanticSearchProvider() const -> bool;
   [[nodiscard]] auto SearchFolderSemantic(sl_element_id_t parent_id, const std::wstring& query,
                                           size_t offset = 0, size_t limit = 48) const
       -> std::vector<FuzzySearchMatch>;
-  [[nodiscard]] auto CountSearchResults(sl_element_id_t parent_id, const std::wstring& query) const
+  [[nodiscard]] auto CountSearchResults(sl_element_id_t parent_id, const std::wstring& query,
+                                        SearchFieldMask mask = kAllSearchFields) const
       -> size_t;
   /// Invalidate all cached filter results for a specific folder scope.
   /// Call after membership changes (link / unlink / delete) that affect that folder.

@@ -1116,7 +1116,7 @@ def_library(AiCredentialStore
         include/app/ai_credential_store.hpp
 )
 if(WIN32)
-    target_link_libraries(AiCredentialStore PRIVATE Advapi32)
+    target_link_libraries(AiCredentialStore PRIVATE Advapi32 Crypt32)
 elseif(APPLE)
     target_link_libraries(AiCredentialStore PRIVATE "-framework Security" "-framework CoreFoundation")
 endif()
@@ -1807,14 +1807,21 @@ if(WIN32 AND TARGET alcedo_lensfun)
 endif()
 
 if(TARGET alcedo_main AND ALCEDO_DUCKDB_VSS_EXTENSION AND ALCEDO_DUCKDB_FTS_EXTENSION)
+    if(APPLE AND ALCEDO_MACOS_BUNDLE)
+        set(_alcedo_duckdb_extension_runtime_dir
+            "$<TARGET_BUNDLE_CONTENT_DIR:alcedo_main>/Resources/duckdb_extensions")
+    else()
+        set(_alcedo_duckdb_extension_runtime_dir "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions")
+    endif()
     add_custom_command(TARGET alcedo_main POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_alcedo_duckdb_extension_runtime_dir}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ALCEDO_DUCKDB_VSS_EXTENSION}"
-            "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/vss.duckdb_extension"
+            "${_alcedo_duckdb_extension_runtime_dir}/vss.duckdb_extension"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ALCEDO_DUCKDB_FTS_EXTENSION}"
-            "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/fts.duckdb_extension"
+            "${_alcedo_duckdb_extension_runtime_dir}/fts.duckdb_extension"
         VERBATIM
     )
 endif()

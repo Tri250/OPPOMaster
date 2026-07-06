@@ -9,6 +9,10 @@
 #include <memory>
 #include <string>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace alcedo {
 namespace {
 
@@ -54,6 +58,33 @@ TEST(AiCredentialStoreTest, FactoryReturnsUsableStore) {
   std::shared_ptr<IAiCredentialStore> store = MakeDefaultAiCredentialStore();
   ASSERT_TRUE(store);
 }
+
+#if defined(_WIN32)
+TEST(AiCredentialStoreTest, WinCredStoreSavesLoadsAndDeletesLargeCredentialViaEncryptedFile) {
+  WinCredAiCredentialStore store;
+  const std::string        slot =
+      "alcedo_test_large_secret_" + std::to_string(GetCurrentProcessId());
+  const std::string        secret =
+      "{\"tokens\":{\"access_token\":\"" + std::string(3600, 'a') +
+      "\",\"refresh_token\":\"" + std::string(1200, 'r') +
+      "\",\"account_id\":\"acct_test\"}}";
+  ASSERT_GT(secret.size(), 4000u);
+
+  std::string error;
+  ASSERT_TRUE(store.DeleteCredential(slot, &error)) << error;
+  error.clear();
+
+  ASSERT_TRUE(store.SaveCredential(slot, secret, &error)) << error;
+  EXPECT_TRUE(store.HasCredential(slot));
+
+  std::string loaded;
+  ASSERT_TRUE(store.LoadCredential(slot, &loaded, &error)) << error;
+  EXPECT_EQ(loaded, secret);
+
+  EXPECT_TRUE(store.DeleteCredential(slot, &error)) << error;
+  EXPECT_FALSE(store.HasCredential(slot));
+}
+#endif
 
 }  // namespace
 }  // namespace alcedo

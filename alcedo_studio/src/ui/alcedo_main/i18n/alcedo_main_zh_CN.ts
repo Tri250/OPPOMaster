@@ -275,6 +275,10 @@
 <context>
     <name>Alcedo</name>
     <message>
+        <source>Natural language search is enabled — field filters are disabled.</source>
+        <translation>已启用自然语言搜索 — 字段筛选已禁用。</translation>
+    </message>
+    <message>
         <source>Select a project: load a .alcd package or metadata JSON, or create a new packed project.</source>
         <translation type="vanished">选择一个项目：加载 .alcd 项目包或元数据 JSON，或者创建新的打包项目。</translation>
     </message>
@@ -2139,6 +2143,54 @@ Alcedo 将改用 %1。</translation>
         <source>Suggestion</source>
         <translation>建议</translation>
     </message>
+    <message>
+        <source>Search settings ▾</source>
+        <translation>搜索设置 ▾</translation>
+    </message>
+    <message>
+        <source>Search settings — choose which fields the search scans, or enable natural-language search</source>
+        <translation>搜索设置 — 选择搜索扫描的字段，或启用自然语言搜索</translation>
+    </message>
+    <message>
+        <source>Search conditions</source>
+        <translation>搜索条件</translation>
+    </message>
+    <message>
+        <source>Filename</source>
+        <translation>文件名</translation>
+    </message>
+    <message>
+        <source>EXIF info</source>
+        <translation>EXIF 信息</translation>
+    </message>
+    <message>
+        <source>AI description</source>
+        <translation>AI 描述文本</translation>
+    </message>
+    <message>
+        <source>AI tags</source>
+        <translation>AI 标签</translation>
+    </message>
+    <message>
+        <source>Natural language search</source>
+        <translation>自然语言搜索</translation>
+    </message>
+    <message>
+        <source>Natural language search — use the CLIP model to search by meaning (Enter or Search button to run). Mutually exclusive with the field filters above.</source>
+        <translation>自然语言搜索 — 通过 CLIP 模型按语义搜索（按回车或点击搜索按钮运行）。与上方字段筛选互斥。</translation>
+    </message>
+    <message>
+        <source>Query is too long for natural language search</source>
+        <translation>自然语言搜索的查询过长</translation>
+    </message>
+    <message>
+        <source>Natural language search is not available yet</source>
+        <translation>自然语言搜索暂不可用</translation>
+    </message>
+    <message>
+        <source>Press Enter or click Search for natural language search</source>
+        <translation>按回车或点击搜索按钮以执行自然语言搜索</translation>
+    </message>
 </context>
 <context>
     <name>AlbumInspectorPanel</name>
@@ -2194,16 +2246,64 @@ Alcedo 将改用 %1。</translation>
         <translation>（未命名）</translation>
     </message>
     <message>
+        <source>RAW</source>
+        <translation>RAW</translation>
+    </message>
+    <message>
+        <source>HDR</source>
+        <translation>HDR</translation>
+    </message>
+    <message>
+        <source>-</source>
+        <translation>-</translation>
+    </message>
+    <message>
+        <source>%1 / 5</source>
+        <translation>%1 / 5</translation>
+    </message>
+    <message>
+        <source>Unrated</source>
+        <translation>未评分</translation>
+    </message>
+    <message>
+        <source>Image actions</source>
+        <translation>图像操作</translation>
+    </message>
+    <message>
+        <source>Exposure</source>
+        <translation>曝光</translation>
+    </message>
+    <message>
+        <source>Metadata</source>
+        <translation>元数据</translation>
+    </message>
+    <message>
+        <source>AI Description</source>
+        <translation>AI 描述</translation>
+    </message>
+    <message>
+        <source>No description yet.</source>
+        <translation>暂无描述。</translation>
+    </message>
+    <message>
+        <source>AI Comment</source>
+        <translation>AI 评语</translation>
+    </message>
+    <message>
+        <source>No comment yet.</source>
+        <translation>暂无评语。</translation>
+    </message>
+    <message>
+        <source>AI Rating</source>
+        <translation>AI 评分</translation>
+    </message>
+    <message>
         <source>Save description</source>
         <translation>保存描述</translation>
     </message>
     <message>
         <source>Edit description</source>
         <translation>编辑描述</translation>
-    </message>
-    <message>
-        <source>No description yet.</source>
-        <translation>暂无描述。</translation>
     </message>
     <message>
         <source>Save rating reason</source>

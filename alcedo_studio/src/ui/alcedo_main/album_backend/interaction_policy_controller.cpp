@@ -8,6 +8,8 @@
 #include <set>
 #include <utility>
 
+#include "ui/alcedo_main/i18n.hpp"
+
 namespace alcedo::ui {
 
 namespace {
@@ -58,6 +60,14 @@ void InteractionPolicyController::SetPendingAnalysisTargets(const QVariantList& 
     return;
   }
   pending_analysis_targets_ = targets;
+  emit PolicyChanged();
+}
+
+void InteractionPolicyController::SetNaturalLanguageSearchEnabled(bool enabled) {
+  if (natural_language_search_enabled_ == enabled) {
+    return;
+  }
+  natural_language_search_enabled_ = enabled;
   emit PolicyChanged();
 }
 
@@ -237,6 +247,21 @@ bool InteractionPolicyController::CanChangeModelDownloadSettings() const {
 
 bool InteractionPolicyController::CanChangeImageAnalysisProvider() const {
   return EvalGlobal(InteractionCapability::ChangeImageAnalysisProvider).allowed_;
+}
+
+bool InteractionPolicyController::CanChangeSearchFieldFilters() const {
+  // UI-only mutual-exclusion gate: natural-language search and field filters
+  // cannot be active together. This does NOT consult the task-lock model (no
+  // InteractionCapability::ChangeSearchFieldFilters); the only input is the
+  // QML-pushed natural-language toggle. See the header comment.
+  return !natural_language_search_enabled_;
+}
+
+QString InteractionPolicyController::SearchFieldFiltersReason() const {
+  if (natural_language_search_enabled_) {
+    return Tr("Natural language search is enabled — field filters are disabled.");
+  }
+  return {};
 }
 
 // ── Q_INVOKABLE one-shot queries (full {allowed, reason, blockingTaskIds} map) ─

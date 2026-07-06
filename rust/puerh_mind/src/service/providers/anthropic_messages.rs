@@ -66,8 +66,9 @@ use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
     AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, DiscoveredModel,
     ImageAnalysisProvider, ImageAnalysisSchemaSpec, ProviderError, ScoreOutcome, Usage,
-    image_analysis_schema_json, validate_analyze, validate_batch_analyze, validate_rating,
-    validate_understanding,
+    image_analysis_schema_json, output_confidence, output_description, output_rating_reason,
+    output_rubric_id, output_rubric_version, output_scene, output_tags, validate_analyze,
+    validate_batch_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -371,30 +372,10 @@ impl AnthropicMessagesProvider {
             ))
         })?;
         let out = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
+            caption: output_description(&parsed),
+            tags: output_tags(&parsed),
+            scene: output_scene(&parsed),
+            confidence: output_confidence(&parsed),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -429,21 +410,9 @@ impl AnthropicMessagesProvider {
         let rating = parsed.get("rating").and_then(parse_rating_int).unwrap_or(0);
         let out = ScoreOutcome {
             rating,
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            rubric_id: output_rubric_id(&parsed),
+            rubric_version: output_rubric_version(&parsed),
+            reasons: output_rating_reason(&parsed),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -464,19 +433,9 @@ impl AnthropicMessagesProvider {
         header_req_id: &str,
         usage: Usage,
     ) -> Result<AnalyzeOutcome, ProviderError> {
-        if parsed.get("caption").is_none() {
+        if parsed.get("description").is_none() && parsed.get("caption").is_none() {
             return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain caption".to_string(),
-            ));
-        }
-        if parsed.get("tags").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain tags array".to_string(),
-            ));
-        }
-        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+                "provider response did not contain description".to_string(),
             ));
         }
         if parsed.get("rating").is_none() {
@@ -484,57 +443,20 @@ impl AnthropicMessagesProvider {
                 "provider response did not contain rating".to_string(),
             ));
         }
-        if parsed.get("rubric_id").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain rubric_id".to_string(),
-            ));
-        }
         let understanding = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
+            caption: output_description(parsed),
+            tags: output_tags(parsed),
+            scene: output_scene(parsed),
+            confidence: output_confidence(parsed),
             model_id: model_id.to_string(),
             usage: usage.clone(),
             provider_request_id: header_req_id.to_string(),
         };
         let rating = ScoreOutcome {
             rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            rubric_id: output_rubric_id(parsed),
+            rubric_version: output_rubric_version(parsed),
+            reasons: output_rating_reason(parsed),
             model_id: model_id.to_string(),
             usage: usage.clone(),
             provider_request_id: header_req_id.to_string(),
@@ -561,29 +483,14 @@ impl AnthropicMessagesProvider {
                 "provider response did not contain tool_use input named {ANALYSIS_FLAT_SCHEMA_NAME} and no JSON object was found in a text block; expected Anthropic-compatible structured tool output"
             ))
         })?;
-        if parsed.get("caption").is_none() {
+        if parsed.get("description").is_none() && parsed.get("caption").is_none() {
             return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain caption".to_string(),
-            ));
-        }
-        if parsed.get("tags").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain tags array".to_string(),
-            ));
-        }
-        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+                "provider response did not contain description".to_string(),
             ));
         }
         if parsed.get("rating").is_none() {
             return Err(ProviderError::SchemaValidationMessage(
                 "provider response did not contain rating".to_string(),
-            ));
-        }
-        if parsed.get("rubric_id").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain rubric_id".to_string(),
             ));
         }
         let usage = extract_usage(
@@ -594,51 +501,19 @@ impl AnthropicMessagesProvider {
                 .and_then(|p| json_pointer_str(body, p)),
         );
         let understanding = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
+            caption: output_description(&parsed),
+            tags: output_tags(&parsed),
+            scene: output_scene(&parsed),
+            confidence: output_confidence(&parsed),
             model_id: model_id.to_string(),
             usage: usage.clone(),
             provider_request_id: header_req_id.to_string(),
         };
         let rating = ScoreOutcome {
             rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            rubric_id: output_rubric_id(&parsed),
+            rubric_version: output_rubric_version(&parsed),
+            reasons: output_rating_reason(&parsed),
             model_id: model_id.to_string(),
             usage: usage.clone(),
             provider_request_id: header_req_id.to_string(),
@@ -869,17 +744,12 @@ fn analyze_schema_repair_instruction(error: &ProviderError) -> String {
 
 Call the tool again with exactly this shape:
 {{
-  "caption": "non-empty string",
-  "tags": ["one or more non-empty strings"],
-  "scene": "string",
-  "confidence": 0.0,
+  "description": "non-empty string",
   "rating": 1,
-  "rubric_id": "non-empty string",
-  "rubric_version": "string",
-  "reasons": "string"
+  "rating_reason": "string"
 }}
 
-The tool input must be a flat object. Do not nest fields under "understanding" or a rating object. tags must be an array, not a string."#
+The tool input must be a flat object. Do not nest fields under "understanding" or a rating object."#
     )
 }
 
@@ -908,17 +778,12 @@ Repair only the failed item indexes below. Call the tool again and return a JSON
 Each corrected item must match this exact shape:
 {{
   "index": 0,
-  "caption": "non-empty string",
-  "tags": ["one or more non-empty strings"],
-  "scene": "string",
-  "confidence": 0.0,
+  "description": "non-empty string",
   "rating": 1,
-  "rubric_id": "non-empty string",
-  "rubric_version": "string",
-  "reasons": "string"
+  "rating_reason": "string"
 }}
 
-Do not include prose or markdown. Do not add extra fields. Do not return already-valid indexes. tags must be an array, not a string."#
+Do not include prose or markdown. Do not add extra fields. Do not return already-valid indexes."#
     )
 }
 
@@ -930,6 +795,10 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
 
     fn requires_credential(&self) -> bool {
         self.config.auth.auth_type != "none"
+    }
+
+    fn max_payload_bytes(&self) -> usize {
+        self.config.limits.max_image_bytes as usize
     }
 
     fn capability(&self) -> crate::proto::alcedo::ai::AiCapability {
@@ -1608,8 +1477,10 @@ mod tests {
         let required = body["tools"][0]["input_schema"]["required"]
             .as_array()
             .expect("required array");
-        assert!(required.iter().any(|v| v == "caption"), "caption required");
-        assert!(required.iter().any(|v| v == "tags"), "tags required");
+        assert!(
+            required.iter().any(|v| v == "description"),
+            "description required"
+        );
         assert_eq!(body["tool_choice"]["type"], "tool");
         assert_eq!(body["tool_choice"]["name"], "alcedo_image_understanding");
         // No Responses-shape fields leak in.
@@ -1843,29 +1714,24 @@ mod tests {
         assert_eq!(reqs.len(), 1);
         let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
         let schema = &body["tools"][0]["input_schema"];
-        assert!(schema["properties"].get("caption").is_some());
-        assert!(schema["properties"].get("tags").is_some());
+        assert!(schema["properties"].get("description").is_some());
         assert!(schema["properties"].get("rating").is_some());
-        assert!(schema["properties"].get("rubric_id").is_some());
+        assert!(schema["properties"].get("rating_reason").is_some());
+        assert!(schema["properties"].get("tags").is_none());
+        assert!(schema["properties"].get("rubric_id").is_none());
         assert!(schema["properties"].get("understanding").is_none());
     }
 
     #[tokio::test]
-    async fn analyze_repairs_flat_tags_string_once() {
+    async fn analyze_repairs_missing_description_once() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
                 ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
-                    "caption": "a macaque on a branch",
-                    "tags": "wildlife, monkey",
-                    "scene": "rainforest",
-                    "confidence": 0.85,
                     "rating": 3,
-                    "rubric_id": "general",
-                    "rubric_version": "v1",
-                    "reasons": "competent but ordinary"
+                    "rating_reason": "competent but ordinary"
                 }"#,
             )))
             .up_to_n_times(1)
@@ -1876,14 +1742,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
                 ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
-                    "caption": "a macaque on a branch",
-                    "tags": ["wildlife", "monkey"],
-                    "scene": "rainforest",
-                    "confidence": 0.85,
+                    "description": "a macaque on a branch",
                     "rating": 3,
-                    "rubric_id": "general",
-                    "rubric_version": "v1",
-                    "reasons": "competent but ordinary"
+                    "rating_reason": "competent but ordinary"
                 }"#,
             )))
             .mount(&server)
@@ -1904,10 +1765,10 @@ mod tests {
                 Some(&secret()),
             )
             .await
-            .expect("tags string repaired");
+            .expect("missing description repaired");
         assert_eq!(
-            out.understanding.expect("understanding present").tags,
-            vec!["wildlife".to_string(), "monkey".to_string()]
+            out.understanding.expect("understanding present").caption,
+            "a macaque on a branch"
         );
 
         let reqs = server.received_requests().await.expect("requests captured");
@@ -1927,7 +1788,7 @@ mod tests {
             .as_str()
             .expect("repair instruction string");
         assert!(
-            repair_instruction.contains("tags must be an array, not a string"),
+            repair_instruction.contains("\"description\""),
             "{repair_instruction}"
         );
         assert_eq!(
@@ -1951,14 +1812,8 @@ mod tests {
                     "results": [
                         {
                             "index": 0,
-                            "caption": "a red tram",
-                            "tags": "tram, city",
-                            "scene": "urban",
-                            "confidence": 0.8,
                             "rating": 3,
-                            "rubric_id": "general",
-                            "rubric_version": "v1",
-                            "reasons": "competent but ordinary"
+                            "rating_reason": "competent but ordinary"
                         }
                     ]
                 }"#,
@@ -1974,14 +1829,9 @@ mod tests {
                     "results": [
                         {
                             "index": 0,
-                            "caption": "a red tram",
-                            "tags": ["tram", "city"],
-                            "scene": "urban",
-                            "confidence": 0.8,
+                            "description": "a red tram",
                             "rating": 3,
-                            "rubric_id": "general",
-                            "rubric_version": "v1",
-                            "reasons": "competent but ordinary"
+                            "rating_reason": "competent but ordinary"
                         }
                     ]
                 }"#,
@@ -2015,8 +1865,8 @@ mod tests {
                 .understanding
                 .as_ref()
                 .expect("understanding present")
-                .tags,
-            vec!["tram".to_string(), "city".to_string()]
+                .caption,
+            "a red tram"
         );
 
         let reqs = server.received_requests().await.expect("requests captured");
@@ -2127,7 +1977,7 @@ mod tests {
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
                 UNDERSTANDING_SCHEMA_NAME,
-                r#"{"caption":"c","tags":[],"scene":"","confidence":0.5}"#,
+                r#"{"description":""}"#,
             )))
             .mount(&server)
             .await;
@@ -2135,7 +1985,7 @@ mod tests {
         let err = provider
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
-            .expect_err("empty tags rejected");
+            .expect_err("empty description rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
     }
 
@@ -2394,14 +2244,9 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
                 ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
-                    "caption": "a macaque on a branch",
-                    "tags": "wildlife, RAW_ARK_CODING_BODY_SENTINEL",
-                    "scene": "rainforest",
-                    "confidence": 0.85,
+                    "description": "",
                     "rating": 3,
-                    "rubric_id": "general",
-                    "rubric_version": "v1",
-                    "reasons": "RAW_ARK_CODING_BODY_SENTINEL"
+                    "rating_reason": "RAW_ARK_CODING_BODY_SENTINEL"
                 }"#,
             )))
             .mount(&server)
