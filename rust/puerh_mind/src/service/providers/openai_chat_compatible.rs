@@ -7,11 +7,12 @@
 //! local compatible server, or the real OpenAI API. It builds an OpenAI Chat
 //! request from the loaded provider config: an Alcedo-owned system prompt, a user
 //! message carrying the selected image rendition as a data URI plus a task
-//! instruction, and `response_format: { type: "json_schema", ... }` carrying the
-//! code-owned (sanitized to strict-compatible) Alcedo schema. The response's
-//! `choices[0].message.content` (or the config's `content_json_pointer`) is parsed
-//! as JSON, validated + normalized against the code-owned understanding / rating
-//! contract, and returned as typed fields.
+//! instruction, and an OpenAI Chat function tool (`tools[].function.name` plus
+//! `tool_choice.function.name`) carrying the code-owned (sanitized to
+//! strict-compatible) Alcedo schema. The response's tool-call arguments, or
+//! `choices[0].message.content` for compatible shims that still answer as text,
+//! are parsed as JSON, validated + normalized against the code-owned
+//! understanding / rating contract, and returned as typed fields.
 //!
 //! ## OpenRouter-specific knobs are optional, config-gated, off by default
 //!
@@ -33,8 +34,9 @@
 //! a local no-key compatible server. Structured output is mandatory: if the config
 //! does not request it (`mode = "none"`) or the selected model does not support
 //! it, the driver fails closed before any HTTP call. A compatible endpoint that
-//! ignores `response_format` and returns non-JSON prose, or returns JSON that
-//! violates the code-owned contract, maps to `ProviderError::SchemaValidation` so
+//! ignores the requested structured tool output and returns non-JSON prose, or
+//! returns JSON that violates the code-owned contract, maps to
+//! `ProviderError::SchemaValidation` so
 //! the service creates no active annotation (Phase 6b "unsupported structured
 //! output" fail-closed path). Transport / 429 / 5xx failures retry under the same
 //! bounded policy as the other drivers; provider and transport errors map to
@@ -61,9 +63,9 @@ use crate::service::providers::http_util::{
     sanitized_provider_json_excerpt, send_get_with_retry, send_with_retry, strict_schema_value,
 };
 
-/// Schema names injected into `response_format.json_schema.name`. Kept stable and
-/// Alcedo-namespaced so a provider's structured-output dashboard identifies the
-/// contract unambiguously.
+/// Schema/function names injected into the OpenAI-compatible structured-output
+/// request. Kept stable and Alcedo-namespaced so a provider's structured-output
+/// dashboard identifies the contract unambiguously.
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
 const ANALYSIS_FLAT_SCHEMA_NAME: &str = "alcedo_image_analysis_flat";
@@ -322,16 +324,9 @@ impl OpenAiChatCompatibleProvider {
             "model": slug,
             "messages": messages,
             "stream": false,
-            "temperature": self.config.defaults.temperature,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema_name,
-                    "strict": self.config.structured_output.strict,
-                    "schema": schema
-                }
-            }
+            "temperature": self.config.defaults.temperature
         });
+        self.attach_structured_output(&mut body, schema_name, schema);
         let provider = self.provider_knobs(model);
         // Omit `provider` entirely when empty so a plain OpenAI-compatible /
         // Opencode body matches the OpenAI Chat shape (no OpenRouter routing
@@ -380,22 +375,62 @@ impl OpenAiChatCompatibleProvider {
             "model": slug,
             "messages": messages,
             "stream": false,
-            "temperature": self.config.defaults.temperature,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": ANALYSIS_BATCH_SCHEMA_NAME,
-                    "strict": self.config.structured_output.strict,
-                    "schema": schema
-                }
-            }
+            "temperature": self.config.defaults.temperature
         });
+        self.attach_structured_output(&mut body, ANALYSIS_BATCH_SCHEMA_NAME, schema);
         let provider = self.provider_knobs(model);
         let is_empty = provider.as_object().map(|o| o.is_empty()).unwrap_or(false);
         if !is_empty {
             body["provider"] = provider;
         }
         body
+    }
+
+    fn attach_structured_output(&self, body: &mut Value, schema_name: &str, schema: Value) {
+        body["tools"] = json!([
+            {
+                "type": "function",
+                "function": {
+                    "name": schema_name,
+                    "description": "Return the Alcedo image-analysis result using this exact JSON schema.",
+                    "parameters": schema,
+                    "strict": self.config.structured_output.strict
+                }
+            }
+        ]);
+        body["tool_choice"] = json!({
+            "type": "function",
+            "function": { "name": schema_name }
+        });
+        body["parallel_tool_calls"] = Value::Bool(false);
+    }
+
+    async fn send_chat_body(
+        &self,
+        slug: &str,
+        body: &Value,
+        bearer: Option<&str>,
+    ) -> Result<reqwest::Response, ProviderError> {
+        send_with_retry(
+            &self.http,
+            &self.url(),
+            body,
+            &self.attribution_headers(),
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await
+        .map_err(|err| {
+            if let ProviderError::Provider(message) = &err {
+                let lower = message.to_ascii_lowercase();
+                if lower.contains("name is not set") || lower.contains("`name` is not set") {
+                    return ProviderError::Provider(format!(
+                        "{message}; OpenAI-compatible structured output request included function/tool name for model {slug}"
+                    ));
+                }
+            }
+            err
+        })
     }
 
     async fn send_and_parse_describe(
@@ -423,15 +458,7 @@ impl OpenAiChatCompatibleProvider {
                     .as_ref()
                     .map(|(content, err)| (content.as_str(), err)),
             );
-            let resp = send_with_retry(
-                &self.http,
-                &self.url(),
-                &body,
-                &self.attribution_headers(),
-                bearer,
-                MAX_TRANSIENT_RETRIES,
-            )
-            .await?;
+            let resp = self.send_chat_body(slug, &body, bearer).await?;
             let (headers, resp_body) = read_response(resp).await?;
             let header_req_id = extract_provider_request_id(
                 &headers,
@@ -502,15 +529,7 @@ impl OpenAiChatCompatibleProvider {
                     .as_ref()
                     .map(|(content, err)| (content.as_str(), err)),
             );
-            let resp = send_with_retry(
-                &self.http,
-                &self.url(),
-                &body,
-                &self.attribution_headers(),
-                bearer,
-                MAX_TRANSIENT_RETRIES,
-            )
-            .await?;
+            let resp = self.send_chat_body(slug, &body, bearer).await?;
             let (headers, resp_body) = read_response(resp).await?;
             let header_req_id = extract_provider_request_id(
                 &headers,
@@ -578,15 +597,7 @@ impl OpenAiChatCompatibleProvider {
                     .as_ref()
                     .map(|(content, err)| (content.as_str(), err)),
             );
-            let resp = send_with_retry(
-                &self.http,
-                &self.url(),
-                &body,
-                &self.attribution_headers(),
-                bearer,
-                MAX_TRANSIENT_RETRIES,
-            )
-            .await?;
+            let resp = self.send_chat_body(slug, &body, bearer).await?;
             let (headers, resp_body) = read_response(resp).await?;
             let header_req_id = extract_provider_request_id(
                 &headers,
@@ -660,15 +671,7 @@ impl OpenAiChatCompatibleProvider {
                 instruction,
                 repair,
             );
-            let resp = send_with_retry(
-                &self.http,
-                &self.url(),
-                &body,
-                &self.attribution_headers(),
-                bearer,
-                MAX_TRANSIENT_RETRIES,
-            )
-            .await?;
+            let resp = self.send_chat_body(slug, &body, bearer).await?;
             let (headers, resp_body) = read_response(resp).await?;
             let header_req_id = extract_provider_request_id(
                 &headers,
@@ -1705,7 +1708,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_body_has_json_schema_response_format_and_image_data_uri() {
+    async fn request_body_has_chat_tool_names_and_image_data_uri() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -1728,13 +1731,21 @@ mod tests {
         let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
         assert_eq!(body["model"], "kimi-k2.7-code");
         assert_eq!(body["stream"], false);
-        assert_eq!(body["response_format"]["type"], "json_schema");
+        assert!(
+            body.get("response_format").is_none(),
+            "OpenAI-compatible structured output uses tool calls, not response_format"
+        );
         assert_eq!(
-            body["response_format"]["json_schema"]["name"],
+            body["tools"][0]["function"]["name"],
             "alcedo_image_understanding"
         );
-        assert_eq!(body["response_format"]["json_schema"]["strict"], true);
-        let schema = &body["response_format"]["json_schema"]["schema"];
+        assert_eq!(
+            body["tool_choice"]["function"]["name"],
+            "alcedo_image_understanding"
+        );
+        assert_eq!(body["tools"][0]["function"]["strict"], true);
+        assert_eq!(body["parallel_tool_calls"], false);
+        let schema = &body["tools"][0]["function"]["parameters"];
         assert_eq!(schema["type"], "object");
         assert_eq!(schema["additionalProperties"], false);
         let required: Vec<&str> = schema["required"]
@@ -1858,10 +1869,14 @@ mod tests {
         let reqs = server.received_requests().await.expect("requests captured");
         let req_body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
         assert_eq!(
-            req_body["response_format"]["json_schema"]["name"],
+            req_body["tools"][0]["function"]["name"],
             "alcedo_image_analysis_flat"
         );
-        let schema = &req_body["response_format"]["json_schema"]["schema"];
+        assert_eq!(
+            req_body["tool_choice"]["function"]["name"],
+            "alcedo_image_analysis_flat"
+        );
+        let schema = &req_body["tools"][0]["function"]["parameters"];
         let required: Vec<&str> = schema["required"]
             .as_array()
             .unwrap()
@@ -1872,6 +1887,74 @@ mod tests {
         assert!(required.contains(&"rating"));
         assert!(required.contains(&"rating_reason"));
         assert!(schema["properties"].get("understanding").is_none());
+    }
+
+    #[tokio::test]
+    async fn analyze_image_request_includes_all_chat_tool_names() {
+        let server = MockServer::start().await;
+        let tool_body = json!({
+            "id": "opencode-req-tool",
+            "choices": [{
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": ANALYSIS_FLAT_SCHEMA_NAME,
+                            "arguments": r#"{"description":"c","rating":3,"rating_reason":"tool ok"}"#
+                        }
+                    }]
+                }
+            }],
+            "usage": { "prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tool_body))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&server);
+        let out = provider
+            .analyze_image(
+                &test_image_png(),
+                "",
+                "",
+                "general",
+                "normal",
+                "",
+                "",
+                true,
+                true,
+                true,
+                Some(&secret()),
+            )
+            .await
+            .expect("tool response succeeds");
+
+        validate_analyze(&out).expect("tool response outcome validates");
+        assert_eq!(out.understanding.as_ref().unwrap().caption, "c");
+        assert_eq!(out.rating.as_ref().unwrap().rating, 3);
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 1);
+        let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        assert!(
+            body.get("response_format").is_none(),
+            "tool structured output should not also send response_format"
+        );
+        assert_eq!(
+            body["tools"][0]["function"]["name"],
+            ANALYSIS_FLAT_SCHEMA_NAME
+        );
+        assert_eq!(
+            body["tool_choice"]["function"]["name"],
+            ANALYSIS_FLAT_SCHEMA_NAME
+        );
+        assert_eq!(body["parallel_tool_calls"], false);
     }
 
     #[tokio::test]
@@ -2091,10 +2174,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ignored_response_format_produces_no_active_annotation() {
+    async fn ignored_structured_tool_output_produces_no_active_annotation() {
         // Explicit "unsupported structured output" fail-closed path: a compatible
-        // endpoint that IGNORES `response_format` and returns plain prose (not JSON)
-        // must not create an active annotation. The first schema failure gets one
+        // endpoint that ignores the requested tool output and returns plain prose
+        // (not JSON) must not create an active annotation. The first schema failure gets one
         // repair turn; if the endpoint still ignores JSON, the call fails closed.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -2110,7 +2193,7 @@ mod tests {
         let err = provider
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
-            .expect_err("ignored response_format rejected");
+            .expect_err("ignored structured tool output rejected");
         match err {
             ProviderError::SchemaValidation | ProviderError::SchemaValidationMessage(_) => {}
             other => panic!("expected schema validation, got {other:?}"),
@@ -2121,9 +2204,9 @@ mod tests {
     #[tokio::test]
     async fn describe_accepts_markdown_fenced_json_content() {
         // Some compatible models wrap the JSON in a ```json fence despite the
-        // `response_format: json_schema` request. The driver must parse the JSON
-        // out of the fence rather than failing on the leading ``` and burning a
-        // paid repair retry the model tends to repeat.
+        // structured output request. The driver must parse the JSON out of the
+        // fence rather than failing on the leading ``` and burning a paid repair
+        // retry the model tends to repeat.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -2693,7 +2776,10 @@ mod tests {
         // The rest of the body shape is unchanged.
         assert_eq!(body["model"], "kimi-k2.7-code");
         assert_eq!(body["stream"], false);
-        assert_eq!(body["response_format"]["type"], "json_schema");
+        assert_eq!(
+            body["tools"][0]["function"]["name"],
+            "alcedo_image_understanding"
+        );
     }
 
     /// The batch request body MUST NOT carry a `max_tokens` field either. A

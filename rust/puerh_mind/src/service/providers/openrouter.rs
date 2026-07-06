@@ -124,15 +124,19 @@ mod tests {
         let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
         assert_eq!(body["model"], "qwen/qwen3.7-plus");
         assert_eq!(body["stream"], false);
-        assert_eq!(body["response_format"]["type"], "json_schema");
         assert_eq!(
-            body["response_format"]["json_schema"]["name"],
+            body["tools"][0]["function"]["name"],
             "alcedo_image_understanding"
         );
-        assert_eq!(body["response_format"]["json_schema"]["strict"], true);
+        assert_eq!(
+            body["tool_choice"]["function"]["name"],
+            "alcedo_image_understanding"
+        );
+        assert_eq!(body["tools"][0]["function"]["strict"], true);
+        assert_eq!(body["parallel_tool_calls"], false);
         // The code-owned schema is injected (sanitized to strict-compatible: all
         // properties required, additionalProperties false, constraints dropped).
-        let schema = &body["response_format"]["json_schema"]["schema"];
+        let schema = &body["tools"][0]["function"]["parameters"];
         assert_eq!(schema["type"], "object");
         assert_eq!(schema["additionalProperties"], false);
         let required: Vec<&str> = schema["required"]
