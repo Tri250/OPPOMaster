@@ -3,6 +3,9 @@ use serde_json::{Value, json};
 use crate::service::image_analysis::ProviderError;
 use crate::service::providers::http_util::{compact_text_excerpt, sanitized_provider_json_excerpt};
 
+const MAX_SSE_EVENT_BYTES: usize = 4 * 1024 * 1024;
+const MAX_SSE_TEXT_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Default)]
 struct SseEvent {
     event: Option<String>,
@@ -70,12 +73,22 @@ impl CodexResponseStreamCollector {
 
         if matches!(event_type, Some("response.output_text.delta")) {
             if let Some(delta) = parsed.get("delta").and_then(Value::as_str) {
+                if self.text_delta.len().saturating_add(delta.len()) > MAX_SSE_TEXT_BYTES {
+                    return Err(ProviderError::Provider(format!(
+                        "Codex SSE output text exceeded {MAX_SSE_TEXT_BYTES} bytes"
+                    )));
+                }
                 self.text_delta.push_str(delta);
             }
         }
 
         if matches!(event_type, Some("response.output_text.done")) {
             if let Some(text) = parsed.get("text").and_then(Value::as_str) {
+                if text.len() > MAX_SSE_TEXT_BYTES {
+                    return Err(ProviderError::Provider(format!(
+                        "Codex SSE completed text exceeded {MAX_SSE_TEXT_BYTES} bytes"
+                    )));
+                }
                 self.done_text = Some(text.to_string());
             }
         }
@@ -154,6 +167,11 @@ struct SseParser {
 
 impl SseParser {
     fn push(&mut self, chunk: &[u8]) -> Result<Vec<SseEvent>, ProviderError> {
+        if self.buffer.len().saturating_add(chunk.len()) > MAX_SSE_EVENT_BYTES {
+            return Err(ProviderError::Provider(format!(
+                "Codex SSE event exceeded {MAX_SSE_EVENT_BYTES} bytes"
+            )));
+        }
         self.buffer.extend_from_slice(chunk);
         let mut events = Vec::new();
         while let Some((index, len)) = find_separator(&self.buffer) {

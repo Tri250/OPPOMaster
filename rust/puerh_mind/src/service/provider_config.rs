@@ -36,8 +36,10 @@
 //! control-surface contract these configs feed into.
 
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::path::Path;
 
+use reqwest::Url;
 use serde_json::Value;
 
 use crate::proto::alcedo::ai::{AiCapability, AiInputKind, AiOutputKind};
@@ -543,31 +545,10 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
             ),
         ));
     }
-    if !is_https_or_localhost(&config.base_url) {
-        return Err(ConfigError::invalid(
-            source,
-            format!(
-                "base_url {:?} must be https:// (http:// only allowed for localhost)",
-                config.base_url
-            ),
-        ));
-    }
-    if !config.endpoint.starts_with('/') {
-        return Err(ConfigError::invalid(
-            source,
-            format!("endpoint {:?} must start with '/'", config.endpoint),
-        ));
-    }
+    validate_base_url(&config.base_url, source)?;
+    validate_endpoint_path(&config.endpoint, "endpoint", source)?;
     if let Some(list_endpoint) = &config.models_endpoint {
-        if !list_endpoint.starts_with('/') {
-            return Err(ConfigError::invalid(
-                source,
-                format!(
-                    "models_endpoint {:?} must start with '/' when set",
-                    list_endpoint
-                ),
-            ));
-        }
+        validate_endpoint_path(list_endpoint, "models_endpoint", source)?;
     }
     validate_model_list_response(&config.models_response, source)?;
     if !is_known(KNOWN_AUTH_TYPES, &config.auth.auth_type) {
@@ -850,15 +831,80 @@ fn is_known(set: &[&str], value: &str) -> bool {
     set.iter().any(|s| *s == value)
 }
 
-fn is_https_or_localhost(url: &str) -> bool {
-    if let Some(rest) = url.strip_prefix("https://") {
-        return !rest.is_empty();
+fn validate_base_url(url: &str, source: &str) -> Result<(), ConfigError> {
+    let parsed = Url::parse(url).map_err(|err| {
+        ConfigError::invalid(
+            source,
+            format!("base_url {:?} is not a valid URL: {err}", url),
+        )
+    })?;
+    if parsed.username() != "" || parsed.password().is_some() {
+        return Err(ConfigError::invalid(
+            source,
+            format!("base_url {:?} must not contain userinfo", url),
+        ));
     }
-    if let Some(rest) = url.strip_prefix("http://") {
-        let host = rest.split([':', '/']).next().unwrap_or("");
-        return matches!(host, "localhost" | "127.0.0.1" | "::1");
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(ConfigError::invalid(
+            source,
+            format!("base_url {:?} must not contain query or fragment", url),
+        ));
     }
-    false
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" if parsed_host_is_loopback(&parsed) => Ok(()),
+        "http" => Err(ConfigError::invalid(
+            source,
+            format!(
+                "base_url {:?} must be https:// (http:// only allowed for loopback)",
+                url
+            ),
+        )),
+        other => Err(ConfigError::invalid(
+            source,
+            format!(
+                "base_url {:?} has unsupported scheme {:?}; use https://",
+                url, other
+            ),
+        )),
+    }
+}
+
+fn parsed_host_is_loopback(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>()
+        .map(|addr| addr.is_loopback())
+        .unwrap_or(false)
+}
+
+fn validate_endpoint_path(path: &str, field: &str, source: &str) -> Result<(), ConfigError> {
+    if !path.starts_with('/') || path.starts_with("//") {
+        return Err(ConfigError::invalid(
+            source,
+            format!(
+                "{field} {:?} must be a relative URL path starting with one '/'",
+                path
+            ),
+        ));
+    }
+    if path.contains('?') || path.contains('#') {
+        return Err(ConfigError::invalid(
+            source,
+            format!("{field} {:?} must not contain query or fragment", path),
+        ));
+    }
+    if path.chars().any(|c| c == '\r' || c == '\n') {
+        return Err(ConfigError::invalid(
+            source,
+            format!("{field} {:?} must not contain line breaks", path),
+        ));
+    }
+    Ok(())
 }
 
 fn is_valid_credential_slot(slot: &str) -> bool {
@@ -1364,6 +1410,54 @@ mod tests {
     }
 
     #[test]
+    fn base_url_rejects_userinfo_query_and_fragment() {
+        for (url, expected) in [
+            ("https://user@example.com", "userinfo"),
+            ("https://example.com/api?x=1", "query or fragment"),
+            ("https://example.com/api#frag", "query or fragment"),
+        ] {
+            let raw = format!(
+                r#"{{
+                    "schema_version": 1, "provider_id": "x", "display_name": "X",
+                    "driver": "openai_chat_compatible", "base_url": "{url}",
+                    "endpoint": "/x", "auth": {{"type": "bearer", "credential_slot": "x_key"}},
+                    "defaults": {{"model": "m", "stream": false, "temperature": 0.2}},
+                    "structured_output": {{"mode": "none"}},
+                    "response": {{}}, "limits": {{"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200}},
+                    "models": []
+                }}"#
+            );
+            let err = match parse_and_validate(&raw, "test".to_string()) {
+                Ok(_) => panic!("{url} rejected"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains(expected), "{url}: {err}");
+        }
+    }
+
+    #[test]
+    fn endpoint_rejects_network_path_query_and_fragment() {
+        for endpoint in ["//evil.test/x", "/x?token=1", "/x#frag"] {
+            let raw = format!(
+                r#"{{
+                    "schema_version": 1, "provider_id": "x", "display_name": "X",
+                    "driver": "openai_chat_compatible", "base_url": "https://example.com",
+                    "endpoint": "{endpoint}", "auth": {{"type": "bearer", "credential_slot": "x_key"}},
+                    "defaults": {{"model": "m", "stream": false, "temperature": 0.2}},
+                    "structured_output": {{"mode": "none"}},
+                    "response": {{}}, "limits": {{"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200}},
+                    "models": []
+                }}"#
+            );
+            let err = match parse_and_validate(&raw, "test".to_string()) {
+                Ok(_) => panic!("{endpoint} rejected"),
+                Err(err) => err,
+            };
+            assert!(err.to_string().contains("endpoint"), "{endpoint}: {err}");
+        }
+    }
+
+    #[test]
     fn raw_secret_in_api_key_field_rejected() {
         let result = parse_and_validate(
             r#"{
@@ -1570,7 +1664,7 @@ mod tests {
         .expect_err("models_endpoint without leading / rejected");
         assert!(
             err.to_string().contains("models_endpoint")
-                && err.to_string().contains("must start with '/'"),
+                && err.to_string().contains("relative URL path"),
             "{err}"
         );
     }

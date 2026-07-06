@@ -115,6 +115,43 @@ impl ImageAnalysisServiceImpl {
         }
     }
 
+    fn payload_limit_error(
+        provider: &dyn ImageAnalysisProvider,
+        bytes: usize,
+    ) -> Option<(AiResponseStatus, AiErrorCode, String)> {
+        let max = provider.max_payload_bytes();
+        if max == 0 || bytes <= max {
+            return None;
+        }
+        Some((
+            AiResponseStatus::AiStatusPayloadTooLarge,
+            AiErrorCode::AiErrorPayloadDecode,
+            format!("image payload is {bytes} bytes; provider limit is {max} bytes"),
+        ))
+    }
+
+    fn batch_payload_limit_error(
+        provider: &dyn ImageAnalysisProvider,
+        items: &[crate::proto::alcedo::ai::BatchAnalyzeImageItem],
+    ) -> Option<(AiResponseStatus, AiErrorCode, String)> {
+        let max = provider.max_payload_bytes();
+        if max == 0 {
+            return None;
+        }
+        items.iter().enumerate().find_map(|(index, item)| {
+            let bytes = item.image_bytes.len();
+            (bytes > max).then(|| {
+                (
+                    AiResponseStatus::AiStatusPayloadTooLarge,
+                    AiErrorCode::AiErrorPayloadDecode,
+                    format!(
+                        "batch item {index} image payload is {bytes} bytes; provider limit is {max} bytes"
+                    ),
+                )
+            })
+        })
+    }
+
     /// Build an `AiResponseHeader` carrying a failure outcome. The error message
     /// is redacted of any secret the vault currently holds before placement.
     /// Returns `Some(...)` because the proto3 `header` field is `Option<AiResponseHeader>`.
@@ -333,6 +370,27 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             }
         };
 
+        if let Some((status, code, msg)) =
+            Self::payload_limit_error(provider.as_ref(), req.image_bytes.len())
+        {
+            return Ok(Response::new(DescribeImageResponse {
+                header: self.failure_header(
+                    &header,
+                    status,
+                    code,
+                    &msg,
+                    provider.provider_id(),
+                    &req.model_id,
+                    start.elapsed().as_millis() as u64,
+                ),
+                result: None,
+                rendition: req.rendition.clone(),
+                usage: None,
+                provider_request_id: String::new(),
+                prompt_profile_id: req.prompt_profile_id.clone(),
+            }));
+        }
+
         let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
             Ok(c) => c,
             Err((status, code, msg)) => {
@@ -500,6 +558,27 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                 }));
             }
         };
+
+        if let Some((status, code, msg)) =
+            Self::payload_limit_error(provider.as_ref(), req.image_bytes.len())
+        {
+            return Ok(Response::new(ScoreImageResponse {
+                header: self.failure_header(
+                    &header,
+                    status,
+                    code,
+                    &msg,
+                    provider.provider_id(),
+                    &req.model_id,
+                    start.elapsed().as_millis() as u64,
+                ),
+                result: None,
+                rendition: req.rendition.clone(),
+                usage: None,
+                provider_request_id: String::new(),
+                prompt_profile_id: req.prompt_profile_id.clone(),
+            }));
+        }
 
         let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
             Ok(c) => c,
@@ -678,6 +757,28 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                 }));
             }
         };
+
+        if let Some((status, code, msg)) =
+            Self::payload_limit_error(provider.as_ref(), req.image_bytes.len())
+        {
+            return Ok(Response::new(AnalyzeImageResponse {
+                header: self.failure_header(
+                    &header,
+                    status,
+                    code,
+                    &msg,
+                    provider.provider_id(),
+                    &req.model_id,
+                    start.elapsed().as_millis() as u64,
+                ),
+                understanding: None,
+                rating: None,
+                rendition: req.rendition.clone(),
+                usage: None,
+                provider_request_id: String::new(),
+                prompt_profile_id: req.prompt_profile_id.clone(),
+            }));
+        }
 
         let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
             Ok(c) => c,
@@ -864,6 +965,23 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                 }));
             }
         };
+
+        if let Some((status, code, msg)) =
+            Self::batch_payload_limit_error(provider.as_ref(), &req.items)
+        {
+            return Ok(Response::new(BatchAnalyzeImageResponse {
+                header: self.failure_header(
+                    &header,
+                    status,
+                    code,
+                    &msg,
+                    provider.provider_id(),
+                    &req.model_id,
+                    start.elapsed().as_millis() as u64,
+                ),
+                items: Vec::new(),
+            }));
+        }
 
         let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
             Ok(c) => c,
@@ -1216,6 +1334,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn describe_image_rejects_provider_payload_over_limit_before_call() {
+        let svc =
+            svc(MockImageAnalysisProvider::new("mock", "alcedo-mock").with_max_payload_bytes(3));
+        let req = Request::new(DescribeImageRequest {
+            header: Some(header("req-too-large", 5000, "")),
+            image_bytes: image_bytes(),
+            image_format_hint: "image/png".to_string(),
+            rendition: rendition(),
+            provider_id: "mock".to_string(),
+            model_id: "alcedo-mock".to_string(),
+            prompt_profile_id: String::new(),
+            output_language: String::new(),
+        });
+        let resp = svc.describe_image(req).await.expect("rpc ok").into_inner();
+        let h = resp.header.expect("header");
+        assert_eq!(h.status, AiResponseStatus::AiStatusPayloadTooLarge as i32);
+        assert_eq!(h.error_code, AiErrorCode::AiErrorPayloadDecode as i32);
+        assert!(resp.result.is_none());
+        assert!(h.error_message.contains("provider limit is 3 bytes"));
+    }
+
+    #[tokio::test]
     async fn score_image_returns_valid_rating() {
         let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock"));
         let req = Request::new(ScoreImageRequest {
@@ -1542,6 +1682,50 @@ mod tests {
             .await
             .expect_err("empty image is a transport error");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn batch_analyze_rejects_item_over_provider_payload_limit() {
+        let svc =
+            svc(MockImageAnalysisProvider::new("mock", "alcedo-mock").with_max_payload_bytes(3));
+        let req = Request::new(BatchAnalyzeImageRequest {
+            header: Some(header("batch-too-large", 5000, "")),
+            items: vec![
+                crate::proto::alcedo::ai::BatchAnalyzeImageItem {
+                    request_id: "item-1".to_string(),
+                    image_bytes: vec![1, 2, 3],
+                    image_format_hint: "image/png".to_string(),
+                    rendition: rendition(),
+                    camera_context: String::new(),
+                },
+                crate::proto::alcedo::ai::BatchAnalyzeImageItem {
+                    request_id: "item-2".to_string(),
+                    image_bytes: vec![1, 2, 3, 4],
+                    image_format_hint: "image/png".to_string(),
+                    rendition: rendition(),
+                    camera_context: String::new(),
+                },
+            ],
+            provider_id: "mock".to_string(),
+            model_id: "alcedo-mock".to_string(),
+            prompt_profile_id: String::new(),
+            include_understanding: true,
+            include_rating: false,
+            rubric_id: String::new(),
+            output_language: String::new(),
+            rating_severity: String::new(),
+            include_rating_reasons: false,
+        });
+        let resp = svc
+            .batch_analyze_image(req)
+            .await
+            .expect("rpc ok")
+            .into_inner();
+        let h = resp.header.expect("header");
+        assert_eq!(h.status, AiResponseStatus::AiStatusPayloadTooLarge as i32);
+        assert_eq!(h.error_code, AiErrorCode::AiErrorPayloadDecode as i32);
+        assert!(resp.items.is_empty());
+        assert!(h.error_message.contains("batch item 1"));
     }
 
     // ----- Phase 6c: ListModels -----

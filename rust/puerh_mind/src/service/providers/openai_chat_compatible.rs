@@ -1304,6 +1304,10 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         self.config.auth.auth_type != "none"
     }
 
+    fn max_payload_bytes(&self) -> usize {
+        self.config.limits.max_image_bytes as usize
+    }
+
     fn capability(&self) -> crate::proto::alcedo::ai::AiCapability {
         // Real providers advertise their capabilities via the provider registry
         // (Phase 5a `build_provider_capability_descriptors`), which emits one

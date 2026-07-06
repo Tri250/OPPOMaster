@@ -285,6 +285,10 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         self.config.auth.auth_type != "none"
     }
 
+    fn max_payload_bytes(&self) -> usize {
+        self.config.limits.max_image_bytes as usize
+    }
+
     fn capability(&self) -> crate::proto::alcedo::ai::AiCapability {
         // Real providers advertise via the registry (Phase 5a); this trait method
         // is a compliance fallback for the default model and is not used to

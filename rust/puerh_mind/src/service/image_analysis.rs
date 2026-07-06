@@ -517,6 +517,11 @@ pub trait ImageAnalysisProvider: Send + Sync {
     fn provider_id(&self) -> &str;
     /// True when the provider needs a resolved credential handle to call out.
     fn requires_credential(&self) -> bool;
+    /// Maximum encoded image payload accepted per image by this provider.
+    /// `0` means no provider-specific limit beyond the gRPC message cap.
+    fn max_payload_bytes(&self) -> usize {
+        0
+    }
     /// The descriptor this provider advertises via `ListCapabilities` (mock only
     /// in Phase 5b; real providers advertise via provider configs in 5a).
     fn capability(&self) -> crate::proto::alcedo::ai::AiCapability;
@@ -653,6 +658,7 @@ pub struct MockImageAnalysisProvider {
     provider_id: String,
     model_id: String,
     requires_credential: bool,
+    max_payload_bytes: usize,
     failure: MockFailure,
     /// Phase 6c: when set, `list_models` returns these candidates; otherwise it
     /// uses the default unsupported impl. Lets the server test the ListModels
@@ -666,6 +672,7 @@ impl MockImageAnalysisProvider {
             provider_id: provider_id.into(),
             model_id: model_id.into(),
             requires_credential: false,
+            max_payload_bytes: 0,
             failure: MockFailure::None,
             discovered_models: Vec::new(),
         }
@@ -673,6 +680,11 @@ impl MockImageAnalysisProvider {
 
     pub fn with_requires_credential(mut self, v: bool) -> Self {
         self.requires_credential = v;
+        self
+    }
+
+    pub fn with_max_payload_bytes(mut self, bytes: usize) -> Self {
+        self.max_payload_bytes = bytes;
         self
     }
 
@@ -727,6 +739,10 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
 
     fn requires_credential(&self) -> bool {
         self.requires_credential
+    }
+
+    fn max_payload_bytes(&self) -> usize {
+        self.max_payload_bytes
     }
 
     fn capability(&self) -> crate::proto::alcedo::ai::AiCapability {

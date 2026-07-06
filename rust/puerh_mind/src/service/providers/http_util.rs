@@ -32,6 +32,8 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 /// than the policy intends.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(5);
 const MAX_ERROR_BODY_CHARS: usize = 700;
+const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+pub const MAX_PROVIDER_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 pub fn compact_text_excerpt(text: &str, max_chars: usize) -> String {
     let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -209,7 +211,7 @@ fn is_provider_sensitive_key(key: &str) -> bool {
 pub const MAX_TRANSIENT_RETRIES: u32 = 1;
 
 async fn http_error_message(resp: reqwest::Response, prefix: &str, code: u16) -> String {
-    let body = resp.text().await.unwrap_or_default();
+    let body = read_error_body_limited(resp).await.unwrap_or_default();
     let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if body.is_empty() {
         return format!("{prefix} HTTP {code}");
@@ -218,6 +220,27 @@ async fn http_error_message(resp: reqwest::Response, prefix: &str, code: u16) ->
         "{prefix} HTTP {code}: {}",
         compact_text_excerpt(&body, MAX_ERROR_BODY_CHARS)
     )
+}
+
+async fn read_error_body_limited(mut resp: reqwest::Response) -> Option<String> {
+    if resp
+        .content_length()
+        .is_some_and(|len| len > MAX_ERROR_BODY_BYTES as u64)
+    {
+        return Some(format!(
+            "error body omitted because it exceeds {MAX_ERROR_BODY_BYTES} bytes"
+        ));
+    }
+    let mut out = Vec::new();
+    while let Some(chunk) = resp.chunk().await.ok()? {
+        if out.len().saturating_add(chunk.len()) > MAX_ERROR_BODY_BYTES {
+            return Some(format!(
+                "error body omitted because it exceeds {MAX_ERROR_BODY_BYTES} bytes"
+            ));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Some(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// Install `ring` as the rustls default crypto provider and build a rustls-backed
@@ -796,14 +819,10 @@ pub fn extract_provider_request_id(
 /// non-JSON body maps to `SchemaValidation` — the service reports a payload-decode
 /// failure and creates no active annotation.
 pub async fn read_response(
-    resp: reqwest::Response,
+    mut resp: reqwest::Response,
 ) -> Result<(reqwest::header::HeaderMap, Value), ProviderError> {
     let headers = resp.headers().clone();
-    let bytes = resp.bytes().await.map_err(|err| {
-        ProviderError::SchemaValidationMessage(format!(
-            "provider response body could not be read: {err}"
-        ))
-    })?;
+    let bytes = read_body_limited(&mut resp, MAX_PROVIDER_RESPONSE_BYTES).await?;
     let body: Value = serde_json::from_slice(&bytes).map_err(|err| {
         let text = String::from_utf8_lossy(&bytes);
         ProviderError::SchemaValidationMessage(format!(
@@ -812,6 +831,34 @@ pub async fn read_response(
         ))
     })?;
     Ok((headers, body))
+}
+
+async fn read_body_limited(
+    resp: &mut reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, ProviderError> {
+    if resp
+        .content_length()
+        .is_some_and(|len| len > max_bytes as u64)
+    {
+        return Err(ProviderError::Provider(format!(
+            "provider response body exceeded {max_bytes} bytes"
+        )));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|err| {
+        ProviderError::SchemaValidationMessage(format!(
+            "provider response body could not be read: {err}"
+        ))
+    })? {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(ProviderError::Provider(format!(
+                "provider response body exceeded {max_bytes} bytes"
+            )));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]
