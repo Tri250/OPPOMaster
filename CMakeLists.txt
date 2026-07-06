@@ -9,7 +9,7 @@ endif()
 #set(CMAKE_CXX_COMPILER "clang++")
 # Compiler flags.
 
-project(alcedo VERSION 0.2.6 LANGUAGES C CXX)
+project(alcedo VERSION 0.2.7 LANGUAGES C CXX)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build alcedo libraries as static by default." FORCE)
 
@@ -587,6 +587,20 @@ if(NOT ALCEDO_DUCKDB_FTS_EXTENSION AND DEFINED ENV{ALCEDO_DUCKDB_FTS_EXTENSION})
     set(ALCEDO_DUCKDB_FTS_EXTENSION "$ENV{ALCEDO_DUCKDB_FTS_EXTENSION}"
         CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime." FORCE)
 endif()
+if(WIN32)
+    set(_alcedo_bundled_duckdb_extension_dir
+        "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions")
+    if(NOT ALCEDO_DUCKDB_VSS_EXTENSION AND EXISTS "${_alcedo_bundled_duckdb_extension_dir}/vss.duckdb_extension")
+        set(ALCEDO_DUCKDB_VSS_EXTENSION
+            "${_alcedo_bundled_duckdb_extension_dir}/vss.duckdb_extension"
+            CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime." FORCE)
+    endif()
+    if(NOT ALCEDO_DUCKDB_FTS_EXTENSION AND EXISTS "${_alcedo_bundled_duckdb_extension_dir}/fts.duckdb_extension")
+        set(ALCEDO_DUCKDB_FTS_EXTENSION
+            "${_alcedo_bundled_duckdb_extension_dir}/fts.duckdb_extension"
+            CACHE FILEPATH "DuckDB FTS extension matching the bundled Windows DuckDB runtime." FORCE)
+    endif()
+endif()
 if(NOT ALCEDO_DUCKDB_VSS_EXTENSION)
     alcedo_find_cached_duckdb_extension(_alcedo_cached_vss_duckdb_extension vss.duckdb_extension)
     if(_alcedo_cached_vss_duckdb_extension)
@@ -622,6 +636,11 @@ if(WIN32)
         set(ALCEDO_DUCKDB_VSS_EXTENSION
             "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions/vss.duckdb_extension"
             CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime." FORCE)
+    endif()
+    if(NOT ALCEDO_DUCKDB_FTS_EXTENSION)
+        set(ALCEDO_DUCKDB_FTS_EXTENSION
+            "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions/fts.duckdb_extension"
+            CACHE FILEPATH "DuckDB FTS extension matching the bundled Windows DuckDB runtime." FORCE)
     endif()
 endif()
 if(WIN32 OR APPLE)

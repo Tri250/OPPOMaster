@@ -74,7 +74,9 @@ Write-Host "  Alcedo Studio Windows Packager" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$repoVssExtension = Join-Path $repoRoot "alcedo_studio\third_party\libduckdb-windows\extensions\vss.duckdb_extension"
+$repoDuckDbExtensionDir = Join-Path $repoRoot "alcedo_studio\third_party\libduckdb-windows\extensions"
+$repoVssExtension = Join-Path $repoDuckDbExtensionDir "vss.duckdb_extension"
+$repoFtsExtension = Join-Path $repoDuckDbExtensionDir "fts.duckdb_extension"
 $resolvedDuckDbVssExtension = Resolve-DuckDbExtension `
     -ExtensionName "vss" `
     -FileName "vss.duckdb_extension" `
@@ -83,7 +85,8 @@ $resolvedDuckDbVssExtension = Resolve-DuckDbExtension `
 $resolvedDuckDbFtsExtension = Resolve-DuckDbExtension `
     -ExtensionName "fts" `
     -FileName "fts.duckdb_extension" `
-    -ConfiguredPath $DuckDbFtsExtension
+    -ConfiguredPath $DuckDbFtsExtension `
+    -FallbackPath $repoFtsExtension
 
 Write-Host "DuckDB VSS extension: $resolvedDuckDbVssExtension" -ForegroundColor Gray
 Write-Host "DuckDB FTS extension: $resolvedDuckDbFtsExtension" -ForegroundColor Gray

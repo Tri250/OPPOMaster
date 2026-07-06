@@ -694,6 +694,11 @@ void SemanticGenerationController::ResumeQueuedWorkflow() {
   if (preference == QLatin1String(kSemanticPreferenceNever)) {
     activate_prompt_pending_ = false;
     ClearPrompt();
+    // QueuePrompt already emitted StateChanged while prompt_pending_ was true,
+    // which synchronously opened the dialog. Re-emit so the QML binding
+    // re-evaluates promptVisible to false and the dialog actually closes;
+    // otherwise the suppression is invisible to the UI.
+    emit StateChanged();
     return;
   }
   // A fresh project (no model registered) can't generate labels yet. Route to
