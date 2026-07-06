@@ -84,8 +84,8 @@ required_files=(
   "${macos_dir}/fonts/main_Inter.ttf"
   "${macos_dir}/fonts/main_NotoSans_zh.ttf"
   "${macos_dir}/config/icc/rec709_gamma22.icc"
-  "${macos_dir}/duckdb_extensions/vss.duckdb_extension"
-  "${macos_dir}/duckdb_extensions/fts.duckdb_extension"
+  "${resources_dir}/duckdb_extensions/vss.duckdb_extension"
+  "${resources_dir}/duckdb_extensions/fts.duckdb_extension"
   "${frameworks_dir}/QtCore.framework/QtCore"
   "${frameworks_dir}/QtGui.framework/QtGui"
   "${frameworks_dir}/QtQml.framework/QtQml"
@@ -139,8 +139,8 @@ fi
 declare -a macho_files=("$main_exe" "$mind_exe" "$aria2c_exe")
 while IFS= read -r -d '' file; do
   macho_files+=("$file")
-done < <(find "$macos_dir" "$frameworks_dir" "$plugins_dir" \
-  \( -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null || true)
+done < <(find "$macos_dir" "$frameworks_dir" "$plugins_dir" "${resources_dir}/duckdb_extensions" \
+  \( -name '*.dylib' -o -name '*.so' -o -name '*.duckdb_extension' \) -print0 2>/dev/null || true)
 
 while IFS= read -r -d '' framework; do
   framework_name="$(basename "$framework" .framework)"
@@ -171,6 +171,9 @@ verify_dep() {
       ;;
     @rpath/*)
       local rel="${dep#@rpath/}"
+      if [[ "$(basename "$owner")" == "$(basename "$rel")" ]]; then
+        return
+      fi
       if [[ -e "${frameworks_dir}/${rel}" || -e "${macos_dir}/${rel}" ]]; then
         return
       fi

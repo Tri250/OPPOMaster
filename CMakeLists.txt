@@ -753,6 +753,9 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         install(CODE
             "file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/${_bundle_macos_dest}/model\")"
         )
+        install(CODE
+            "file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/${_bundle_macos_dest}/duckdb_extensions\")"
+        )
         install(DIRECTORY "${_config_dir}/fonts/" DESTINATION "${_bundle_macos_dest}/fonts")
         install(DIRECTORY "${_config_dir}/icc/" DESTINATION "${_bundle_macos_dest}/config/icc")
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${_bundle_macos_dest}/config/lens_calib")
@@ -775,7 +778,7 @@ if(TARGET ${ALCEDO_MAIN_BIN})
                 DESTINATION "${_bundle_resources_dest}/metallib"
             )
         endif()
-        alcedo_install_duckdb_extensions("${_bundle_macos_dest}")
+        alcedo_install_duckdb_extensions("${_bundle_resources_dest}")
         if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND ALCEDO_MIND_BINARY)
             install(CODE
                 "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
@@ -1286,6 +1289,7 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
              endif()
              file(GLOB_RECURSE _alcedo_bundle_dylibs
                  \"\${_alcedo_app_path}/Contents/MacOS/*.dylib\"
+                 \"\${_alcedo_app_path}/Contents/Resources/duckdb_extensions/*.duckdb_extension\"
                  \"\${_alcedo_app_path}/Contents/Frameworks/*.dylib\"
                  \"\${_alcedo_app_path}/Contents/PlugIns/*.dylib\"
                  \"\${_alcedo_app_path}/Contents/Resources/qml/*.dylib\")
@@ -1337,6 +1341,11 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
 
                  if(\"\${_dep}\" MATCHES \"^@rpath/(.+)$\")
                      set(_rel \"\${CMAKE_MATCH_1}\")
+                     get_filename_component(_owner_name \"\${_owner}\" NAME)
+                     get_filename_component(_dep_name \"\${_rel}\" NAME)
+                     if(\"\${_owner_name}\" STREQUAL \"\${_dep_name}\")
+                         return()
+                     endif()
                      if(EXISTS \"\${_alcedo_fw_dir}/\${_rel}\")
                          return()
                      endif()

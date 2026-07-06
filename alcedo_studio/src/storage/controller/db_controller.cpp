@@ -128,6 +128,10 @@ void LoadFtsExtensionBestEffort(duckdb_connection conn) {
 
   const auto exe_dir = ExecutableDirectory();
   if (!exe_dir.empty()) {
+#ifdef __APPLE__
+    candidates.push_back(exe_dir.parent_path() / "Resources" / "duckdb_extensions" /
+                         "fts.duckdb_extension");
+#endif
     candidates.push_back(exe_dir / "duckdb_extensions" / "fts.duckdb_extension");
     candidates.push_back(exe_dir / "extensions" / "fts.duckdb_extension");
   }

@@ -373,6 +373,9 @@ auto UpsertLabelPrototypePrepared(duckdb_connection                   conn,
 }
 
 auto LoadVssExtension(duckdb_connection conn, std::string* error) -> bool {
+  std::string autoinstall_error;
+  RunQuery(conn, "SET autoinstall_known_extensions=false;", &autoinstall_error);
+
   std::vector<std::filesystem::path> candidates;
   if (const char* env_path = std::getenv("ALCEDO_DUCKDB_VSS_EXTENSION")) {
     if (*env_path != '\0') {
@@ -382,6 +385,10 @@ auto LoadVssExtension(duckdb_connection conn, std::string* error) -> bool {
 
   const auto exe_dir = ExecutableDirectory();
   if (!exe_dir.empty()) {
+#ifdef __APPLE__
+    candidates.push_back(exe_dir.parent_path() / "Resources" / "duckdb_extensions" /
+                         "vss.duckdb_extension");
+#endif
     candidates.push_back(exe_dir / "duckdb_extensions" / "vss.duckdb_extension");
     candidates.push_back(exe_dir / "extensions" / "vss.duckdb_extension");
   }
