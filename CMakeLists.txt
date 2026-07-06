@@ -479,8 +479,33 @@ set(ALCEDO_DUCKDB_VSS_EXTENSION ""
     CACHE FILEPATH "DuckDB VSS extension matching the bundled DuckDB runtime.")
 set(ALCEDO_DUCKDB_FTS_EXTENSION ""
     CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime.")
-set(ALCEDO_DUCKDB_EXTENSION_VERSION "v1.2.1"
-    CACHE STRING "DuckDB extension version matching the bundled DuckDB runtime.")
+set(ALCEDO_DUCKDB_EXTENSION_VERSION ""
+    CACHE STRING "DuckDB extension version matching the bundled DuckDB runtime. Defaults to the detected duckdb CLI version.")
+option(ALCEDO_DUCKDB_AUTO_INSTALL_EXTENSIONS
+       "Use the duckdb CLI to install required DuckDB extensions into the build tree when they are not already cached."
+       ON)
+
+find_program(ALCEDO_DUCKDB_CLI NAMES duckdb)
+
+if(ALCEDO_DUCKDB_CLI)
+    execute_process(
+        COMMAND "${ALCEDO_DUCKDB_CLI}" --version
+        OUTPUT_VARIABLE _alcedo_duckdb_cli_version_output
+        ERROR_QUIET
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    string(REGEX MATCH "v[0-9]+\\.[0-9]+\\.[0-9]+"
+           _alcedo_duckdb_cli_extension_version
+           "${_alcedo_duckdb_cli_version_output}")
+    if(_alcedo_duckdb_cli_extension_version AND
+       (NOT ALCEDO_DUCKDB_EXTENSION_VERSION OR
+        (APPLE AND ALCEDO_DUCKDB_EXTENSION_VERSION STREQUAL "v1.2.1")))
+        set(ALCEDO_DUCKDB_EXTENSION_VERSION "${_alcedo_duckdb_cli_extension_version}"
+            CACHE STRING "DuckDB extension version matching the bundled DuckDB runtime. Defaults to the detected duckdb CLI version." FORCE)
+    endif()
+    unset(_alcedo_duckdb_cli_extension_version)
+    unset(_alcedo_duckdb_cli_version_output)
+endif()
 
 function(alcedo_find_cached_duckdb_extension output_var extension_file_name)
     set(_duckdb_extension_platform "")
@@ -519,6 +544,41 @@ function(alcedo_find_cached_duckdb_extension output_var extension_file_name)
     endforeach()
 endfunction()
 
+function(alcedo_install_duckdb_extension output_var extension_name extension_file_name)
+    if(NOT ALCEDO_DUCKDB_AUTO_INSTALL_EXTENSIONS OR NOT ALCEDO_DUCKDB_CLI)
+        return()
+    endif()
+
+    set(_duckdb_extension_install_dir "${CMAKE_BINARY_DIR}/duckdb_extensions")
+    file(MAKE_DIRECTORY "${_duckdb_extension_install_dir}")
+    file(TO_CMAKE_PATH "${_duckdb_extension_install_dir}" _duckdb_extension_install_dir_sql)
+    string(REPLACE "'" "''" _duckdb_extension_install_dir_sql
+           "${_duckdb_extension_install_dir_sql}")
+
+    execute_process(
+        COMMAND "${ALCEDO_DUCKDB_CLI}" -c
+                "SET extension_directory='${_duckdb_extension_install_dir_sql}'; INSTALL ${extension_name};"
+        RESULT_VARIABLE _duckdb_extension_install_result
+        OUTPUT_VARIABLE _duckdb_extension_install_output
+        ERROR_VARIABLE _duckdb_extension_install_error
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_STRIP_TRAILING_WHITESPACE
+    )
+    if(NOT _duckdb_extension_install_result EQUAL 0)
+        message(WARNING
+            "Failed to install DuckDB ${extension_name} extension with ${ALCEDO_DUCKDB_CLI}: "
+            "${_duckdb_extension_install_error}")
+        return()
+    endif()
+
+    file(GLOB_RECURSE _duckdb_installed_extension
+         "${_duckdb_extension_install_dir}/${extension_file_name}")
+    if(_duckdb_installed_extension)
+        list(GET _duckdb_installed_extension 0 _duckdb_installed_extension_path)
+        set(${output_var} "${_duckdb_installed_extension_path}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 if(NOT ALCEDO_DUCKDB_VSS_EXTENSION AND DEFINED ENV{ALCEDO_DUCKDB_VSS_EXTENSION})
     set(ALCEDO_DUCKDB_VSS_EXTENSION "$ENV{ALCEDO_DUCKDB_VSS_EXTENSION}"
         CACHE FILEPATH "DuckDB VSS extension matching the bundled DuckDB runtime." FORCE)
@@ -541,6 +601,22 @@ if(NOT ALCEDO_DUCKDB_FTS_EXTENSION)
             CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime." FORCE)
     endif()
 endif()
+if(WIN32 OR APPLE)
+    if(NOT EXISTS "${ALCEDO_DUCKDB_VSS_EXTENSION}")
+        alcedo_install_duckdb_extension(_alcedo_installed_vss_duckdb_extension vss vss.duckdb_extension)
+        if(_alcedo_installed_vss_duckdb_extension)
+            set(ALCEDO_DUCKDB_VSS_EXTENSION "${_alcedo_installed_vss_duckdb_extension}"
+                CACHE FILEPATH "DuckDB VSS extension matching the bundled DuckDB runtime." FORCE)
+        endif()
+    endif()
+    if(NOT EXISTS "${ALCEDO_DUCKDB_FTS_EXTENSION}")
+        alcedo_install_duckdb_extension(_alcedo_installed_fts_duckdb_extension fts fts.duckdb_extension)
+        if(_alcedo_installed_fts_duckdb_extension)
+            set(ALCEDO_DUCKDB_FTS_EXTENSION "${_alcedo_installed_fts_duckdb_extension}"
+                CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime." FORCE)
+        endif()
+    endif()
+endif()
 if(WIN32)
     if(NOT ALCEDO_DUCKDB_VSS_EXTENSION)
         set(ALCEDO_DUCKDB_VSS_EXTENSION
@@ -548,11 +624,12 @@ if(WIN32)
             CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime." FORCE)
     endif()
 endif()
-if(WIN32 OR (APPLE AND (ALCEDO_BUILD_TESTS OR ALCEDO_MACOS_BUNDLE)))
+if(WIN32 OR APPLE)
     if(NOT EXISTS "${ALCEDO_DUCKDB_VSS_EXTENSION}")
         message(FATAL_ERROR
             "DuckDB VSS extension is required for semantic search. "
-            "Set ALCEDO_DUCKDB_VSS_EXTENSION to a vss.duckdb_extension file that matches the DuckDB runtime.")
+            "Set ALCEDO_DUCKDB_VSS_EXTENSION to a vss.duckdb_extension file that matches the DuckDB runtime, "
+            "or install it with `duckdb -c \"INSTALL vss;\"`.")
     endif()
     if(NOT EXISTS "${ALCEDO_DUCKDB_FTS_EXTENSION}")
         message(FATAL_ERROR
