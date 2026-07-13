@@ -1170,16 +1170,27 @@ alcedo_assign_test_category(app ALCEDO_BUILD_APP_TESTS alcedo_tests_app
   FilterServiceTest
   PipelineServiceTest
   EditHistoryMgmtServiceTest
+  AdjustmentTransferServiceTest
+  ProjectServiceTest
   SemanticGenerationServiceTest
   ThumbnailServiceTest
   ThumbnailDiskCacheServiceTest
   ExportServiceTest
   ImageAnalysisEncoderTest
   ImageAnalysisServiceTest
+  AiSidecarRuntimeServiceTest
+  AiProviderProfileTest
+  AiCredentialStoreTest
+  ImageAnalysisLiveSmokeTest
+  ImageAnalysisControllerTest
+  VersionHashTest
+  SearchQueryClassifierTest
 )
 
 alcedo_assign_test_category(storage ALCEDO_BUILD_STORAGE_TESTS alcedo_tests_storage
   SleeveFSTest
+  SemanticStorageControllerTest
+  AiStorageControllerTest
 )
 
 alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
@@ -1190,6 +1201,7 @@ alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
   ThumbnailAlbumQtDemo
   # CompleteUIDemo  # disabled
   DngMetadataBenchmark
+  HsResearchExportTool
 )
 
 alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core

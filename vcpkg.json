@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "alcedo",
+  "version-string": "0.2.7",
+  "description": "Alcedo Studio – a C++20 photo processing and editing application",
+  "dependencies": [
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["jpeg", "png", "tiff"]
+    },
+    "opencolorio",
+    "openimageio",
+    "exiv2",
+    "duckdb",
+    "xxhash",
+    "eigen3",
+    "libomp",
+    "lcms2",
+    "hwy",
+    "glib",
+    "protobuf",
+    "grpc"
+  ],
+  "features": {
+    "cuda": {
+      "description": "Enable CUDA-accelerated pipeline backends (requires CUDA Toolkit installed separately)",
+      "dependencies": []
+    },
+    "opencl": {
+      "description": "Enable OpenCL GPU compute support",
+      "dependencies": [
+        "opencl"
+      ]
+    }
+  },
+  "overrides": [
+    {
+      "name": "protobuf",
+      "version": "3.21.12"
+    }
+  ]
+}

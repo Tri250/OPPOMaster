@@ -1,7 +1,7 @@
 # Known Issues
 
 
-## v0.2.3
+## v0.2.7
 
 ### Common Issues
 
@@ -24,10 +24,10 @@
 - If you have imported unsupported images, the thumbnail will not be generated. You can delete this image from the project and re-import it after the issue is fixed in future releases.
 - If you have delete an image from your **disk**, the current implementation will not be able to relink the image, and all adjustments will be lost.
 - **Project files from earlier versions are no longer supported.** Opening a `.puerhproj` file created in a version prior to v0.2.3 may behave unexpectedly or fail to load.
-  
+
 #### Other Issues
 
-- Some texts miss localization and may appear in English even if you have set the app to another language. 
+- Some texts miss localization and may appear in English even if you have set the app to another language.
 
 ### Windows Issues
 
@@ -42,11 +42,17 @@
 - The app requires **macOS 13.3** or later. However, upgrading to **macOS 26 (Tahoe) or later is strongly recommended** for the best experience and full feature support.
 - Since I haven't enrolled in the Apple Developer Program, the app is **NOT signed and notarized**. It will be blocked by macOS's safety measures. Workaround _may_ exist but will not be discussed here. It is recommended to build the app from source code if you are concerned about security.
 - The HDR preview and color management **IS** available on macOS, and the export images will be tagged with the color space you choose in the DRT settings. However, the UI color will be inaccurate if you are using a color space other than sRGB, as the app does not support color management in the UI.
-- It is recommended to have 16GB of RAM for the app to run smoothly. The app may perform poorly or even crash on machines with less RAM, especially when processing large images. 
+- It is recommended to have 16GB of RAM for the app to run smoothly. The app may perform poorly or even crash on machines with less RAM, especially when processing large images.
+
+### Linux Issues
+
+- Linux support is **experimental**. The OpenCL backend is now available on Linux, but GPU driver compatibility varies across distributions and hardware. Please report any issues you encounter.
+- The HDR preview is not available on Linux, similar to the Windows limitation.
+- The app does **not** automatically apply color management to the screen display on Linux. The same workaround as Windows applies: select an output color space that matches your monitor.
 
 # 已知问题
 
-## v0.2.3
+## v0.2.7
 
 ### 常见问题
 
@@ -57,7 +63,7 @@
 - 如果元数据解析器未正确读取相机型号，色温/色调调整将会失败。这个问题可能会发生在一些移动设备上。
 - ACES 2.0 不支持 HDR 处理，目前峰值亮度选项是无效的。
 - 切换两个波形图时，直方图/波形显示可能无法正确渲染。你可以通过在下方面板中拖动一个滑块来触发重新渲染以解决这个问题。
-  
+
 #### 版本控制
 
 - 切换版本可能会导致 LUT 应用不正确。你可以通过在控制面板中重新选择 LUT 来解决这个问题。
@@ -69,11 +75,11 @@
 - 如果你导入了不受支持的图像（例如，JPEG, TIFF），将无法生成缩略图。你可以从项目中删除这个图像，并在未来版本修复这个问题后重新导入它。
 - 如果你从磁盘中删除了一个图像，当前的实现将无法重新链接这个图像，并且所有调整都将丢失。
 - **旧版本的项目文件不再受支持。** 在 v0.2.3 之前版本中创建的 `.puerhproj` 文件无法正常加载或行为异常。
-  
+
 #### 其他问题
 
 - 一些文本缺乏中文翻译，即使你将应用设置为其他语言，它们也可能以英文显示。
-  
+
 ### Windows 问题
 
 - 由于当前实现的技术限制，HDR 预览在 Windows 上不可用。但当你将 DRT 设置为 P3/ST2084 或 Rec.2020/ST2084 时，你仍然可以导出 Ultra HDR 图像。
@@ -87,3 +93,10 @@
 - 应用要求 **macOS 13.3** 或更高版本。但强烈建议升级至 **macOS 26 (Tahoe) 或更高版本**以获得最佳体验和完整功能支持。
 - 由于我没有加入 Apple Developer Program，应用**未签名和未公证**。它将被 macOS 的安全措施阻止启动。可能存在解决方法，但这里不会讨论。如果你担心安全问题，建议从源代码构建应用。
 - HDR 预览和颜色管理在 macOS 上可用，并且导出图像将被标记为你在 DRT 设置中选择的色彩空间。然而，如果你使用非 sRGB 的色彩空间，UI 颜色将不准确，因为应用不支持 UI 中的颜色管理。
+- 建议拥有 16GB 内存以流畅运行应用。在内存较小的机器上，应用可能性能不佳甚至崩溃，尤其是在处理大型图像时。
+
+### Linux 问题
+
+- Linux 支持**处于实验阶段**。OpenCL 后端现在可在 Linux 上使用，但 GPU 驱动兼容性因发行版和硬件而异。请报告你遇到的任何问题。
+- 与 Windows 类似，HDR 预览在 Linux 上不可用。
+- 应用**不会**在 Linux 上自动对屏幕显示进行色彩管理。与 Windows 相同的解决方法适用：选择与你显示器色彩空间相匹配的输出色彩空间。

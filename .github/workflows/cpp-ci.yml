@@ -14,6 +14,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  code-quality:
+    name: Code Quality
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: brew install clang-format
+
+      - name: Check formatting
+        run: |
+          find alcedo_studio/src alcedo_studio/tests -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.cu' -o -name '*.cuh' \
+            | xargs clang-format --dry-run --Werror 2>&1 || {
+              echo "::error::Code formatting check failed. Run 'cmake --build --preset macos_debug --target format' to fix."
+              exit 1
+            }
+
   macos-arm-metal:
     name: macOS arm64 Metal
     runs-on: macos-15

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.19)
+cmake_minimum_required(VERSION 3.21)
 
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
    (NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR "${CMAKE_OSX_DEPLOYMENT_TARGET}" STREQUAL ""))
@@ -172,8 +172,15 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS_RELEASE "/O2 /arch:AVX2 /bigobj /W4 /external:anglebrackets /external:W0 /EHsc /openmp /GL /Zc:preprocessor /MP")
     # add_link_options(/DEBUG)
     set(CMAKE_VS_USE_DEBUG_LIBRARIES "$<CONFIG:Debug,Custom>")
-    # FIXME: Hardcoded Qt path for Windows, consider making it configurable
-    set(CMAKE_PREFIX_PATH "D:/misc/Qt/6.9.3/msvc2022_64/lib/cmake;${CMAKE_PREFIX_PATH}")
+    # Qt6 prefix for Windows — set ALCEDO_QT_PREFIX to the Qt installation root
+    # (e.g. D:/misc/Qt/6.9.3/msvc2022_64) instead of hardcoding here.
+    if(NOT DEFINED ALCEDO_QT_PREFIX OR "${ALCEDO_QT_PREFIX}" STREQUAL "")
+        message(STATUS "ALCEDO_QT_PREFIX is not set. "
+                       "Set it to your Qt installation root (e.g. D:/misc/Qt/6.9.3/msvc2022_64) "
+                       "or ensure Qt6 is discoverable via CMAKE_PREFIX_PATH.")
+    else()
+        list(PREPEND CMAKE_PREFIX_PATH "${ALCEDO_QT_PREFIX}")
+    endif()
 else()
     #set(CMAKE_CXX_FLAGS_INIT "-Wall -Wextra -Wpedantic -D_DEBUG -fopenmp -O2 -fsanitize=address -g")
 
@@ -248,16 +255,15 @@ endif()
 
 # OpenCL
 set(ALCEDO_OPENCL_ENABLED OFF)
-if(ALCEDO_ENABLE_OPENCL AND WIN32)
+if(ALCEDO_ENABLE_OPENCL)
     find_package(OpenCL QUIET)
 endif()
-if(ALCEDO_ENABLE_OPENCL AND WIN32 AND OpenCL_FOUND)
+if(ALCEDO_ENABLE_OPENCL AND OpenCL_FOUND)
     add_compile_definitions(HAVE_OPENCL)
     set(ALCEDO_OPENCL_ENABLED ON)
-elseif(ALCEDO_ENABLE_OPENCL AND NOT WIN32)
-    message(STATUS "OpenCL support is only available on Windows in Alcedo; building without OpenCL support.")
 elseif(ALCEDO_ENABLE_OPENCL)
-    message(STATUS "OpenCL SDK/ICD loader not found; building without OpenCL support.")
+    message(STATUS "OpenCL SDK/ICD loader not found; building without OpenCL support. "
+                   "Install an OpenCL SDK (e.g. clinfo, ocl-icd-opencl-dev on Linux) to enable.")
 endif()
 
 # Dependencies

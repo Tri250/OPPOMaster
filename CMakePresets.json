@@ -7,7 +7,7 @@
   "configurePresets": [
     {
       "name": "win_debug",
-      "displayName": "Debug Build",
+      "displayName": "Windows Debug Build",
       "description": "Windows: Build with debug info",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/debug",
@@ -20,7 +20,7 @@
     },
     {
       "name": "win_release",
-      "displayName": "Release Build",
+      "displayName": "Windows Release Build",
       "description": "Windows: Build release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/release",
@@ -34,7 +34,7 @@
     },
     {
       "name": "win_release_test",
-      "displayName": "Release Test Build",
+      "displayName": "Windows Release Test Build",
       "description": "Windows: Build release test executables",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/release-test",
@@ -138,8 +138,82 @@
         "ALCEDO_BUILD_TESTS": "OFF",
         "ALCEDO_MACOS_BUNDLE": "ON",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
-        "ALCEDO_QT_PREFIX": "/Users/zidage/Qt/6.9.3/macos",
+        "ALCEDO_QT_PREFIX": "${sourceDir}/build/qt-prefix",
         "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install"
+      }
+    },
+    {
+      "name": "linux_debug",
+      "displayName": "Linux Debug",
+      "description": "Linux: CUDA + OpenCL debug build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "ON",
+        "ALCEDO_ENABLE_OPENCL": "ON",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "ON",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
+      }
+    },
+    {
+      "name": "linux_debug_tests",
+      "displayName": "Linux Debug Tests",
+      "description": "Linux: Debug test build with CUDA and OpenCL backends",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-debug-tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "ON",
+        "ALCEDO_ENABLE_OPENCL": "ON",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "ON",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_GENERATE_QMLTYPES": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
+      }
+    },
+    {
+      "name": "linux_opencl_ci",
+      "displayName": "Linux OpenCL CI",
+      "description": "Linux CI build with OpenCL enabled (no GPU device required for compile check)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-opencl-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_METAL": "OFF",
+        "ALCEDO_ENABLE_OPENCL": "ON",
+        "ALCEDO_ENABLE_WEBGPU": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_GENERATE_QMLTYPES": "OFF",
+        "PUERHLAB_USE_BUNDLED_LIBRAW": "ON",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
+      }
+    },
+    {
+      "name": "linux_release",
+      "displayName": "Linux Release",
+      "description": "Linux: Full release build with CUDA and OpenCL",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "ON",
+        "ALCEDO_ENABLE_OPENCL": "ON",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "ON",
+        "ALCEDO_BUILD_TESTS": "OFF",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install"
       }
     }
@@ -216,9 +290,42 @@
       "targets": [
         "macos_package"
       ]
+    },
+    {
+      "name": "linux_debug",
+      "configurePreset": "linux_debug",
+      "jobs": 8
+    },
+    {
+      "name": "linux_debug_tests",
+      "configurePreset": "linux_debug_tests",
+      "jobs": 8,
+      "targets": [
+        "alcedo_tests_all"
+      ]
+    },
+    {
+      "name": "linux_opencl_ci",
+      "configurePreset": "linux_opencl_ci",
+      "jobs": 4,
+      "targets": [
+        "alcedo_tests_ci_core"
+      ]
+    },
+    {
+      "name": "linux_release",
+      "configurePreset": "linux_release",
+      "jobs": 8
     }
   ],
   "testPresets": [
+    {
+      "name": "win_debug",
+      "configurePreset": "win_debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
     {
       "name": "win_release_test",
       "configurePreset": "win_release_test",
@@ -239,6 +346,28 @@
       "filter": {
         "include": {
           "label": "ci_core_flow|ci_raw_flow|ci_metal_runtime"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "linux_debug_tests",
+      "configurePreset": "linux_debug_tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux_opencl_ci",
+      "configurePreset": "linux_opencl_ci",
+      "filter": {
+        "include": {
+          "label": "ci_core_flow"
         }
       },
       "output": {

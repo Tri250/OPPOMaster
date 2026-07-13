@@ -1,0 +1,56 @@
+name: Alcedo Studio C++ CI (Windows)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+timeout-minutes: 120
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Setup CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: '12.4.1'
+          method: 'network'
+
+      - name: Install OpenCL SDK
+        run: |
+          $openclUrl = "https://github.com/KhronosGroup/OpenCL-SDK/releases/download/v2023.04.17/OpenCL-SDK-v2023.04.17-Win-x64.zip"
+          $openclZip = "$env:RUNNER_TEMP\opencl-sdk.zip"
+          $openclDir = "$env:RUNNER_TEMP\opencl-sdk"
+          Invoke-WebRequest -Uri $openclUrl -OutFile $openclZip
+          Expand-Archive -Path $openclZip -DestinationPath $openclDir -Force
+          echo "OPENCL_ROOT=$openclDir" >> $env:GITHUB_ENV
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "2024.12.16"
+
+      - name: Configure CMake
+        run: cmake --preset win_debug
+
+      - name: Build CI targets
+        run: cmake --build --preset win_debug
+
+      - name: Run tests
+        run: ctest --preset win_debug --output-on-failure
