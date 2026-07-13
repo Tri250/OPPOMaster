@@ -1638,3 +1638,14 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
         USES_TERMINAL
     )
 endif()
+
+if(WIN32 AND TARGET ${ALCEDO_MAIN_BIN})
+    add_custom_target(windows_package
+        COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}"
+        COMMAND "${CMAKE_CPACK_COMMAND}" --config "${CMAKE_BINARY_DIR}/CPackConfig.cmake" -B "${CMAKE_INSTALL_PREFIX}/package"
+        DEPENDS ${ALCEDO_MAIN_BIN}
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "Installing Alcedo Studio and creating Windows packages (MSI/EXE/ZIP)"
+        USES_TERMINAL
+    )
+endif()

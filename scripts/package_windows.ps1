@@ -12,12 +12,23 @@
 param(
     [string]$BuildDir = "$PSScriptRoot\..\build\release",
     [string]$Preset = "win_release",
-    [string]$QtPrefix = "D:/Qt/6.9.3/msvc2022_64/lib/cmake",
+    [string]$QtPrefix = "",
     [string]$PackageOutDir = "$PSScriptRoot\..\build\release\package",
     [string]$DuckDbVssExtension = $env:ALCEDO_DUCKDB_VSS_EXTENSION,
     [string]$DuckDbFtsExtension = $env:ALCEDO_DUCKDB_FTS_EXTENSION,
     [bool]$RequireOpenCLAssets = $true
 )
+
+# Resolve Qt prefix: prefer explicit parameter, then ALCEDO_QT_PREFIX env, then fail with a helpful message.
+if ([string]::IsNullOrWhiteSpace($QtPrefix)) {
+    $QtPrefix = $env:ALCEDO_QT_PREFIX
+}
+if ([string]::IsNullOrWhiteSpace($QtPrefix)) {
+    Write-Host "ERROR: Qt prefix not specified." -ForegroundColor Red
+    Write-Host "Set -QtPrefix parameter, ALCEDO_QT_PREFIX environment variable," -ForegroundColor Yellow
+    Write-Host "or ensure Qt6 is discoverable via CMAKE_PREFIX_PATH." -ForegroundColor Yellow
+    exit 1
+}
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path "$PSScriptRoot\.."

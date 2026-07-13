@@ -241,6 +241,14 @@
       ]
     },
     {
+      "name": "win_package",
+      "configurePreset": "win_release",
+      "jobs": 8,
+      "targets": [
+        "windows_package"
+      ]
+    },
+    {
       "name": "win_release_test",
       "configurePreset": "win_release_test",
       "jobs": 8

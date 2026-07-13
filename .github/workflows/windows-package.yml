@@ -1,0 +1,157 @@
+name: Windows Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (Release or Debug)'
+        required: false
+        default: 'Release'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: win-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build Windows Installer
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Setup MSVC Developer Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: '12.4.1'
+          method: 'network'
+
+      - name: Install OpenCL SDK
+        run: |
+          $openclUrl = "https://github.com/KhronosGroup/OpenCL-SDK/releases/download/v2023.04.17/OpenCL-SDK-v2023.04.17-Win-x64.zip"
+          $openclZip = "$env:RUNNER_TEMP\opencl-sdk.zip"
+          $openclDir = "$env:RUNNER_TEMP\opencl-sdk"
+          Invoke-WebRequest -Uri $openclUrl -OutFile $openclZip
+          Expand-Archive -Path $openclZip -DestinationPath $openclDir -Force
+          echo "OPENCL_ROOT=$openclDir" >> $env:GITHUB_ENV
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtshadertools qt5compat'
+          cache: true
+
+      - name: Install WiX Toolset
+        run: |
+          $wixUrl = "https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe"
+          $wixInstaller = "$env:RUNNER_TEMP\wix311.exe"
+          Invoke-WebRequest -Uri $wixUrl -OutFile $wixInstaller
+          Start-Process -Wait -FilePath $wixInstaller -ArgumentList '/quiet', '/norestart'
+          echo "WIX=$env:RUNNER_TEMP\WiX Toolset v3.11" >> $env:GITHUB_ENV
+          echo "$env:RUNNER_TEMP\WiX Toolset v3.11\bin" >> $env:GITHUB_PATH
+
+      - name: Install NSIS
+        run: |
+          choco install nsis -y --no-progress
+
+      - name: Install vcpkg dependencies
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "2024.12.16"
+
+      - name: Configure CMake
+        run: |
+          cmake --preset win_release `
+            -DALCEDO_QT_PREFIX="$env:Qt6_Dir" `
+            -DALCEDO_DUCKDB_VSS_EXTENSION="$env:ALCEDO_DUCKDB_VSS_EXTENSION" `
+            -DALCEDO_DUCKDB_FTS_EXTENSION="$env:ALCEDO_DUCKDB_FTS_EXTENSION"
+
+      - name: Build
+        run: cmake --build --preset win_release --parallel 4
+
+      - name: Install
+        run: cmake --install build/release --prefix build/install
+
+      - name: Verify install tree
+        run: |
+          $verifyScript = Join-Path $env:GITHUB_WORKSPACE "scripts\verify_windows_install_tree.ps1"
+          if (Test-Path $verifyScript) {
+            & powershell -ExecutionPolicy Bypass -File $verifyScript -InstallDir build/install -SkipOpenCLAssetCheck
+          } else {
+            Write-Host "Verify script not found, skipping install tree verification."
+          }
+
+      - name: Package with CPack
+        run: |
+          New-Item -ItemType Directory -Force -Path build/package | Out-Null
+          cpack --config "build/release/CPackConfig.cmake" -B "build/package"
+        working-directory: ${{ github.workspace }}
+
+      - name: List generated packages
+        run: |
+          Get-ChildItem -Path "build/package" -Include *.msi,*.exe,*.zip -Recurse | ForEach-Object {
+            $sizeMB = [math]::Round($_.Length / 1MB, 2)
+            Write-Host "  $($_.Name) ($sizeMB MB)"
+          }
+
+      - name: Upload MSI installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlcedoStudio-MSI-Installer
+          path: build/package/*.msi
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlcedoStudio-NSIS-Installer
+          path: build/package/*.exe
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload ZIP archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlcedoStudio-ZIP-Portable
+          path: build/package/*.zip
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $releaseArgs = @(
+            'release', 'create', $tag,
+            '--title', "Alcedo Studio $tag",
+            '--notes', "Windows installer packages for Alcedo Studio $tag."
+          )
+          Get-ChildItem -Path "build/package" -Include *.msi,*.exe,*.zip -Recurse | ForEach-Object {
+            $releaseArgs += $_.FullName
+          }
+          & gh @releaseArgs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
