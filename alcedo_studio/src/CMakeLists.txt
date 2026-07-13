@@ -1229,6 +1229,100 @@ def_library(ExportService
 )
 
 # ==============================================================================
+# 9b. Extended Processing Modules (RapidRAW feature parity)
+# ==============================================================================
+
+# --- Mask Engine ---
+def_library(MaskEngine
+    SOURCES processing/mask_engine.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Denoiser ---
+def_library(Denoiser
+    SOURCES processing/denoiser.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Panorama Stitcher ---
+def_library(PanoramaStitcher
+    SOURCES processing/panorama_stitcher.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- HDR Merger ---
+def_library(HdrMerger
+    SOURCES processing/hdr_merger.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Inpainting ---
+def_library(Inpainting
+    SOURCES processing/inpainting.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Negative Conversion ---
+def_library(NegativeConversion
+    SOURCES processing/negative_conversion.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Creative Effects ---
+def_library(CreativeEffects
+    SOURCES processing/creative_effects.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Preset Converter ---
+def_library(PresetConverter
+    SOURCES processing/preset_converter.cpp
+    PUBLIC_DEPS ImageBuffer JSON
+)
+
+# --- Lens Correction (Lensfun-independent) ---
+def_library(LensCorrection
+    SOURCES lens/lens_correction.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Image Culling ---
+def_library(ImageCulling
+    SOURCES app/image_culling.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- EXIF Editor ---
+def_library(ExifEditor
+    SOURCES app/exif_editor.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- File Operations ---
+def_library(FileOperations
+    SOURCES app/file_operations.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# --- Tag Manager ---
+def_library(TagManager
+    SOURCES app/tag_manager.cpp
+    PUBLIC_DEPS ImageBuffer JSON
+)
+
+# --- Export Enhancements ---
+def_library(ExportEnhancements
+    SOURCES app/export_enhancements.cpp
+    PUBLIC_DEPS ImageBuffer JSON
+)
+
+# --- UI Scopes (Histogram, Waveform, Parade, Vectorscope, False Color) ---
+def_library(UiScopes
+    SOURCES ui/scopes.cpp
+    PUBLIC_DEPS ImageBuffer
+)
+
+# ==============================================================================
 # 9. UI Components
 # ==============================================================================
 if(ALCEDO_REAL_WIDGET_EDITOR)
@@ -1598,6 +1692,21 @@ target_link_libraries(alcedo_main
         Qt6::Widgets
         Qt6::Svg
         Qt6::QuickEffects
+        MaskEngine
+        Denoiser
+        PanoramaStitcher
+        HdrMerger
+        Inpainting
+        NegativeConversion
+        CreativeEffects
+        PresetConverter
+        LensCorrection
+        ImageCulling
+        ExifEditor
+        FileOperations
+        TagManager
+        ExportEnhancements
+        UiScopes
 )
 
 if(WIN32 AND ALCEDO_OPENCL_ENABLED)
