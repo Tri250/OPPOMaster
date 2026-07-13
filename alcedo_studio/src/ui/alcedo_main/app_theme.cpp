@@ -105,10 +105,42 @@ auto MakeClassicTheme() -> ThemeColors {
   };
 }
 
+// Theme 2: Light (浅色主题 - 适合日间使用)
+auto MakeLightTheme() -> ThemeColors {
+  return ThemeColors{
+      .tone_gold = QColor(0x3D, 0x6F, 0xA8),               // Primary accent blue
+      .tone_wine = QColor(0xC5, 0x3D, 0x3D),               // Danger red
+      .tone_steel = QColor(0x5B, 0x8C, 0xC4),               // Secondary blue
+      .tone_graphite = QColor(0xF5, 0xF5, 0xF5),            // Light background
+      .tone_mist = QColor(0x1A, 0x1A, 0x1A),               // Dark text
+      .bg_canvas = QColor(0xE8, 0xE8, 0xE8),               // Outer canvas
+      .bg_deep = QColor(0xD0, 0xD0, 0xD0),                 // Floating panels
+      .bg_base = QColor(0xF0, 0xF0, 0xF0),                 // Interactive areas
+      .bg_panel = QColor(0xFA, 0xFA, 0xFA),                // Primary workspaces
+      .text = QColor(0x1A, 0x1A, 0x1A),                     // Primary text
+      .text_muted = QColor(0x66, 0x66, 0x66),               // Muted text
+      .icon = QColor(0x33, 0x33, 0x33),                     // Icons
+      .accent_secondary = QColor(0x5B, 0x8C, 0xC4),         // Hover accent
+      .danger_tint = QColor(197, 61, 61, 60),
+      .selected_tint = QColor(61, 111, 168, 35),
+      .hover = QColor(0xD8, 0xD8, 0xD8),
+      .divider = QColor(0, 0, 0, 18),
+      .glass_panel = QColor(0xFA, 0xFA, 0xFA),
+      .glass_stroke = QColor(0, 0, 0, 25),
+      .overlay = QColor(0xE0, 0xE0, 0xE0, 0xC8),
+      .panel_radius = 10,
+  };
+}
+
 auto GetTheme(int index) -> const ThemeColors& {
   static const ThemeColors kPuerhTheme = MakePuerhTheme();
   static const ThemeColors kClassicTheme = MakeClassicTheme();
-  return index == 1 ? kClassicTheme : kPuerhTheme;
+  static const ThemeColors kLightTheme = MakeLightTheme();
+  switch (index) {
+    case 1: return kClassicTheme;
+    case 2: return kLightTheme;
+    default: return kPuerhTheme;
+  }
 }
 
 struct FontFamilies {
@@ -939,7 +971,7 @@ auto AppTheme::panelRadius() const -> int { return GetTheme(current_theme_index_
 auto AppTheme::currentThemeIndex() const -> int { return current_theme_index_; }
 
 void AppTheme::setCurrentThemeIndex(int index) {
-  if (index < 0 || index > 1) {
+  if (index < 0 || index > 2) {
     return;
   }
   if (current_theme_index_ == index) {
@@ -953,6 +985,7 @@ auto AppTheme::availableThemes() const -> QVariantList {
   return QVariantList{
       QVariantMap{{QStringLiteral("label"), tr("Alcedo")}, {QStringLiteral("index"), 0}},
       QVariantMap{{QStringLiteral("label"), tr("Classic")}, {QStringLiteral("index"), 1}},
+      QVariantMap{{QStringLiteral("label"), tr("Light")}, {QStringLiteral("index"), 2}},
   };
 }
 

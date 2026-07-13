@@ -64,62 +64,62 @@
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="100"/>
         <source>...(%1 more)</source>
-        <translation type="unfinished"></translation>
+        <translation>...还有 %1 张</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="121"/>
         <source>Exporting</source>
-        <translation type="unfinished"></translation>
+        <translation>导出中</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="123"/>
         <source>Done</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="125"/>
         <source>Failed</source>
-        <translation type="unfinished"></translation>
+        <translation>失败</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="127"/>
         <source>Queued</source>
-        <translation type="unfinished"></translation>
+        <translation>已排队</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="257"/>
         <source>Configure settings for current batch</source>
-        <translation type="unfinished"></translation>
+        <translation>配置当前批次的导出设置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="317"/>
         <source>Destination</source>
-        <translation type="unfinished"></translation>
+        <translation>目标位置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="336"/>
         <source>Browse</source>
-        <translation type="unfinished"></translation>
+        <translation>浏览</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="359"/>
         <source>Put in Subfolder</source>
-        <translation type="unfinished"></translation>
+        <translation>保存到子文件夹</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="396"/>
         <source>File Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>文件设置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="406"/>
         <source>Image Format</source>
-        <translation type="unfinished"></translation>
+        <translation>图像格式</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="430"/>
         <source>Bit Depth</source>
-        <translation type="unfinished"></translation>
+        <translation>位深度</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="464"/>
@@ -144,62 +144,62 @@
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="537"/>
         <source>Limit Longest Edge (px)</source>
-        <translation type="unfinished"></translation>
+        <translation>限制最长边（像素）</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="573"/>
         <source>Metadata &amp; Output</source>
-        <translation type="unfinished"></translation>
+        <translation>元数据与输出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="591"/>
         <source>HDR Export</source>
-        <translation type="unfinished"></translation>
+        <translation>HDR 导出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="601"/>
         <source>Ultra HDR</source>
-        <translation type="unfinished"></translation>
+        <translation>超高清 HDR</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="602"/>
         <source>ICC Profile</source>
-        <translation type="unfinished"></translation>
+        <translation>ICC 色彩配置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="620"/>
         <source>SDR Export</source>
-        <translation type="unfinished"></translation>
+        <translation>SDR 导出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="627"/>
         <source>Embed ICC Profile</source>
-        <translation type="unfinished"></translation>
+        <translation>嵌入 ICC 色彩配置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="654"/>
         <source>Export Queue</source>
-        <translation type="unfinished"></translation>
+        <translation>导出队列</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="669"/>
         <source>Items</source>
-        <translation type="unfinished"></translation>
+        <translation>项目</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="813"/>
         <source>Export Progress</source>
-        <translation type="unfinished"></translation>
+        <translation>导出进度</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="870"/>
         <source>Export 1 File</source>
-        <translation type="unfinished"></translation>
+        <translation>导出 1 个文件</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="871"/>
         <source>Export %1 Files</source>
-        <translation type="unfinished"></translation>
+        <translation>导出 %1 个文件</translation>
     </message>
     <message>
         <source>RESIZE</source>
@@ -1601,7 +1601,7 @@
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="330"/>
         <source>Undo last transaction</source>
-        <translation type="unfinished"></translation>
+        <translation>撤销上一个操作</translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="331"/>
@@ -2617,17 +2617,17 @@ Alcedo 将改用 %1。</translation>
     <message>
         <location filename="../qml/Main.qml" line="476"/>
         <source>Choose theme and language, then save to apply changes.</source>
-        <translation type="unfinished"></translation>
+        <translation>选择主题和语言，然后保存以应用更改。</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="486"/>
         <source>Theme</source>
-        <translation type="unfinished"></translation>
+        <translation>主题</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="537"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="564"/>
@@ -2675,12 +2675,12 @@ Original source files on disk will be kept.</source>
     <message>
         <location filename="../qml/Main.qml" line="887"/>
         <source>Alcedo</source>
-        <translation type="unfinished"></translation>
+        <translation>Alcedo</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="889"/>
         <source>Studio</source>
-        <translation type="unfinished"></translation>
+        <translation>Studio</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="896"/>
@@ -3206,12 +3206,12 @@ Original source files on disk will be kept.</source>
         <location filename="../qml/WelcomeDialog.qml" line="46"/>
         <location filename="../qml/WelcomeDialog.qml" line="63"/>
         <source>Untitled Project</source>
-        <translation type="unfinished"></translation>
+        <translation>未命名项目</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="77"/>
         <source>Select Project Storage Location</source>
-        <translation type="unfinished"></translation>
+        <translation>选择项目存储位置</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="88"/>
@@ -3221,12 +3221,12 @@ Original source files on disk will be kept.</source>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="302"/>
         <source>Alcedo</source>
-        <translation type="unfinished"></translation>
+        <translation>Alcedo</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="310"/>
         <source>Studio</source>
-        <translation type="unfinished"></translation>
+        <translation>Studio</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="327"/>
@@ -3277,27 +3277,27 @@ Original source files on disk will be kept.</source>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="757"/>
         <source>New Project</source>
-        <translation type="unfinished"></translation>
+        <translation>新建项目</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="765"/>
         <source>Configure your workspace settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>配置你的工作区设置。</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="793"/>
         <source>Project Name</source>
-        <translation type="unfinished"></translation>
+        <translation>项目名称</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="828"/>
         <source>Storage Location</source>
-        <translation type="unfinished"></translation>
+        <translation>存储位置</translation>
     </message>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="854"/>
         <source>Select a parent folder...</source>
-        <translation type="unfinished"></translation>
+        <translation>选择父文件夹...</translation>
     </message>
 </context>
 <context>
@@ -3305,27 +3305,27 @@ Original source files on disk will be kept.</source>
     <message>
         <location filename="../album_backend/album_backend.cpp" line="524"/>
         <source>Select Project Package or Metadata JSON</source>
-        <translation type="unfinished">选择项目包或元数据 JSON</translation>
+        <translation>选择项目包或元数据 JSON</translation>
     </message>
     <message>
         <location filename="../album_backend/album_backend.cpp" line="525"/>
         <source>Packed Project (*.alcd);;Project Metadata (*.json);;All Files (*)</source>
-        <translation type="unfinished"></translation>
+        <translation>打包项目 (*.alcd);;项目元数据 (*.json);;所有文件 (*)</translation>
     </message>
     <message>
         <location filename="../album_backend/album_backend.cpp" line="535"/>
         <source>Select Parent Folder for New Project</source>
-        <translation type="unfinished">为新项目选择父文件夹</translation>
+        <translation>为新项目选择父文件夹</translation>
     </message>
     <message>
         <location filename="../album_backend/album_backend.cpp" line="543"/>
         <source>Name New Project</source>
-        <translation type="unfinished">命名新项目</translation>
+        <translation>命名新项目</translation>
     </message>
     <message>
         <location filename="../album_backend/album_backend.cpp" line="543"/>
         <source>Project name</source>
-        <translation type="unfinished">项目名称</translation>
+        <translation>项目名称</translation>
     </message>
 </context>
 <context>
@@ -4134,6 +4134,119 @@ Original source files on disk will be kept.</source>
     <message>
         <source>↓ %1</source>
         <translation>↓ %1</translation>
+    </message>
+</context>
+<context>
+    <name>ThumbnailGridView</name>
+    <message>
+        <source>双击编辑</source>
+        <translation>双击编辑</translation>
+    </message>
+    <message>
+        <source>Black &amp; White</source>
+        <translation>黑白</translation>
+    </message>
+    <message>
+        <source>Landscape</source>
+        <translation>风景</translation>
+    </message>
+    <message>
+        <source>Portrait</source>
+        <translation>人像</translation>
+    </message>
+    <message>
+        <source>Architecture</source>
+        <translation>建筑</translation>
+    </message>
+    <message>
+        <source>Nature</source>
+        <translation>自然</translation>
+    </message>
+    <message>
+        <source>Street</source>
+        <translation>街拍</translation>
+    </message>
+    <message>
+        <source>Document</source>
+        <translation>文档</translation>
+    </message>
+</context>
+<context>
+    <name>AppTheme</name>
+    <message>
+        <source>Alcedo</source>
+        <translation>Alcedo 深色</translation>
+    </message>
+    <message>
+        <source>Classic</source>
+        <translation>经典</translation>
+    </message>
+    <message>
+        <source>Light</source>
+        <translation>浅色</translation>
+    </message>
+</context>
+<context>
+    <name>OnboardingOverlay</name>
+    <message>
+        <source>欢迎使用 Alcedo Studio</source>
+        <translation>欢迎使用 Alcedo Studio</translation>
+    </message>
+    <message>
+        <source>Alcedo Studio 是一款专业的 RAW 图像处理软件，为摄影师提供强大的后期处理能力。</source>
+        <translation>Alcedo Studio 是一款专业的 RAW 图像处理软件，为摄影师提供强大的后期处理能力。</translation>
+    </message>
+    <message>
+        <source>导入图片</source>
+        <translation>导入图片</translation>
+    </message>
+    <message>
+        <source>点击「文件」→「导入」或直接拖拽图片到窗口中开始处理。支持 RAW、JPEG、PNG 等多种格式。</source>
+        <translation>点击「文件」→「导入」或直接拖拽图片到窗口中开始处理。支持 RAW、JPEG、PNG 等多种格式。</translation>
+    </message>
+    <message>
+        <source>浏览与筛选</source>
+        <translation>浏览与筛选</translation>
+    </message>
+    <message>
+        <source>使用鼠标滚轮或 Ctrl+滚轮调整缩略图大小。双击打开编辑器，右键查看更多选项。</source>
+        <translation>使用鼠标滚轮或 Ctrl+滚轮调整缩略图大小。双击打开编辑器，右键查看更多选项。</translation>
+    </message>
+    <message>
+        <source>开始编辑</source>
+        <translation>开始编辑</translation>
+    </message>
+    <message>
+        <source>在编辑器中调整曝光、色彩、对比度等参数。所有操作都是非破坏性的，随时可以撤销。</source>
+        <translation>在编辑器中调整曝光、色彩、对比度等参数。所有操作都是非破坏性的，随时可以撤销。</translation>
+    </message>
+    <message>
+        <source>导出作品</source>
+        <translation>导出作品</translation>
+    </message>
+    <message>
+        <source>编辑完成后，点击「导出」按钮保存处理结果。支持 JPEG、PNG、TIFF 等多种输出格式。</source>
+        <translation>编辑完成后，点击「导出」按钮保存处理结果。支持 JPEG、PNG、TIFF 等多种输出格式。</translation>
+    </message>
+    <message>
+        <source>跳过教程</source>
+        <translation>跳过教程</translation>
+    </message>
+    <message>
+        <source>上一步</source>
+        <translation>上一步</translation>
+    </message>
+    <message>
+        <source>开始使用</source>
+        <translation>开始使用</translation>
+    </message>
+    <message>
+        <source>下一步</source>
+        <translation>下一步</translation>
+    </message>
+    <message>
+        <source>按 Enter 继续 · Esc 跳过 · 左右方向键导航</source>
+        <translation>按 Enter 继续 · Esc 跳过 · 左右方向键导航</translation>
     </message>
 </context>
 </TS>

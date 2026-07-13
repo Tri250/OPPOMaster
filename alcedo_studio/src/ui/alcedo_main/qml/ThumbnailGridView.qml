@@ -67,6 +67,7 @@ Item {
     signal imageFocused(var item)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
     signal zoomChanged(int zoomLevel)
+    signal ratingRequested(int elementId, int rating)
 
     function semanticTagTitle(rawTag) {
         const normalized = rawTag === undefined || rawTag === null
@@ -1052,7 +1053,67 @@ Item {
                 ToolTip.visible: thumbnailProblemState && thumbHover.hovered
                 ToolTip.text: thumbnailProblemText
                 ToolTip.delay: 150
-        }
+                
+                // ── Quick Action Overlay (Chinese UX Enhancement) ──
+                // Provides quick access to rating and selection actions on hover
+                Rectangle {
+                    id: quickActionOverlay
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: Qt.rgba(0, 0, 0, 0.55)
+                    visible: thumbHover.hovered && !thumbnailLoadingState && !thumbnailProblemState
+                    opacity: visible ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    
+                    Row {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 6
+                        spacing: 4
+                        
+                        // Quick rating buttons
+                        Repeater {
+                            model: [1, 2, 3, 4, 5]
+                            
+                            Rectangle {
+                                width: 20
+                                height: 20
+                                radius: 10
+                                color: ratingMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.12)
+                                border.width: 1
+                                border.color: Qt.rgba(1, 1, 1, 0.18)
+                                
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u2605"  // Star character
+                                    color: modelData <= rating ? "#F2C766" : Qt.rgba(1, 1, 1, 0.5)
+                                    font.pixelSize: 12
+                                }
+                                
+                                MouseArea {
+                                    id: ratingMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.ratingRequested(elementId, modelData)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Open editor hint
+                    Label {
+                        anchors.left: parent.left
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 6
+                        text: qsTr("双击编辑")
+                        color: Qt.rgba(1, 1, 1, 0.75)
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        visible: quickActionOverlay.visible && root.columns <= 8
+                    }
+                }
+            }
 
         Column {
             id: textColumn
