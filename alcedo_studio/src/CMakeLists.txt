@@ -1977,3 +1977,46 @@ if(ALCEDO_ARIA2C_BINARY AND TARGET alcedo_main)
         )
     endif()
 endif()
+
+# ── Copy runtime config data next to alcedo_main for development builds ──
+if(TARGET alcedo_main AND WIN32)
+    set(_alcedo_config_src "${CMAKE_CURRENT_SOURCE_DIR}/config")
+    set(_alcedo_config_dst "$<TARGET_FILE_DIR:alcedo_main>/config")
+
+    # DRTs (OpenDRT reference files)
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_alcedo_config_src}/DRTs" "${_alcedo_config_dst}/DRTs"
+        VERBATIM
+    )
+    # ICC profiles
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_alcedo_config_src}/icc" "${_alcedo_config_dst}/icc"
+        VERBATIM
+    )
+    # Lens calibration data
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_alcedo_config_src}/lens_calib" "${_alcedo_config_dst}/lens_calib"
+        VERBATIM
+    )
+    # Nikon lens data
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_alcedo_config_src}/nikon_lens" "${_alcedo_config_dst}/nikon_lens"
+        VERBATIM
+    )
+    # History icons
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_alcedo_config_src}/history_icons" "${_alcedo_config_dst}/history_icons"
+        VERBATIM
+    )
+    # Panel icons
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${_alcedo_config_src}/panel_icons" "${_alcedo_config_dst}/panel_icons"
+        VERBATIM
+    )
+endif()

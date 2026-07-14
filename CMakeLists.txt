@@ -902,6 +902,9 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         install(DIRECTORY "${_config_dir}/icc/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/icc")
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/lens_calib")
         install(DIRECTORY "${_config_dir}/nikon_lens/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/nikon_lens")
+        install(DIRECTORY "${_config_dir}/DRTs/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/DRTs")
+        install(DIRECTORY "${_config_dir}/history_icons/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/history_icons")
+        install(DIRECTORY "${_config_dir}/panel_icons/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/panel_icons")
 
         alcedo_install_packaged_luts("${_config_dir}" "${CMAKE_INSTALL_BINDIR}/LUTs")
         if(ALCEDO_OPENCL_ENABLED)
@@ -1587,6 +1590,9 @@ elseif(WIN32 AND TARGET ${ALCEDO_MAIN_BIN})
     set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\alcedo_main.exe")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     set(CPACK_NSIS_MODIFY_PATH OFF)
+    set(CPACK_NSIS_HELP_LINK "https://alcedo.studio")
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://alcedo.studio")
+    set(CPACK_NSIS_CONTACT "team@alcedo.studio")
 
     # Start-menu shortcut
     set(CPACK_NSIS_CREATE_ICONS_EXTRA

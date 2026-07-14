@@ -45,8 +45,6 @@ Assert-Directory $binDir
 
 $requiredFiles = @(
     'alcedo_main.exe',
-    'alcedo_mind.exe',
-    'DirectML.dll',
     'aria2c.exe',
     'duckdb.dll',
     'duckdb_extensions\fts.duckdb_extension',
@@ -64,9 +62,22 @@ $requiredFiles = @(
     'config\icc\rec709_gamma22.icc'
 )
 
+# Optional files - warn but don't fail if missing (feature-gated builds)
+$optionalFiles = @(
+    'alcedo_mind.exe',
+    'DirectML.dll',
+    'OpenCL.dll'
+)
+
 $requiredDirectories = @(
     'LUTs',
-    'config\lens_calib'
+    'config\lens_calib',
+    'config\nikon_lens',
+    'config\icc',
+    'config\DRTs',
+    'config\history_icons',
+    'config\panel_icons',
+    'fonts'
 )
 
 foreach ($file in $requiredFiles) {
@@ -77,7 +88,17 @@ foreach ($dir in $requiredDirectories) {
     Assert-Directory (Join-Path $binDir $dir)
 }
 
-Assert-AnyFile -Directory $binDir -Filter 'cudart64_*.dll'
+foreach ($file in $optionalFiles) {
+    $fullPath = Join-Path $binDir $file
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+        Write-Host "[alcedo] Optional file missing (feature-gated): $file" -ForegroundColor Yellow
+    }
+}
+
+$cudaDlls = Get-ChildItem -LiteralPath $binDir -Filter 'cudart64_*.dll' -File -ErrorAction SilentlyContinue
+if (-not $cudaDlls) {
+    Write-Host "[alcedo] Optional: cudart64_*.dll not found (CUDA not enabled in this build)" -ForegroundColor Yellow
+}
 
 if (-not $SkipOpenCLAssetCheck) {
     Assert-File (Join-Path $binDir 'OpenCL.dll')
