@@ -5,6 +5,7 @@
 #include "processing/collage_maker.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <mutex>
@@ -367,7 +368,7 @@ auto CollageMaker::Export(const std::string& path, const std::string& format, in
         std::vector<int> params;
         std::string fmt_upper = format;
         std::transform(fmt_upper.begin(), fmt_upper.end(), fmt_upper.begin(),
-                       [](char c) { return static_cast<char>(std::toupper(c)); });
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
 
         if (fmt_upper == "JPEG" || fmt_upper == "JPG") {
             params.push_back(cv::IMWRITE_JPEG_QUALITY);

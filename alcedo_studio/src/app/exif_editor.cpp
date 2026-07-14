@@ -5,6 +5,7 @@
 #include "app/exif_editor.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1131,7 +1132,7 @@ auto write_tiff_exif(const std::string& file_path,
 /// -----------------------------------------------------------------------
 auto to_lower(std::string s) -> std::string {
   std::transform(s.begin(), s.end(), s.begin(),
-                 [](char c) { return static_cast<char>(std::tolower(c)); });
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return s;
 }
 

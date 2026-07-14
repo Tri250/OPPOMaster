@@ -5,6 +5,7 @@
 #include "io/image/extended_image_writer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -259,35 +260,55 @@ auto ExtendedImageWriter::GetAvailableFormats() -> std::vector<ExportFormat> {
 }
 
 auto ExtendedImageWriter::IsFormatAvailable(ExportFormat format) -> bool {
-    // Check actual OpenCV support by attempting to encode a 1x1 image
+    // Check actual OpenCV support by attempting to encode into a buffer.
+    // Using cv::imencode avoids writing to the filesystem (cross-platform,
+    // no reliance on /tmp or other OS-specific paths).
     cv::Mat test_img(1, 1, CV_8UC3, cv::Scalar(0, 0, 0));
+    std::vector<uint8_t> buf;
+    std::string ext = GetFileExtension(format);
 
     switch (format) {
         case ExportFormat::JPEG:
-            return TryImwrite("/tmp/_alcedo_fmt_test.jpg", test_img, {cv::IMWRITE_JPEG_QUALITY, 95});
+            try { return cv::imencode(ext, test_img, buf, {cv::IMWRITE_JPEG_QUALITY, 95}); }
+            catch (const cv::Exception&) { return false; }
 
         case ExportFormat::PNG:
-            return TryImwrite("/tmp/_alcedo_fmt_test.png", test_img, {cv::IMWRITE_PNG_COMPRESSION, 1});
+            try { return cv::imencode(ext, test_img, buf, {cv::IMWRITE_PNG_COMPRESSION, 1}); }
+            catch (const cv::Exception&) { return false; }
 
         case ExportFormat::TIFF:
-            return TryImwrite("/tmp/_alcedo_fmt_test.tif", test_img, {});
+            try { return cv::imencode(ext, test_img, buf, {}); }
+            catch (const cv::Exception&) { return false; }
 
         case ExportFormat::BMP:
-            return TryImwrite("/tmp/_alcedo_fmt_test.bmp", test_img, {});
+            try { return cv::imencode(ext, test_img, buf, {}); }
+            catch (const cv::Exception&) { return false; }
 
         case ExportFormat::WebP:
-            return TryImwrite("/tmp/_alcedo_fmt_test.webp", test_img, {cv::IMWRITE_WEBP_QUALITY, 90});
+            try { return cv::imencode(ext, test_img, buf, {cv::IMWRITE_WEBP_QUALITY, 90}); }
+            catch (const cv::Exception&) { return false; }
 
         case ExportFormat::OpenEXR: {
             cv::Mat test_f(1, 1, CV_32FC3, cv::Scalar(0.0f, 0.0f, 0.0f));
-            return TryImwrite("/tmp/_alcedo_fmt_test.exr", test_f, {});
+            try { return cv::imencode(ext, test_f, buf, {}); }
+            catch (const cv::Exception&) { return false; }
         }
 
         case ExportFormat::JPEGXL:
-            return TryImwrite("/tmp/_alcedo_fmt_test.jxl", test_img, {});
+#ifdef CV_IMWRITE_JPEGXL_QUALITY
+            try { return cv::imencode(ext, test_img, buf, {}); }
+            catch (const cv::Exception&) { return false; }
+#else
+            return false;
+#endif
 
         case ExportFormat::HEIF:
-            return TryImwrite("/tmp/_alcedo_fmt_test.heic", test_img, {});
+#ifdef CV_IMWRITE_HEIF_QUALITY
+            try { return cv::imencode(ext, test_img, buf, {}); }
+            catch (const cv::Exception&) { return false; }
+#else
+            return false;
+#endif
     }
 
     return false;
@@ -428,7 +449,9 @@ auto ExtendedImageWriter::WriteToBuffer(
             }
             break;
         case ExportFormat::OpenEXR:
+#ifdef CV_IMWRITE_EXR_TYPE
             compression_params = {cv::IMWRITE_EXR_TYPE, cv::IMWRITE_EXR_TYPE_HALF};
+#endif
             break;
         default:
             break;
@@ -555,8 +578,12 @@ auto ExtendedImageWriter::WriteTIFF(
     if (bgr.empty()) return false;
 
     std::vector<int> compression_params;
+#ifdef CV_IMWRITE_TIFF_COMPRESSION
     compression_params.push_back(cv::IMWRITE_TIFF_COMPRESSION);
     compression_params.push_back(1);  // Default compression
+#else
+    (void)params;
+#endif
 
     return TryImwrite(path, bgr, compression_params);
 }
@@ -571,8 +598,8 @@ auto ExtendedImageWriter::WriteJPEGXL(
     cv::Mat bgr = ImageBufferToBgrMat(image);
     if (bgr.empty()) return false;
 
-    // JPEG XL support in OpenCV depends on build configuration
-    // Try cv::imwrite with .jxl extension; return false if not supported
+    // JPEG XL support in OpenCV depends on build configuration.
+#ifdef CV_IMWRITE_JPEGXL_QUALITY
     std::vector<int> compression_params;
     if (params.lossless) {
         compression_params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
@@ -581,12 +608,17 @@ auto ExtendedImageWriter::WriteJPEGXL(
         compression_params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
         compression_params.push_back(params.quality);
     }
+#  ifdef CV_IMWRITE_JPEGXL_EFFORT
     compression_params.push_back(cv::IMWRITE_JPEGXL_EFFORT);
     compression_params.push_back(params.effort_level);
+#  endif
 
     if (TryImwrite(path, bgr, compression_params)) {
         return true;
     }
+#else
+    (void)params;
+#endif
 
     // If JXL is not supported by this OpenCV build, return false
     return false;
@@ -624,13 +656,16 @@ auto ExtendedImageWriter::WriteHEIF(
     cv::Mat bgr = ImageBufferToBgrMat(image);
     if (bgr.empty()) return false;
 
-    // HEIF support in OpenCV depends on build configuration
-    // Try cv::imwrite with .heic extension; return false if not supported
+    // HEIF support in OpenCV depends on build configuration.
+#ifdef CV_IMWRITE_HEIF_QUALITY
     std::vector<int> compression_params;
     compression_params.push_back(cv::IMWRITE_HEIF_QUALITY);
     compression_params.push_back(params.quality);
-
     return TryImwrite(path, bgr, compression_params);
+#else
+    (void)params;
+    return TryImwrite(path, bgr, {});
+#endif
 }
 
 auto ExtendedImageWriter::WriteEXR(
@@ -644,8 +679,12 @@ auto ExtendedImageWriter::WriteEXR(
     if (bgr.empty()) return false;
 
     std::vector<int> compression_params;
+#ifdef CV_IMWRITE_EXR_TYPE
     compression_params.push_back(cv::IMWRITE_EXR_TYPE);
     compression_params.push_back(cv::IMWRITE_EXR_TYPE_HALF);
+#else
+    (void)params;
+#endif
 
     return TryImwrite(path, bgr, compression_params);
 }
@@ -656,7 +695,8 @@ auto ExtendedImageWriter::WriteEXR(
 
 auto FormatDetector::DetectFromExtension(const std::string& extension) -> ExportFormat {
     std::string ext = extension;
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     // Remove leading dot if present
     if (!ext.empty() && ext[0] == '.') {
@@ -916,14 +956,21 @@ auto JPEGXLMultiLayerWriter::Write(const std::string& path, bool lossless) -> bo
 
     if (bgr.empty()) return false;
 
-    // Try to write as JPEG XL; return false if format not supported
+    // Try to write as JPEG XL; return false if format not supported.
+#ifdef CV_IMWRITE_JPEGXL_QUALITY
     std::vector<int> params;
     params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
     params.push_back(lossless ? 100 : 90);
+#  ifdef CV_IMWRITE_JPEGXL_EFFORT
     params.push_back(cv::IMWRITE_JPEGXL_EFFORT);
     params.push_back(5);
+#  endif
 
     return TryImwrite(path, bgr, params);
+#else
+    (void)lossless;
+    return TryImwrite(path, bgr, {});
+#endif
 }
 
 }  // namespace io

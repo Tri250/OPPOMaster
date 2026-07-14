@@ -809,8 +809,22 @@ auto AIMaskGeneratorFactory::CreateSemanticSegmentationModel(const std::string& 
 auto AIMaskGeneratorFactory::IsSAM2Available() -> bool {
     // Check if SAM-2 model files are available in the model directory
     namespace fs = std::filesystem;
-    const char* model_dir_env = std::getenv("ALCEDO_MODEL_DIR");
-    fs::path model_dir = model_dir_env ? fs::path(model_dir_env) : fs::path("models");
+
+    // Read ALCEDO_MODEL_DIR using platform-safe method
+    std::string model_dir_str;
+#if defined(_WIN32)
+    char* env_value = nullptr;
+    size_t env_len = 0;
+    if (_dupenv_s(&env_value, &env_len, "ALCEDO_MODEL_DIR") == 0 && env_value != nullptr) {
+        model_dir_str = env_value;
+        std::free(env_value);
+    }
+#else
+    const char* env_value = std::getenv("ALCEDO_MODEL_DIR");
+    if (env_value) model_dir_str = env_value;
+#endif
+
+    fs::path model_dir = model_dir_str.empty() ? fs::path("models") : fs::path(model_dir_str);
 
     if (!fs::exists(model_dir)) return false;
 
@@ -826,8 +840,21 @@ auto AIMaskGeneratorFactory::IsSAM2Available() -> bool {
 
 auto AIMaskGeneratorFactory::IsSemanticSegmentationAvailable() -> bool {
     namespace fs = std::filesystem;
-    const char* model_dir_env = std::getenv("ALCEDO_MODEL_DIR");
-    fs::path model_dir = model_dir_env ? fs::path(model_dir_env) : fs::path("models");
+
+    std::string model_dir_str;
+#if defined(_WIN32)
+    char* env_value = nullptr;
+    size_t env_len = 0;
+    if (_dupenv_s(&env_value, &env_len, "ALCEDO_MODEL_DIR") == 0 && env_value != nullptr) {
+        model_dir_str = env_value;
+        std::free(env_value);
+    }
+#else
+    const char* env_value = std::getenv("ALCEDO_MODEL_DIR");
+    if (env_value) model_dir_str = env_value;
+#endif
+
+    fs::path model_dir = model_dir_str.empty() ? fs::path("models") : fs::path(model_dir_str);
 
     if (!fs::exists(model_dir)) return false;
 

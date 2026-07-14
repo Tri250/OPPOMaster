@@ -122,6 +122,7 @@ class InMemoryAiCredentialStore final : public IAiCredentialStore {
 // salted per-file. This is the production store on Linux; the key derivation
 // binds credentials to the local user account so that the files are not
 // portable to another machine or user without re-entering the secret.
+#if defined(__linux__)
 class LinuxEncryptedFileAiCredentialStore final : public IAiCredentialStore {
  public:
   auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
@@ -140,6 +141,7 @@ class LinuxEncryptedFileAiCredentialStore final : public IAiCredentialStore {
   static auto GetCredentialPath(const std::string& slot) -> std::filesystem::path;
   static auto EnsureCredentialDir() -> std::filesystem::path;
 };
+#endif  // __linux__
 
 // Factory returning the platform-default production store: WinCred on Windows,
 // MacKeychain on macOS, and the Linux encrypted file store on Linux. The
