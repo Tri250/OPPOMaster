@@ -59,7 +59,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: "b322364f06308bdd24823f9d8f03fe0cc86fd46f"
+          vcpkgGitCommitId: "db4723bd0a99eab031f1a3dee4336dca43049c87"
 
       - name: Configure CMake
         run: cmake --preset ${{ inputs.preset || 'win_debug' }}
