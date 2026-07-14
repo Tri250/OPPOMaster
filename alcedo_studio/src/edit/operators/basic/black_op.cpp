@@ -18,7 +18,10 @@ auto BlackOp::GetScale() -> float { return offset_ / 3.0f; }
 
 void BlackOp::Apply(std::shared_ptr<ImageBuffer> input) { (void)input; }
 
-void BlackOp::ApplyGPU(std::shared_ptr<ImageBuffer>) { throw std::runtime_error("BlackOp: ApplyGPU not implemented"); }
+void BlackOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // No-op when called directly (same as Apply).
+}
 
 auto BlackOp::GetParams() const -> nlohmann::json {
   return {{std::string(script_name_), offset_ * 100.0f}};

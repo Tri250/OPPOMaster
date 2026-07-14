@@ -117,9 +117,10 @@ void SharpenOp::Apply(std::shared_ptr<ImageBuffer> input) {
   cv::threshold(img, img, 0.0f, 0.0f, cv::THRESH_TOZERO);
 }
 
-void SharpenOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  // GPU implementation not available yet.
-  throw std::runtime_error("SharpenOp::ApplyGPU not implemented yet.");
+void SharpenOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // Fallback to CPU when called directly.
+  Apply(input);
 }
 
 void SharpenOp::SetGlobalParams(OperatorParams& params) const {

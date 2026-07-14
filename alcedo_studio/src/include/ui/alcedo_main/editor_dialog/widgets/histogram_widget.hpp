@@ -6,6 +6,8 @@
 
 #include <QWidget>
 
+#include <array>
+
 #ifdef ALCEDO_HAS_LEGACY_GL_VIEWER
 #include <QOpenGLExtraFunctions>
 #include <QOpenGLWidget>
@@ -52,6 +54,13 @@ class HistogramWidget final
   unsigned int          vao_                    = 0;
   bool                  gl_ready_               = false;
   bool                  warned_context_sharing_ = false;
+#else
+  static constexpr int  kHistogramBins          = 256;
+  std::array<float, kHistogramBins> hist_r_{};
+  std::array<float, kHistogramBins> hist_g_{};
+  std::array<float, kHistogramBins> hist_b_{};
+  bool                  hist_valid_             = false;
+  void ComputeHistogramFromViewer();
 #endif
 };
 

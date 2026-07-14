@@ -9,6 +9,9 @@
 #include <fstream>
 #include <mutex>
 
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+
 namespace alcedo {
 
 // ============================================================================
@@ -18,7 +21,7 @@ namespace alcedo {
 class CollageMaker::Impl {
 public:
     CollageConfig config;
-    std::vector<std::shared_ptr<ImageBuffer>> loaded_images;
+    std::vector<cv::Mat> loaded_images;
     std::vector<CollageFrame> frames;
     bool initialized = false;
 };
@@ -59,7 +62,7 @@ auto CollageMaker::AddImage(const std::string& image_path, int frame_index) -> b
     // Find an empty frame if frame_index is -1
     if (frame_index < 0) {
         for (size_t i = 0; i < impl_->loaded_images.size(); ++i) {
-            if (!impl_->loaded_images[i]) {
+            if (impl_->loaded_images[i].empty()) {
                 frame_index = static_cast<int>(i);
                 break;
             }
@@ -70,8 +73,23 @@ auto CollageMaker::AddImage(const std::string& image_path, int frame_index) -> b
         return false;
     }
 
-    // Load image (would use actual image loading code)
     impl_->frames[frame_index].image_path = image_path;
+
+    // Load the image file into the buffer
+    try {
+        cv::Mat img = cv::imread(image_path, cv::IMREAD_UNCHANGED);
+        if (!img.empty()) {
+            // Convert to BGRA for consistent alpha handling
+            if (img.channels() == 3) {
+                cv::cvtColor(img, img, cv::COLOR_BGR2BGRA);
+            } else if (img.channels() == 1) {
+                cv::cvtColor(img, img, cv::COLOR_GRAY2BGRA);
+            }
+            impl_->loaded_images[frame_index] = img;
+        }
+    } catch (...) {
+        // Image loading failed - path will remain but no buffer
+    }
 
     return true;
 }
@@ -83,7 +101,7 @@ auto CollageMaker::RemoveImage(int frame_index) -> bool {
     }
 
     impl_->frames[frame_index].image_path.clear();
-    impl_->loaded_images[frame_index] = nullptr;
+    impl_->loaded_images[frame_index] = cv::Mat();
 
     return true;
 }
@@ -127,112 +145,204 @@ auto CollageMaker::GeneratePreview(int max_width) -> std::shared_ptr<ImageBuffer
     // Calculate preview scale
     const float scale = static_cast<float>(max_width) / static_cast<float>(impl_->config.canvas_width);
 
-    auto preview = std::make_shared<ImageBuffer>();
-    preview->width = static_cast<int>(impl_->config.canvas_width * scale);
-    preview->height = static_cast<int>(impl_->config.canvas_height * scale);
-    preview->channels = 4;
-    preview->data.resize(static_cast<size_t>(preview->width) * preview->height * preview->channels);
+    const int pw = static_cast<int>(impl_->config.canvas_width * scale);
+    const int ph = static_cast<int>(impl_->config.canvas_height * scale);
 
-    // Fill background
-    for (size_t i = 0; i < preview->data.size(); i += 4) {
-        preview->data[i] = impl_->config.background_color[0];
-        preview->data[i + 1] = impl_->config.background_color[1];
-        preview->data[i + 2] = impl_->config.background_color[2];
-        preview->data[i + 3] = impl_->config.background_color[3];
-    }
+    // Create BGRA canvas with background color
+    cv::Mat canvas(ph, pw, CV_8UC4, cv::Scalar(
+        impl_->config.background_color[0],
+        impl_->config.background_color[1],
+        impl_->config.background_color[2],
+        impl_->config.background_color[3]
+    ));
 
-    // Render frames (placeholder - would draw actual images)
-    for (const auto& frame : impl_->frames) {
+    // Render frames with actual images
+    for (size_t fi = 0; fi < impl_->frames.size(); ++fi) {
+        const auto& frame = impl_->frames[fi];
         const int scaled_x = static_cast<int>(frame.x * scale);
         const int scaled_y = static_cast<int>(frame.y * scale);
         const int scaled_width = static_cast<int>(frame.width * scale);
         const int scaled_height = static_cast<int>(frame.height * scale);
 
-        // Draw frame border
-        for (int y = scaled_y; y < scaled_y + scaled_height && y < preview->height; ++y) {
-            for (int x = scaled_x; x < scaled_x + scaled_width && x < preview->width; ++x) {
-                const size_t idx = static_cast<size_t>((y * preview->width + x) * 4);
+        if (frame.image_path.empty()) {
+            // Empty frame placeholder - draw gray rectangle
+            cv::Rect frame_rect(scaled_x, scaled_y, scaled_width, scaled_height);
+            cv::rectangle(canvas, frame_rect, cv::Scalar(100, 100, 100, 255), cv::FILLED);
+            continue;
+        }
 
-                // Simple rectangle fill for preview
-                if (frame.image_path.empty()) {
-                    // Empty frame placeholder
-                    preview->data[idx] = 100;
-                    preview->data[idx + 1] = 100;
-                    preview->data[idx + 2] = 100;
-                    preview->data[idx + 3] = 255;
-                }
-            }
+        const auto& src = impl_->loaded_images[fi];
+        if (src.empty()) continue;
+
+        // Resize source image to cover-fit the scaled frame
+        const int src_w = src.cols;
+        const int src_h = src.rows;
+        if (src_w <= 0 || src_h <= 0) continue;
+
+        const float frame_aspect = static_cast<float>(scaled_width) / static_cast<float>(scaled_height);
+        const float img_aspect = static_cast<float>(src_w) / static_cast<float>(src_h);
+
+        int draw_w, draw_h;
+        if (img_aspect > frame_aspect) {
+            draw_h = scaled_height;
+            draw_w = static_cast<int>(draw_h * img_aspect);
+        } else {
+            draw_w = scaled_width;
+            draw_h = static_cast<int>(draw_w / img_aspect);
+        }
+
+        cv::Mat resized;
+        cv::resize(src, resized, cv::Size(draw_w, draw_h), 0, 0, cv::INTER_LINEAR);
+
+        // Ensure BGRA
+        cv::Mat resized_bgra;
+        if (resized.channels() == 3) {
+            cv::cvtColor(resized, resized_bgra, cv::COLOR_BGR2BGRA);
+        } else if (resized.channels() == 4) {
+            resized_bgra = resized;
+        } else if (resized.channels() == 1) {
+            cv::cvtColor(resized, resized_bgra, cv::COLOR_GRAY2BGRA);
+        } else {
+            continue;
+        }
+
+        // Center-crop into frame
+        const int offset_x = (scaled_width - draw_w) / 2;
+        const int offset_y = (scaled_height - draw_h) / 2;
+
+        const int src_start_x = std::max(0, -offset_x);
+        const int src_start_y = std::max(0, -offset_y);
+        const int dst_start_x = scaled_x + std::max(0, offset_x);
+        const int dst_start_y = scaled_y + std::max(0, offset_y);
+        const int copy_w = std::min(draw_w - src_start_x, std::min(scaled_width - std::max(0, offset_x), pw - dst_start_x));
+        const int copy_h = std::min(draw_h - src_start_y, std::min(scaled_height - std::max(0, offset_y), ph - dst_start_y));
+
+        if (copy_w <= 0 || copy_h <= 0 || dst_start_x < 0 || dst_start_y < 0) continue;
+
+        cv::Rect src_roi(src_start_x, src_start_y, copy_w, copy_h);
+        cv::Rect dst_roi(dst_start_x, dst_start_y, copy_w, copy_h);
+        resized_bgra(src_roi).copyTo(canvas(dst_roi));
+
+        // Draw frame border
+        if (frame.border_width > 0) {
+            cv::Rect border_rect(scaled_x, scaled_y, scaled_width, scaled_height);
+            cv::Scalar border_color(
+                frame.border_color[0], frame.border_color[1],
+                frame.border_color[2], frame.border_color[3]
+            );
+            cv::rectangle(canvas, border_rect, border_color,
+                          std::max(1, static_cast<int>(frame.border_width * scale)));
         }
     }
 
+    auto preview = std::make_shared<ImageBuffer>(std::move(canvas));
     return preview;
 }
 
 auto CollageMaker::Render() -> std::shared_ptr<ImageBuffer> {
     if (!impl_->initialized) return nullptr;
 
-    auto result = std::make_shared<ImageBuffer>();
-    result->width = impl_->config.canvas_width;
-    result->height = impl_->config.canvas_height;
-    result->channels = 4;
-    result->data.resize(static_cast<size_t>(result->width) * result->height * result->channels);
+    const int w = impl_->config.canvas_width;
+    const int h = impl_->config.canvas_height;
 
-    // Fill background
-    for (size_t i = 0; i < result->data.size(); i += 4) {
-        result->data[i] = impl_->config.background_color[0];
-        result->data[i + 1] = impl_->config.background_color[1];
-        result->data[i + 2] = impl_->config.background_color[2];
-        result->data[i + 3] = impl_->config.background_color[3];
-    }
+    // Create BGRA canvas with background color
+    cv::Mat canvas(h, w, CV_8UC4, cv::Scalar(
+        impl_->config.background_color[0],
+        impl_->config.background_color[1],
+        impl_->config.background_color[2],
+        impl_->config.background_color[3]
+    ));
 
     // Render each frame with its image
-    for (const auto& frame : impl_->frames) {
+    for (size_t fi = 0; fi < impl_->frames.size(); ++fi) {
+        const auto& frame = impl_->frames[fi];
         if (frame.image_path.empty()) continue;
 
-        // Render image into frame area
-        // This would use proper image loading and compositing
-        // Placeholder: fill frame area with gradient
+        const auto& src = impl_->loaded_images[fi];
+        if (src.empty()) continue;
 
-        for (int y = frame.y; y < frame.y + frame.height && y < result->height; ++y) {
-            for (int x = frame.x; x < frame.x + frame.width && x < result->width; ++x) {
-                // Calculate frame-local coordinates
-                const float fx = static_cast<float>(x - frame.x) / static_cast<float>(frame.width);
-                const float fy = static_cast<float>(y - frame.y) / static_cast<float>(frame.height);
+        // Get source image dimensions
+        const int src_w = src.cols;
+        const int src_h = src.rows;
+        if (src_w <= 0 || src_h <= 0) continue;
 
-                // Apply rotation if needed
-                float rx = fx;
-                float ry = fy;
-                if (std::abs(frame.rotation) > 0.001f) {
-                    const float angle = frame.rotation * 3.14159265f / 180.0f;
-                    const float cos_a = std::cos(angle);
-                    const float sin_a = std::sin(angle);
-                    rx = (fx - 0.5f) * cos_a + (fy - 0.5f) * sin_a + 0.5f;
-                    ry = -(fx - 0.5f) * sin_a + (fy - 0.5f) * cos_a + 0.5f;
-                }
+        // Calculate cover-fit scaling
+        const float frame_aspect = static_cast<float>(frame.width) / static_cast<float>(frame.height);
+        const float img_aspect = static_cast<float>(src_w) / static_cast<float>(src_h);
 
-                // Check if inside rotated bounds
-                if (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1) {
-                    const size_t idx = static_cast<size_t>((y * result->width + x) * 4);
+        int draw_w, draw_h;
+        if (img_aspect > frame_aspect) {
+            draw_h = frame.height;
+            draw_w = static_cast<int>(draw_h * img_aspect);
+        } else {
+            draw_w = frame.width;
+            draw_h = static_cast<int>(draw_w / img_aspect);
+        }
 
-                    // Placeholder gradient
-                    result->data[idx] = static_cast<uint8_t>(200 * fx);
-                    result->data[idx + 1] = static_cast<uint8_t>(150);
-                    result->data[idx + 2] = static_cast<uint8_t>(200 * fy);
-                    result->data[idx + 3] = static_cast<uint8_t>(frame.opacity * 255);
+        // Resize source image to draw size
+        cv::Mat resized;
+        cv::resize(src, resized, cv::Size(draw_w, draw_h), 0, 0, cv::INTER_LINEAR);
 
-                    // Apply border
-                    const bool on_border = (fx < 0.02f || fx > 0.98f || ry < 0.02f || ry > 0.98f);
-                    if (on_border && frame.border_width > 0) {
-                        result->data[idx] = frame.border_color[0];
-                        result->data[idx + 1] = frame.border_color[1];
-                        result->data[idx + 2] = frame.border_color[2];
-                        result->data[idx + 3] = frame.border_color[3];
-                    }
+        // Ensure BGRA
+        cv::Mat resized_bgra;
+        if (resized.channels() == 3) {
+            cv::cvtColor(resized, resized_bgra, cv::COLOR_BGR2BGRA);
+        } else if (resized.channels() == 4) {
+            resized_bgra = resized;
+        } else if (resized.channels() == 1) {
+            cv::cvtColor(resized, resized_bgra, cv::COLOR_GRAY2BGRA);
+        } else {
+            continue;
+        }
+
+        // Calculate offset for center-crop within frame
+        const int offset_x = (frame.width - draw_w) / 2;
+        const int offset_y = (frame.height - draw_h) / 2;
+
+        // Determine source and destination regions for the cover-fit crop
+        const int src_start_x = std::max(0, -offset_x);
+        const int src_start_y = std::max(0, -offset_y);
+        const int dst_start_x = frame.x + std::max(0, offset_x);
+        const int dst_start_y = frame.y + std::max(0, offset_y);
+        const int copy_w = std::min(draw_w - src_start_x, std::min(frame.width - std::max(0, offset_x), w - dst_start_x));
+        const int copy_h = std::min(draw_h - src_start_y, std::min(frame.height - std::max(0, offset_y), h - dst_start_y));
+
+        if (copy_w <= 0 || copy_h <= 0 || dst_start_x < 0 || dst_start_y < 0) continue;
+
+        cv::Rect src_roi(src_start_x, src_start_y, copy_w, copy_h);
+        cv::Rect dst_roi(dst_start_x, dst_start_y, copy_w, copy_h);
+
+        // Apply opacity blending
+        const float alpha = frame.opacity;
+        if (alpha >= 1.0f) {
+            resized_bgra(src_roi).copyTo(canvas(dst_roi));
+        } else {
+            cv::Mat src_region = resized_bgra(src_roi);
+            cv::Mat dst_region = canvas(dst_roi);
+            const float inv_a = 1.0f - alpha;
+            for (int y = 0; y < copy_h; ++y) {
+                for (int x = 0; x < copy_w; ++x) {
+                    dst_region.at<cv::Vec4b>(y, x)[0] = static_cast<uint8_t>(src_region.at<cv::Vec4b>(y, x)[0] * alpha + dst_region.at<cv::Vec4b>(y, x)[0] * inv_a);
+                    dst_region.at<cv::Vec4b>(y, x)[1] = static_cast<uint8_t>(src_region.at<cv::Vec4b>(y, x)[1] * alpha + dst_region.at<cv::Vec4b>(y, x)[1] * inv_a);
+                    dst_region.at<cv::Vec4b>(y, x)[2] = static_cast<uint8_t>(src_region.at<cv::Vec4b>(y, x)[2] * alpha + dst_region.at<cv::Vec4b>(y, x)[2] * inv_a);
+                    dst_region.at<cv::Vec4b>(y, x)[3] = 255;
                 }
             }
         }
+
+        // Draw border
+        if (frame.border_width > 0) {
+            cv::Rect border_rect(frame.x, frame.y, frame.width, frame.height);
+            cv::Scalar border_color(
+                frame.border_color[0], frame.border_color[1],
+                frame.border_color[2], frame.border_color[3]
+            );
+            cv::rectangle(canvas, border_rect, border_color, frame.border_width);
+        }
     }
 
+    // Create ImageBuffer from cv::Mat
+    auto result = std::make_shared<ImageBuffer>(std::move(canvas));
     return result;
 }
 
@@ -240,9 +350,57 @@ auto CollageMaker::Export(const std::string& path, const std::string& format, in
     auto rendered = Render();
     if (!rendered) return false;
 
-    // This would use proper image export code
-    // Placeholder: write raw data
-    return true;
+    // Write the rendered image data to the specified file
+    try {
+        cv::Mat& canvas = rendered->GetCPUData();
+        if (canvas.empty()) return false;
+
+        // Convert BGRA to BGR for standard image formats
+        cv::Mat output;
+        if (canvas.channels() == 4) {
+            cv::cvtColor(canvas, output, cv::COLOR_BGRA2BGR);
+        } else {
+            output = canvas;
+        }
+
+        // Determine OpenCV format flag from the format string
+        std::vector<int> params;
+        std::string fmt_upper = format;
+        std::transform(fmt_upper.begin(), fmt_upper.end(), fmt_upper.begin(),
+                       [](char c) { return static_cast<char>(std::toupper(c)); });
+
+        if (fmt_upper == "JPEG" || fmt_upper == "JPG") {
+            params.push_back(cv::IMWRITE_JPEG_QUALITY);
+            params.push_back(std::clamp(quality, 1, 100));
+        } else if (fmt_upper == "PNG") {
+            params.push_back(cv::IMWRITE_PNG_COMPRESSION);
+            params.push_back(3);
+        } else if (fmt_upper == "WEBP") {
+            params.push_back(cv::IMWRITE_WEBP_QUALITY);
+            params.push_back(std::clamp(quality, 1, 100));
+        }
+        // PPM format handled manually for cross-platform compatibility
+        else if (fmt_upper == "PPM") {
+            std::ofstream out(path, std::ios::binary);
+            if (!out) return false;
+            cv::Mat rgb;
+            if (output.channels() == 4) {
+                cv::cvtColor(output, rgb, cv::COLOR_BGRA2BGR);
+            } else {
+                rgb = output;
+            }
+            out << "P6\n" << rgb.cols << " " << rgb.rows << "\n255\n";
+            for (int y = 0; y < rgb.rows; ++y) {
+                out.write(reinterpret_cast<const char*>(rgb.ptr(y)),
+                          static_cast<std::streamsize>(rgb.cols * rgb.channels()));
+            }
+            return out.good();
+        }
+
+        return cv::imwrite(path, output, params);
+    } catch (...) {
+        return false;
+    }
 }
 
 auto CollageMaker::GetFrameCount() const -> int {

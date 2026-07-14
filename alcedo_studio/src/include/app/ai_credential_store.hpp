@@ -4,9 +4,11 @@
 
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace alcedo {
 
@@ -113,10 +115,35 @@ class InMemoryAiCredentialStore final : public IAiCredentialStore {
   std::unordered_map<std::string, std::string> entries_;
 };
 
+// Linux encrypted file-based credential store. Credentials are persisted as
+// individually encrypted files under ~/.config/AlcedoStudio/AiCredentialStore/,
+// with 0600 file permissions. Encryption uses a XOR stream cipher with key
+// material derived from a machine-specific identifier (hostname + username),
+// salted per-file. This is the production store on Linux; the key derivation
+// binds credentials to the local user account so that the files are not
+// portable to another machine or user without re-entering the secret.
+class LinuxEncryptedFileAiCredentialStore final : public IAiCredentialStore {
+ public:
+  auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
+      -> bool override;
+  auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool override;
+  auto DeleteCredential(const std::string& slot, std::string* error) -> bool override;
+  auto HasCredential(const std::string& slot) -> bool override;
+
+ private:
+  static auto DeriveKey(const std::string& salt) -> std::vector<uint8_t>;
+  static auto Encrypt(const std::string& plaintext, const std::vector<uint8_t>& key)
+      -> std::vector<uint8_t>;
+  static auto Decrypt(const std::vector<uint8_t>& ciphertext, const std::vector<uint8_t>& key)
+      -> std::string;
+  static auto GetCredentialPath(const std::string& slot) -> std::filesystem::path;
+  static auto EnsureCredentialDir() -> std::filesystem::path;
+};
+
 // Factory returning the platform-default production store: WinCred on Windows,
-// MacKeychain on macOS, and the in-memory fallback elsewhere (e.g. Linux, where
-// a native impl is not yet provided). The in-memory fallback does not persist
-// secrets across process exit.
+// MacKeychain on macOS, and the Linux encrypted file store on Linux. The
+// in-memory store is only used in unit tests.
 auto MakeDefaultAiCredentialStore() -> std::shared_ptr<IAiCredentialStore>;
 
 }  // namespace alcedo

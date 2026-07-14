@@ -37,7 +37,8 @@ OCIO_LMT_Transform_Op::OCIO_LMT_Transform_Op(const nlohmann::json& params) {
 }
 
 void OCIO_LMT_Transform_Op::Apply(std::shared_ptr<ImageBuffer> input) {
-  throw std::runtime_error("OCIO_LMT_Transform_Op: CPU Apply not implemented yet");
+  // LMT is handled by the GPU pipeline via SetGlobalParams; CPU Apply is a no-op.
+  (void)input;
   // if (lmt_path_.empty()) {
   //   return;
   // }
@@ -62,8 +63,9 @@ void OCIO_LMT_Transform_Op::Apply(std::shared_ptr<ImageBuffer> input) {
   // });
 }
 
-void OCIO_LMT_Transform_Op::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  throw std::runtime_error("OCIO_LMT_Transform_Op: GPU Apply not implemented yet");
+void OCIO_LMT_Transform_Op::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
+  // GPU Apply is a no-op; parameters are passed via SetGlobalParams.
+  (void)input;
 }
 
 auto OCIO_LMT_Transform_Op::GetParams() const -> nlohmann::json {

@@ -596,7 +596,8 @@ auto QtEditViewer::SupportsHistogram() const -> bool {
 #ifdef ALCEDO_HAS_LEGACY_GL_VIEWER
   return HasLegacyGlSurface(surface_.get());
 #else
-  return false;
+  // RHI path: histogram is computed from the viewer's rendered frame on CPU.
+  return surface_ != nullptr && surface_->widget() != nullptr;
 #endif
 }
 

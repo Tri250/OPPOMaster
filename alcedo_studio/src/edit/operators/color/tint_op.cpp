@@ -39,8 +39,8 @@ void TintOp::Apply(std::shared_ptr<ImageBuffer> input) {
 }
 
 void TintOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
-  // GPU implementation can be added here in the future
-  throw std::runtime_error("GPU implementation not available for TintOp yet.");
+  // GPU implementation not yet available; fall back to CPU path.
+  Apply(input);
 }
 
 auto TintOp::GetParams() const -> nlohmann::json {

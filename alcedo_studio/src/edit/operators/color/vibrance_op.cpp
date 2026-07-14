@@ -67,8 +67,8 @@ void VibranceOp::Apply(std::shared_ptr<ImageBuffer> input) {
 }
 
 void VibranceOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
-  // GPU implementation can be added here in the future
-  throw std::runtime_error("GPU implementation not available for VibranceOp yet.");
+  // GPU implementation not yet available; fall back to CPU path.
+  Apply(input);
 }
 
 auto VibranceOp::GetParams() const -> nlohmann::json {

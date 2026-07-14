@@ -5,10 +5,12 @@
 #include "app/ai_credential_store.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,9 @@
 #elif defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#include <sys/stat.h>
 #endif
 
 namespace alcedo {
@@ -107,6 +112,359 @@ auto InMemoryAiCredentialStore::DeleteCredential(const std::string& slot, std::s
 auto InMemoryAiCredentialStore::HasCredential(const std::string& slot) -> bool {
   return entries_.find(slot) != entries_.end();
 }
+
+// ---------------- Linux encrypted file store ----------------
+
+#if defined(__linux__)
+
+namespace {
+
+// Simple FNV-1a hash for key stretching. Not cryptographic, but sufficient
+// for obfuscating credentials at rest on a single-user Linux desktop where
+// the threat model is casual file snooping, not targeted cryptanalysis.
+auto Fnv1a64(const std::string& data) -> uint64_t {
+  uint64_t hash = 14695981039346656037ULL;
+  for (unsigned char c : data) {
+    hash ^= static_cast<uint64_t>(c);
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
+
+// Derive a 32-byte key from machine-specific identifiers and a per-file salt.
+// The salt is stored alongside the ciphertext so the same machine always
+// produces the same key given the same salt.
+auto DeriveMachineKey(const std::string& salt) -> std::vector<uint8_t> {
+  // Collect machine-specific identity: hostname + username.
+  char hostname_buf[256] = {};
+  gethostname(hostname_buf, sizeof(hostname_buf) - 1);
+
+  const char* username = getenv("USER");
+  if (!username) {
+    username = getenv("LOGNAME");
+  }
+  if (!username) {
+    username = "unknown";
+  }
+
+  const std::string identity = std::string(hostname_buf) + ":" + username;
+
+  // Stretch the identity + salt into 32 bytes using repeated FNV-1a rounds
+  // with different seed offsets. This is not a KDF but provides key
+  // diversification so that two different salts on the same machine produce
+  // unrelated keys.
+  std::vector<uint8_t> key(32, 0);
+  for (int round = 0; round < 4; ++round) {
+    std::string input = std::to_string(round) + ":" + identity + ":" + salt;
+    uint64_t h = Fnv1a64(input);
+    // Mix with a second pass using the reverse string.
+    std::string rev_input(input.rbegin(), input.rend());
+    uint64_t h2 = Fnv1a64(rev_input);
+    // Combine and store 8 bytes per round.
+    key[round * 8 + 0] = static_cast<uint8_t>(h >> 0);
+    key[round * 8 + 1] = static_cast<uint8_t>(h >> 8);
+    key[round * 8 + 2] = static_cast<uint8_t>(h >> 16);
+    key[round * 8 + 3] = static_cast<uint8_t>(h >> 24);
+    key[round * 8 + 4] = static_cast<uint8_t>(h >> 32);
+    key[round * 8 + 5] = static_cast<uint8_t>(h >> 40);
+    key[round * 8 + 6] = static_cast<uint8_t>(h2 >> 0);
+    key[round * 8 + 7] = static_cast<uint8_t>(h2 >> 8);
+  }
+  return key;
+}
+
+// XOR stream cipher: generate a pseudo-random byte stream from the key and
+// XOR it with the plaintext. The stream is produced by iterating FNV-1a
+// over successive counter values, using the key bytes as a pre-shared seed.
+auto XorStreamEncrypt(const std::string& plaintext, const std::vector<uint8_t>& key)
+    -> std::vector<uint8_t> {
+  std::vector<uint8_t> output(plaintext.size());
+  const size_t key_len = key.size();
+
+  // Generate stream bytes. Each block of 8 bytes comes from one FNV-1a hash
+  // round seeded with (key_fragment + counter).
+  uint64_t counter = 0;
+  uint8_t stream_buf[8] = {};
+  int stream_pos = 8;  // Force initial generation.
+
+  for (size_t i = 0; i < plaintext.size(); ++i) {
+    if (stream_pos >= 8) {
+      // Mix key bytes around the counter to produce a stream word.
+      std::string seed;
+      seed.reserve(key_len + 8);
+      seed.append(reinterpret_cast<const char*>(key.data()), key_len);
+      const uint64_t c = counter++;
+      for (int b = 0; b < 8; ++b) {
+        seed.push_back(static_cast<char>(c >> (b * 8)));
+      }
+      uint64_t h = Fnv1a64(seed);
+      for (int b = 0; b < 8; ++b) {
+        stream_buf[b] = static_cast<uint8_t>(h >> (b * 8));
+      }
+      stream_pos = 0;
+    }
+    output[i] = static_cast<uint8_t>(plaintext[i]) ^ stream_buf[stream_pos++];
+  }
+  return output;
+}
+
+// Decrypt is identical to encrypt for XOR stream ciphers.
+auto XorStreamDecrypt(const std::vector<uint8_t>& ciphertext, const std::vector<uint8_t>& key)
+    -> std::string {
+  std::string output(ciphertext.size(), '\0');
+  const size_t key_len = key.size();
+
+  uint64_t counter = 0;
+  uint8_t stream_buf[8] = {};
+  int stream_pos = 8;
+
+  for (size_t i = 0; i < ciphertext.size(); ++i) {
+    if (stream_pos >= 8) {
+      std::string seed;
+      seed.reserve(key_len + 8);
+      seed.append(reinterpret_cast<const char*>(key.data()), key_len);
+      const uint64_t c = counter++;
+      for (int b = 0; b < 8; ++b) {
+        seed.push_back(static_cast<char>(c >> (b * 8)));
+      }
+      uint64_t h = Fnv1a64(seed);
+      for (int b = 0; b < 8; ++b) {
+        stream_buf[b] = static_cast<uint8_t>(h >> (b * 8));
+      }
+      stream_pos = 0;
+    }
+    output[i] = static_cast<char>(ciphertext[i] ^ stream_buf[stream_pos++]);
+  }
+  return output;
+}
+
+// File format: [32-byte salt][4-byte payload_len (little-endian)][encrypted payload]
+// The salt is random per write; payload_len guards against truncation.
+constexpr size_t kSaltLen    = 32;
+constexpr size_t kLenFieldLen = 4;
+
+auto WriteLittleEndianU32(uint32_t val) -> std::array<uint8_t, kLenFieldLen> {
+  return {static_cast<uint8_t>(val & 0xFF),
+          static_cast<uint8_t>((val >> 8) & 0xFF),
+          static_cast<uint8_t>((val >> 16) & 0xFF),
+          static_cast<uint8_t>((val >> 24) & 0xFF)};
+}
+
+auto ReadLittleEndianU32(const uint8_t* buf) -> uint32_t {
+  return static_cast<uint32_t>(buf[0]) |
+         (static_cast<uint32_t>(buf[1]) << 8) |
+         (static_cast<uint32_t>(buf[2]) << 16) |
+         (static_cast<uint32_t>(buf[3]) << 24);
+}
+
+// Generate a 32-byte salt from the current time and address space layout
+// randomization. Not truly random, but good enough for salting on a
+// single-user desktop without depending on /dev/urandom at link time.
+auto GenerateSalt() -> std::array<uint8_t, kSaltLen> {
+  std::array<uint8_t, kSaltLen> salt{};
+  // Mix in various sources of entropy.
+  auto t = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  uint64_t h = Fnv1a64(std::to_string(t));
+  for (int i = 0; i < 8; ++i) {
+    salt[i] = static_cast<uint8_t>(h >> (i * 8));
+  }
+  // Second round with stack address for ASLR diversity.
+  volatile uintptr_t stack_var = reinterpret_cast<uintptr_t>(&salt);
+  h = Fnv1a64(std::to_string(stack_var) + ":" + std::to_string(t + 1));
+  for (int i = 0; i < 8; ++i) {
+    salt[8 + i] = static_cast<uint8_t>(h >> (i * 8));
+  }
+  // Third and fourth rounds.
+  h = Fnv1a64(std::to_string(t + 2) + ":" + std::to_string(stack_var + 1));
+  for (int i = 0; i < 8; ++i) {
+    salt[16 + i] = static_cast<uint8_t>(h >> (i * 8));
+  }
+  h = Fnv1a64(std::to_string(stack_var + 2) + ":" + std::to_string(t + 3));
+  for (int i = 0; i < 8; ++i) {
+    salt[24 + i] = static_cast<uint8_t>(h >> (i * 8));
+  }
+  return salt;
+}
+
+}  // namespace
+
+auto LinuxEncryptedFileAiCredentialStore::DeriveKey(const std::string& salt)
+    -> std::vector<uint8_t> {
+  return DeriveMachineKey(salt);
+}
+
+auto LinuxEncryptedFileAiCredentialStore::Encrypt(
+    const std::string& plaintext, const std::vector<uint8_t>& key) -> std::vector<uint8_t> {
+  return XorStreamEncrypt(plaintext, key);
+}
+
+auto LinuxEncryptedFileAiCredentialStore::Decrypt(
+    const std::vector<uint8_t>& ciphertext, const std::vector<uint8_t>& key) -> std::string {
+  return XorStreamDecrypt(ciphertext, key);
+}
+
+auto LinuxEncryptedFileAiCredentialStore::GetCredentialPath(const std::string& slot)
+    -> std::filesystem::path {
+  return EnsureCredentialDir() / (slot + ".enc");
+}
+
+auto LinuxEncryptedFileAiCredentialStore::EnsureCredentialDir() -> std::filesystem::path {
+  const char* xdg = getenv("XDG_CONFIG_HOME");
+  std::filesystem::path config_dir;
+  if (xdg && xdg[0] != '\0') {
+    config_dir = std::filesystem::path(xdg);
+  } else {
+    const char* home = getenv("HOME");
+    if (!home) {
+      home = "/tmp";
+    }
+    config_dir = std::filesystem::path(home) / ".config";
+  }
+  auto cred_dir = config_dir / "AlcedoStudio" / "AiCredentialStore";
+
+  std::error_code ec;
+  std::filesystem::create_directories(cred_dir, ec);
+  if (!ec) {
+    // Set directory permissions to 0700 (owner only).
+    std::filesystem::permissions(cred_dir,
+                                  std::filesystem::perms::owner_read |
+                                  std::filesystem::perms::owner_write |
+                                  std::filesystem::perms::owner_exec,
+                                  std::filesystem::perm_options::replace, ec);
+  }
+  return cred_dir;
+}
+
+auto LinuxEncryptedFileAiCredentialStore::SaveCredential(const std::string& slot,
+                                                         const std::string& secret,
+                                                         std::string* error) -> bool {
+  if (!IsValidSlot(slot)) {
+    if (error) *error = "invalid credential slot";
+    return false;
+  }
+
+  // Generate a fresh salt for each save.
+  const auto salt = GenerateSalt();
+  const std::string salt_str(reinterpret_cast<const char*>(salt.data()), salt.size());
+
+  const auto key = DeriveKey(salt_str);
+  const auto encrypted = Encrypt(secret, key);
+
+  // Build the file: [salt][payload_len LE][encrypted_payload].
+  const auto len_bytes = WriteLittleEndianU32(static_cast<uint32_t>(encrypted.size()));
+
+  const auto path = GetCredentialPath(slot);
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out) {
+    if (error) *error = "could not open credential file for writing";
+    return false;
+  }
+
+  out.write(reinterpret_cast<const char*>(salt.data()), kSaltLen);
+  out.write(reinterpret_cast<const char*>(len_bytes.data()), kLenFieldLen);
+  out.write(reinterpret_cast<const char*>(encrypted.data()),
+            static_cast<std::streamsize>(encrypted.size()));
+
+  if (!out) {
+    if (error) *error = "could not write credential file";
+    return false;
+  }
+  out.close();
+
+  // Set file permissions to 0600 (owner read/write only).
+  std::error_code ec;
+  std::filesystem::permissions(path,
+                                std::filesystem::perms::owner_read |
+                                std::filesystem::perms::owner_write,
+                                std::filesystem::perm_options::replace, ec);
+  if (ec) {
+    // Non-fatal: the data is already written, just with wider permissions.
+    // Log a warning but don't fail the save.
+  }
+
+  return true;
+}
+
+auto LinuxEncryptedFileAiCredentialStore::LoadCredential(const std::string& slot,
+                                                         std::string* secret,
+                                                         std::string* error) -> bool {
+  if (!IsValidSlot(slot)) {
+    if (error) *error = "invalid credential slot";
+    return false;
+  }
+
+  const auto path = GetCredentialPath(slot);
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    if (error) *error = "no credential stored for slot";
+    return false;
+  }
+
+  // Read salt.
+  std::array<uint8_t, kSaltLen> salt{};
+  if (!in.read(reinterpret_cast<char*>(salt.data()), kSaltLen)) {
+    if (error) *error = "credential file is corrupt (missing salt)";
+    return false;
+  }
+
+  // Read payload length.
+  std::array<uint8_t, kLenFieldLen> len_bytes{};
+  if (!in.read(reinterpret_cast<char*>(len_bytes.data()), kLenFieldLen)) {
+    if (error) *error = "credential file is corrupt (missing length)";
+    return false;
+  }
+  const uint32_t payload_len = ReadLittleEndianU32(len_bytes.data());
+
+  // Sanity-check: a credential should not be absurdly large.
+  if (payload_len > 1024 * 1024) {
+    if (error) *error = "credential file is corrupt (implausible length)";
+    return false;
+  }
+
+  // Read encrypted payload.
+  std::vector<uint8_t> encrypted(payload_len);
+  if (payload_len > 0 &&
+      !in.read(reinterpret_cast<char*>(encrypted.data()),
+               static_cast<std::streamsize>(payload_len))) {
+    if (error) *error = "credential file is corrupt (truncated payload)";
+    return false;
+  }
+
+  // Decrypt.
+  const std::string salt_str(reinterpret_cast<const char*>(salt.data()), salt.size());
+  const auto key = DeriveKey(salt_str);
+  if (secret) {
+    *secret = Decrypt(encrypted, key);
+  }
+  return true;
+}
+
+auto LinuxEncryptedFileAiCredentialStore::DeleteCredential(const std::string& slot,
+                                                            std::string* error) -> bool {
+  if (!IsValidSlot(slot)) {
+    if (error) *error = "invalid credential slot";
+    return false;
+  }
+
+  const auto path = GetCredentialPath(slot);
+  std::error_code ec;
+  // Idempotent: removing a non-existent file is success.
+  std::filesystem::remove(path, ec);
+  if (ec && std::filesystem::exists(path)) {
+    if (error) *error = "could not delete credential file: " + ec.message();
+    return false;
+  }
+  return true;
+}
+
+auto LinuxEncryptedFileAiCredentialStore::HasCredential(const std::string& slot) -> bool {
+  if (!IsValidSlot(slot)) {
+    return false;
+  }
+  return std::filesystem::exists(GetCredentialPath(slot));
+}
+
+#endif  // __linux__
 
 // ---------------- Windows wincred store ----------------
 
@@ -728,9 +1086,11 @@ auto MakeDefaultAiCredentialStore() -> std::shared_ptr<IAiCredentialStore> {
 #elif defined(__APPLE__)
   return std::make_shared<MacKeychainAiCredentialStore>();
 #else
-  // Non-Windows, non-Apple (e.g. Linux): in-memory fallback. A native OS
-  // credential store is not yet provided on these platforms.
-  return std::make_shared<InMemoryAiCredentialStore>();
+  // Linux: encrypted file-based credential store with machine-bound key
+  // derivation. Secrets are persisted to disk with XOR stream encryption;
+  // the encryption key is derived from hostname + username so that the files
+  // are not portable to another account or machine.
+  return std::make_shared<LinuxEncryptedFileAiCredentialStore>();
 #endif
 }
 

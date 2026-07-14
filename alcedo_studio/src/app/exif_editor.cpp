@@ -232,6 +232,7 @@ auto parse_ifd(const ByteReader& reader, size_t ifd_offset, uint16_t entry_count
   size_t offset = ifd_offset;
 
   for (uint16_t i = 0; i < entry_count; ++i) {
+    if (offset + IFD_ENTRY_SIZE > reader.size()) break;
     IfdEntry e;
     e.tag   = reader.read16(offset);
     e.type  = reader.read16(offset + 2);
@@ -242,6 +243,7 @@ auto parse_ifd(const ByteReader& reader, size_t ifd_offset, uint16_t entry_count
       // Inline value
       e.value_offset = 0;
       e.inline_data.resize(byte_size);
+      if (offset + 8 + byte_size > reader.size()) break;
       std::memcpy(e.inline_data.data(), reader.data() + offset + 8, byte_size);
     } else {
       e.value_offset = reader.read32(offset + 8);
@@ -270,7 +272,9 @@ auto read_rational_from_entry(const ByteReader& reader, const IfdEntry& e) -> al
 
   if (e.inline_data.size() >= 8) {
     alcedo::exif::Rational r;
+    if (4 > e.inline_data.size()) return {};
     std::memcpy(&r.numerator,   e.inline_data.data(), 4);
+    if (8 > e.inline_data.size()) return {};
     std::memcpy(&r.denominator, e.inline_data.data() + 4, 4);
     if (reader.big_endian()) {
       r.numerator = static_cast<int32_t>(((static_cast<uint32_t>(r.numerator) & 0xFF) << 24) |
@@ -304,6 +308,7 @@ auto read_uint32_from_entry(const ByteReader& reader, const IfdEntry& e) -> uint
   if (e.type == TYPE_LONG) {
     if (e.inline_data.size() >= 4) {
       uint32_t v;
+      if (4 > e.inline_data.size()) return 0;
       std::memcpy(&v, e.inline_data.data(), 4);
       return reader.big_endian() ? ((v & 0xFF) << 24) | ((v & 0xFF00) << 8) |
                                     ((v >> 8) & 0xFF00) | ((v >> 24) & 0xFF)
@@ -323,6 +328,7 @@ auto read_float_from_entry(const ByteReader& reader, const IfdEntry& e) -> float
   if (e.type == TYPE_FLOAT) {
     if (e.inline_data.size() >= 4) {
       float v;
+      if (4 > e.inline_data.size()) return 0.0f;
       std::memcpy(&v, e.inline_data.data(), 4);
       return v;
     }
@@ -587,6 +593,10 @@ auto read_jpeg_exif(const std::string& file_path) -> alcedo::exif::ExifReadResul
 
   // Read byte order
   uint16_t byte_order;
+  if (tiff_start + 2 > file_size) {
+    result.error_message = "Truncated EXIF byte order";
+    return result;
+  }
   std::memcpy(&byte_order, buffer.data() + tiff_start, 2);
   bool big_endian = (byte_order == TIFF_BIG_ENDIAN);
 
@@ -634,6 +644,10 @@ auto read_tiff_exif(const std::string& file_path) -> alcedo::exif::ExifReadResul
   }
 
   uint16_t byte_order;
+  if (buffer.size() < 2) {
+    result.error_message = "Truncated TIFF byte order";
+    return result;
+  }
   std::memcpy(&byte_order, buffer.data(), 2);
   bool big_endian = (byte_order == TIFF_BIG_ENDIAN);
 
@@ -701,6 +715,7 @@ auto build_jpeg_exif_segment(const std::vector<uint8_t>& original_file,
   if (tiff_start_in_file + 8 > original_file.size()) return {};
 
   uint16_t byte_order;
+  if (tiff_start_in_file + 2 > original_file.size()) return {};
   std::memcpy(&byte_order, original_file.data() + tiff_start_in_file, 2);
   bool big_endian = (byte_order == TIFF_BIG_ENDIAN);
 
@@ -982,6 +997,10 @@ auto write_tiff_exif(const std::string& file_path,
   }
 
   uint16_t byte_order;
+  if (buffer.size() < 2) {
+    result.error_message = "Truncated TIFF byte order";
+    return result;
+  }
   std::memcpy(&byte_order, buffer.data(), 2);
   bool big_endian = (byte_order == TIFF_BIG_ENDIAN);
 

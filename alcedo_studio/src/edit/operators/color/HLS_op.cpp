@@ -312,8 +312,10 @@ void HLSOp::Apply(std::shared_ptr<ImageBuffer> input) {
   }
 }
 
-void HLSOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  throw std::runtime_error("HLSOp: ApplyGPU not implemented");
+void HLSOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // Fallback to CPU when called directly.
+  Apply(input);
 }
 
 auto HLSOp::GetParams() const -> nlohmann::json {

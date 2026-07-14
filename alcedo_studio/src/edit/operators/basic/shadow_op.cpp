@@ -36,7 +36,8 @@ auto ShadowsOp::GetScale() -> float { return offset_ / 100.0f; }
 void ShadowsOp::Apply(std::shared_ptr<ImageBuffer>) {}
 
 void ShadowsOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  throw std::runtime_error("ShadowsOp: ApplyGPU not implemented");
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // No-op when called directly (same as Apply).
 }
 
 static inline float Luma(const Pixel& rgb) {

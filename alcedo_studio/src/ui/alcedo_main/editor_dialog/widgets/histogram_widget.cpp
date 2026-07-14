@@ -19,6 +19,9 @@
 #include <QOpenGLShader>
 #include <QOpenGLShaderProgram>
 #endif
+#ifndef ALCEDO_HAS_LEGACY_GL_VIEWER
+#include <QImage>
+#endif
 #include "ui/alcedo_main/app_theme.hpp"
 
 namespace alcedo::ui {
@@ -227,14 +230,128 @@ void HistogramWidget::CleanupGl() {
   gl_ready_ = false;
 }
 #else
+void HistogramWidget::ComputeHistogramFromViewer() {
+  hist_r_.fill(0.0f);
+  hist_g_.fill(0.0f);
+  hist_b_.fill(0.0f);
+  hist_valid_ = false;
+
+  if (!source_viewer_) {
+    return;
+  }
+
+  auto* surface = source_viewer_->GetViewerSurface();
+  if (!surface || !surface->widget()) {
+    return;
+  }
+
+  // Grab the current rendered frame from the viewer widget.
+  const QImage frame = surface->widget()->grab().toImage().convertedTo(QImage::Format_RGB32);
+  if (frame.isNull()) {
+    return;
+  }
+
+  const int w = frame.width();
+  const int h = frame.height();
+  if (w <= 0 || h <= 0) {
+    return;
+  }
+
+  // Sample pixels with a stride to keep computation fast on large images.
+  // For images <= 512px on either axis, sample every pixel; otherwise step
+  // such that roughly 512 samples are taken along the longer dimension.
+  const int stride = std::max(1, std::max(w, h) / 512);
+
+  float max_val = 0.0f;
+  for (int y = 0; y < h; y += stride) {
+    const QRgb* line = reinterpret_cast<const QRgb*>(frame.constScanLine(y));
+    for (int x = 0; x < w; x += stride) {
+      const QRgb pixel = line[x];
+      const int r = qRed(pixel);
+      const int g = qGreen(pixel);
+      const int b = qBlue(pixel);
+      hist_r_[r] += 1.0f;
+      hist_g_[g] += 1.0f;
+      hist_b_[b] += 1.0f;
+    }
+  }
+
+  // Find the global peak for normalization.
+  for (int i = 0; i < kHistogramBins; ++i) {
+    max_val = std::max({max_val, hist_r_[i], hist_g_[i], hist_b_[i]});
+  }
+
+  if (max_val <= 0.0f) {
+    return;
+  }
+
+  // Normalize to [0, 1].
+  for (int i = 0; i < kHistogramBins; ++i) {
+    hist_r_[i] /= max_val;
+    hist_g_[i] /= max_val;
+    hist_b_[i] /= max_val;
+  }
+
+  hist_valid_ = true;
+}
+
 void HistogramWidget::paintEvent(QPaintEvent*) {
+  ComputeHistogramFromViewer();
+
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing, true);
-  painter.setRenderHint(QPainter::TextAntialiasing, true);
   painter.fillRect(rect(), QColor(0x12, 0x12, 0x12));
-  painter.setPen(QColor(0xA3, 0xA3, 0xA3));
-  painter.drawText(rect().adjusted(12, 12, -12, -12), Qt::AlignCenter,
-                   QStringLiteral("Histogram is not implemented for the RHI viewer yet."));
+
+  if (!hist_valid_) {
+    return;
+  }
+
+  const QRectF area = QRectF(rect()).adjusted(4.0, 4.0, -4.0, -4.0);
+  if (area.width() <= 0 || area.height() <= 0) {
+    return;
+  }
+
+  const float bin_width = static_cast<float>(area.width() / kHistogramBins);
+
+  // Channel fill colors match the GL path (RGBA: R 1.0,0.20,0.20,0.30;
+  // G 0.20,1.0,0.20,0.28; B 0.20,0.45,1.0,0.28).
+  auto draw_fill = [&](const std::array<float, kHistogramBins>& hist, const QColor& color) {
+    QPainterPath path;
+    path.moveTo(area.left(), area.bottom());
+    for (int i = 0; i < kHistogramBins; ++i) {
+      const qreal x = area.left() + i * bin_width;
+      const qreal y = area.bottom() - static_cast<qreal>(hist[i]) * area.height();
+      path.lineTo(x, y);
+    }
+    path.lineTo(area.right(), area.bottom());
+    path.closeSubpath();
+    painter.fillPath(path, color);
+  };
+
+  // Channel line colors match the GL path (RGBA: R 1.0,0.45,0.45,0.24;
+  // G 0.45,1.0,0.45,0.22; B 0.45,0.68,1.0,0.22).
+  auto draw_line = [&](const std::array<float, kHistogramBins>& hist, const QColor& color) {
+    QPainterPath path;
+    for (int i = 0; i < kHistogramBins; ++i) {
+      const qreal x = area.left() + i * bin_width;
+      const qreal y = area.bottom() - static_cast<qreal>(hist[i]) * area.height();
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    painter.setPen(QPen(color, 1.0));
+    painter.drawPath(path);
+  };
+
+  draw_fill(hist_r_, QColor(255, 51, 51, 77));
+  draw_fill(hist_g_, QColor(51, 255, 51, 71));
+  draw_fill(hist_b_, QColor(51, 115, 255, 71));
+
+  draw_line(hist_r_, QColor(255, 115, 115, 61));
+  draw_line(hist_g_, QColor(115, 255, 115, 56));
+  draw_line(hist_b_, QColor(115, 173, 255, 56));
 }
 #endif
 

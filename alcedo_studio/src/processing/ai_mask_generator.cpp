@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <mutex>
 #include <thread>
 
@@ -805,13 +807,38 @@ auto AIMaskGeneratorFactory::CreateSemanticSegmentationModel(const std::string& 
 }
 
 auto AIMaskGeneratorFactory::IsSAM2Available() -> bool {
-    // Check if SAM-2 model files are available
-    return false;  // Placeholder - would check actual model availability
+    // Check if SAM-2 model files are available in the model directory
+    namespace fs = std::filesystem;
+    const char* model_dir_env = std::getenv("ALCEDO_MODEL_DIR");
+    fs::path model_dir = model_dir_env ? fs::path(model_dir_env) : fs::path("models");
+
+    if (!fs::exists(model_dir)) return false;
+
+    // Check for any SAM2 model file
+    for (const auto& entry : fs::directory_iterator(model_dir)) {
+        if (entry.is_regular_file()) {
+            const auto name = entry.path().filename().string();
+            if (name.find("sam2") != std::string::npos) return true;
+        }
+    }
+    return false;
 }
 
 auto AIMaskGeneratorFactory::IsSemanticSegmentationAvailable() -> bool {
-    // Check if semantic segmentation model files are available
-    return false;  // Placeholder
+    namespace fs = std::filesystem;
+    const char* model_dir_env = std::getenv("ALCEDO_MODEL_DIR");
+    fs::path model_dir = model_dir_env ? fs::path(model_dir_env) : fs::path("models");
+
+    if (!fs::exists(model_dir)) return false;
+
+    for (const auto& entry : fs::directory_iterator(model_dir)) {
+        if (entry.is_regular_file()) {
+            const auto name = entry.path().filename().string();
+            if (name.find("segformer") != std::string::npos ||
+                name.find("semantic") != std::string::npos) return true;
+        }
+    }
+    return false;
 }
 
 auto AIMaskGeneratorFactory::GetAvailableSAM2Models() -> std::vector<std::string> {

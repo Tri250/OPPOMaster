@@ -147,9 +147,10 @@ void ClarityOp::Apply(std::shared_ptr<ImageBuffer> input) {
   }
 }
 
-void ClarityOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  // GPU implementation not provided
-  throw std::runtime_error("ClarityOp: ApplyGPU not implemented");
+void ClarityOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // Fallback to CPU when called directly.
+  Apply(input);
 }
 
 auto ClarityOp::GetParams() const -> nlohmann::json {

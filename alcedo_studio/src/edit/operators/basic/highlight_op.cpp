@@ -105,7 +105,8 @@ auto HighlightsOp::GetScale() -> float { return offset_ / 300.0f; }
 void HighlightsOp::Apply(std::shared_ptr<ImageBuffer> input) { (void)input; }
 
 void HighlightsOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  throw std::runtime_error("HighlightsOp: ApplyGPU not implemented");
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // No-op when called directly (same as Apply).
 }
 
 auto HighlightsOp::GetParams() const -> nlohmann::json {

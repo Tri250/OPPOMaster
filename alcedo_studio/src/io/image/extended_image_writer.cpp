@@ -5,11 +5,147 @@
 #include "io/image/extended_image_writer.hpp"
 
 #include <algorithm>
-#include <fstream>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 namespace alcedo {
 namespace io {
+
+namespace {
+
+/// Convert ImageBuffer's CPU data to a BGR/BGRA cv::Mat suitable for cv::imwrite.
+/// Returns an empty Mat if conversion fails.
+auto ImageBufferToBgrMat(const std::shared_ptr<ImageBuffer>& image) -> cv::Mat {
+    if (!image) return {};
+
+    cv::Mat& cpu = image->GetCPUData();
+    if (cpu.empty()) return {};
+
+    // Ensure CPU data is valid
+    if (!image->cpu_data_valid_) {
+        if (image->gpu_data_valid_) {
+            image->SyncToCPU();
+        } else {
+            return {};
+        }
+    }
+
+    cv::Mat& src = image->GetCPUData();
+    if (src.empty()) return {};
+
+    const int channels = src.channels();
+
+    // Handle common types: 8U, 16U, 32F
+    switch (src.depth()) {
+        case CV_8U:
+        case CV_16U:
+        case CV_32F:
+            break;
+        default:
+            return {};
+    }
+
+    if (channels == 4) {
+        // RGBA -> BGRA for imwrite
+        cv::Mat bgra;
+        if (src.depth() == CV_32F) {
+            // Float RGBA -> convert to 8U BGRA for most formats
+            cv::Mat tmp;
+            src.convertTo(tmp, CV_8UC4, 255.0);
+            cv::cvtColor(tmp, bgra, cv::COLOR_RGBA2BGRA);
+        } else {
+            cv::cvtColor(src, bgra, cv::COLOR_RGBA2BGRA);
+        }
+        return bgra;
+    } else if (channels == 3) {
+        // RGB -> BGR for imwrite
+        cv::Mat bgr;
+        if (src.depth() == CV_32F) {
+            cv::Mat tmp;
+            src.convertTo(tmp, CV_8UC3, 255.0);
+            cv::cvtColor(tmp, bgr, cv::COLOR_RGB2BGR);
+        } else {
+            cv::cvtColor(src, bgr, cv::COLOR_RGB2BGR);
+        }
+        return bgr;
+    } else if (channels == 1) {
+        if (src.depth() == CV_32F) {
+            cv::Mat gray;
+            src.convertTo(gray, CV_8UC1, 255.0);
+            return gray;
+        }
+        return src.clone();
+    }
+
+    return {};
+}
+
+/// Convert ImageBuffer's CPU data to a BGR cv::Mat for formats that don't support alpha.
+auto ImageBufferToBgrMatNoAlpha(const std::shared_ptr<ImageBuffer>& image) -> cv::Mat {
+    cv::Mat mat = ImageBufferToBgrMat(image);
+    if (mat.empty()) return mat;
+    if (mat.channels() == 4) {
+        cv::Mat bgr;
+        cv::cvtColor(mat, bgr, cv::COLOR_BGRA2BGR);
+        return bgr;
+    }
+    return mat;
+}
+
+/// Convert ImageBuffer's CPU data to a float BGRA cv::Mat for HDR formats.
+auto ImageBufferToFloatBgra(const std::shared_ptr<ImageBuffer>& image) -> cv::Mat {
+    if (!image) return {};
+
+    if (!image->cpu_data_valid_) {
+        if (image->gpu_data_valid_) {
+            image->SyncToCPU();
+        } else {
+            return {};
+        }
+    }
+
+    cv::Mat& src = image->GetCPUData();
+    if (src.empty()) return {};
+
+    cv::Mat rgba32f;
+    if (src.depth() != CV_32F) {
+        src.convertTo(rgba32f, CV_32F, 1.0 / 255.0);
+    } else {
+        rgba32f = src.clone();
+    }
+
+    const int channels = rgba32f.channels();
+    if (channels == 4) {
+        cv::Mat bgra;
+        cv::cvtColor(rgba32f, bgra, cv::COLOR_RGBA2BGRA);
+        return bgra;
+    } else if (channels == 3) {
+        cv::Mat bgr;
+        cv::cvtColor(rgba32f, bgr, cv::COLOR_RGB2BGR);
+        return bgr;
+    } else if (channels == 1) {
+        cv::Mat bgr;
+        cv::cvtColor(rgba32f, bgr, cv::COLOR_GRAY2BGR);
+        return bgr;
+    }
+
+    return {};
+}
+
+/// Try to write with cv::imwrite and return whether it succeeded.
+auto TryImwrite(const std::string& path, const cv::Mat& img, const std::vector<int>& params) -> bool {
+    try {
+        return cv::imwrite(path, img, params);
+    } catch (const cv::Exception&) {
+        return false;
+    }
+}
+
+}  // namespace
 
 // ============================================================================
 // FormatCapabilities Implementation
@@ -123,20 +259,38 @@ auto ExtendedImageWriter::GetAvailableFormats() -> std::vector<ExportFormat> {
 }
 
 auto ExtendedImageWriter::IsFormatAvailable(ExportFormat format) -> bool {
-    // JPEG and PNG always available (stb_image_write)
-    if (format == ExportFormat::JPEG || format == ExportFormat::PNG || format == ExportFormat::BMP) {
-        return true;
+    // Check actual OpenCV support by attempting to encode a 1x1 image
+    cv::Mat test_img(1, 1, CV_8UC3, cv::Scalar(0, 0, 0));
+
+    switch (format) {
+        case ExportFormat::JPEG:
+            return TryImwrite("/tmp/_alcedo_fmt_test.jpg", test_img, {cv::IMWRITE_JPEG_QUALITY, 95});
+
+        case ExportFormat::PNG:
+            return TryImwrite("/tmp/_alcedo_fmt_test.png", test_img, {cv::IMWRITE_PNG_COMPRESSION, 1});
+
+        case ExportFormat::TIFF:
+            return TryImwrite("/tmp/_alcedo_fmt_test.tif", test_img, {});
+
+        case ExportFormat::BMP:
+            return TryImwrite("/tmp/_alcedo_fmt_test.bmp", test_img, {});
+
+        case ExportFormat::WebP:
+            return TryImwrite("/tmp/_alcedo_fmt_test.webp", test_img, {cv::IMWRITE_WEBP_QUALITY, 90});
+
+        case ExportFormat::OpenEXR: {
+            cv::Mat test_f(1, 1, CV_32FC3, cv::Scalar(0.0f, 0.0f, 0.0f));
+            return TryImwrite("/tmp/_alcedo_fmt_test.exr", test_f, {});
+        }
+
+        case ExportFormat::JPEGXL:
+            return TryImwrite("/tmp/_alcedo_fmt_test.jxl", test_img, {});
+
+        case ExportFormat::HEIF:
+            return TryImwrite("/tmp/_alcedo_fmt_test.heic", test_img, {});
     }
 
-    // TIFF available via stb_image_write
-    if (format == ExportFormat::TIFF) {
-        return true;
-    }
-
-    // JPEG XL and WebP require external libraries
-    // This would check for libjxl and libwebp availability
-    // For now, return true (placeholder)
-    return true;
+    return false;
 }
 
 auto ExtendedImageWriter::GetFileExtension(ExportFormat format) -> std::string {
@@ -182,7 +336,7 @@ auto ExtendedImageWriter::WriteToFile(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    if (!image || image->data.empty()) {
+    if (!image) {
         return false;
     }
 
@@ -205,9 +359,11 @@ auto ExtendedImageWriter::WriteToFile(
         case ExportFormat::HEIF:
             return WriteHEIF(image, path, params);
 
-        case ExportFormat::BMP:
-            // BMP is trivial, just raw pixels
-            return WritePNG(image, path, params);  // Placeholder
+        case ExportFormat::BMP: {
+            cv::Mat bgr = ImageBufferToBgrMatNoAlpha(image);
+            if (bgr.empty()) return false;
+            return TryImwrite(path, bgr, {});
+        }
 
         case ExportFormat::OpenEXR:
             return WriteEXR(image, path, params);
@@ -221,9 +377,68 @@ auto ExtendedImageWriter::WriteToBuffer(
     std::vector<uint8_t>& buffer,
     const ExportParams& params
 ) -> bool {
-    // Placeholder - would use same format-specific writers to memory
-    buffer.clear();
-    return false;
+    if (!image) return false;
+
+    // Ensure CPU data is available
+    if (!image->cpu_data_valid_) {
+        if (image->gpu_data_valid_) {
+            image->SyncToCPU();
+        } else {
+            return false;
+        }
+    }
+
+    cv::Mat& src = image->GetCPUData();
+    if (src.empty()) return false;
+
+    // Determine file extension for imencode
+    std::string ext = GetFileExtension(params.format);
+
+    // Convert to BGR/BGRA mat suitable for encoding
+    cv::Mat img;
+    switch (params.format) {
+        case ExportFormat::JPEG:
+        case ExportFormat::BMP:
+            img = ImageBufferToBgrMatNoAlpha(image);
+            break;
+        case ExportFormat::OpenEXR:
+            img = ImageBufferToFloatBgra(image);
+            break;
+        default:
+            img = ImageBufferToBgrMat(image);
+            break;
+    }
+
+    if (img.empty()) return false;
+
+    // Build compression params
+    std::vector<int> compression_params;
+    switch (params.format) {
+        case ExportFormat::JPEG:
+            compression_params = {cv::IMWRITE_JPEG_QUALITY, params.quality};
+            break;
+        case ExportFormat::PNG:
+            compression_params = {cv::IMWRITE_PNG_COMPRESSION, params.compression_level};
+            break;
+        case ExportFormat::WebP:
+            if (params.lossless) {
+                compression_params = {cv::IMWRITE_WEBP_QUALITY, 100};
+            } else {
+                compression_params = {cv::IMWRITE_WEBP_QUALITY, params.quality};
+            }
+            break;
+        case ExportFormat::OpenEXR:
+            compression_params = {cv::IMWRITE_EXR_TYPE, cv::IMWRITE_EXR_TYPE_HALF};
+            break;
+        default:
+            break;
+    }
+
+    try {
+        return cv::imencode(ext, img, buffer, compression_params);
+    } catch (const cv::Exception&) {
+        return false;
+    }
 }
 
 auto ExtendedImageWriter::EstimateFileSize(
@@ -232,8 +447,25 @@ auto ExtendedImageWriter::EstimateFileSize(
 ) -> size_t {
     if (!image) return 0;
 
-    const size_t pixel_count = static_cast<size_t>(image->width) * image->height;
-    const size_t raw_size = pixel_count * image->channels;
+    // Ensure CPU data is valid to get dimensions
+    if (!image->cpu_data_valid_ && !image->gpu_data_valid_) return 0;
+
+    int width = 0, height = 0, channels = 0;
+    if (image->cpu_data_valid_) {
+        cv::Mat& cpu = image->GetCPUData();
+        if (cpu.empty()) return 0;
+        width = cpu.cols;
+        height = cpu.rows;
+        channels = cpu.channels();
+    } else if (image->gpu_data_valid_) {
+        width = image->GetGPUWidth();
+        height = image->GetGPUHeight();
+        // Default to 4 channels for GPU data (typical RGBA)
+        channels = 4;
+    }
+
+    const size_t pixel_count = static_cast<size_t>(width) * height;
+    const size_t raw_size = pixel_count * channels;
 
     float compression_ratio = 1.0f;
 
@@ -283,19 +515,16 @@ auto ExtendedImageWriter::WriteJPEG(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // This would use stb_image_write or libjpeg
-    // Placeholder implementation
+    if (!image) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
-    }
+    cv::Mat bgr = ImageBufferToBgrMatNoAlpha(image);
+    if (bgr.empty()) return false;
 
-    // Placeholder: write minimal JPEG header
-    // Actual implementation would use stbi_write_jpg
+    std::vector<int> compression_params;
+    compression_params.push_back(cv::IMWRITE_JPEG_QUALITY);
+    compression_params.push_back(params.quality);
 
-    file.close();
-    return true;
+    return TryImwrite(path, bgr, compression_params);
 }
 
 auto ExtendedImageWriter::WritePNG(
@@ -303,16 +532,16 @@ auto ExtendedImageWriter::WritePNG(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // This would use stb_image_write or libpng
-    // Placeholder implementation
+    if (!image) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
-    }
+    cv::Mat bgr = ImageBufferToBgrMat(image);
+    if (bgr.empty()) return false;
 
-    file.close();
-    return true;
+    std::vector<int> compression_params;
+    compression_params.push_back(cv::IMWRITE_PNG_COMPRESSION);
+    compression_params.push_back(params.compression_level);
+
+    return TryImwrite(path, bgr, compression_params);
 }
 
 auto ExtendedImageWriter::WriteTIFF(
@@ -320,16 +549,16 @@ auto ExtendedImageWriter::WriteTIFF(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // This would use stb_image_write or libtiff
-    // Placeholder implementation
+    if (!image) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
-    }
+    cv::Mat bgr = ImageBufferToBgrMat(image);
+    if (bgr.empty()) return false;
 
-    file.close();
-    return true;
+    std::vector<int> compression_params;
+    compression_params.push_back(cv::IMWRITE_TIFF_COMPRESSION);
+    compression_params.push_back(1);  // Default compression
+
+    return TryImwrite(path, bgr, compression_params);
 }
 
 auto ExtendedImageWriter::WriteJPEGXL(
@@ -337,27 +566,30 @@ auto ExtendedImageWriter::WriteJPEGXL(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // JPEG XL requires libjxl
-    // Key advantages over JPEG:
-    // - Better compression at same quality
-    // - True lossless mode
-    // - HDR support (PQ, HLG)
-    // - Animation support
-    // - Non-destructive editing layers
+    if (!image) return false;
 
-    // Placeholder - would use JxlEncoder API
+    cv::Mat bgr = ImageBufferToBgrMat(image);
+    if (bgr.empty()) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
+    // JPEG XL support in OpenCV depends on build configuration
+    // Try cv::imwrite with .jxl extension; return false if not supported
+    std::vector<int> compression_params;
+    if (params.lossless) {
+        compression_params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
+        compression_params.push_back(100);
+    } else {
+        compression_params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
+        compression_params.push_back(params.quality);
+    }
+    compression_params.push_back(cv::IMWRITE_JPEGXL_EFFORT);
+    compression_params.push_back(params.effort_level);
+
+    if (TryImwrite(path, bgr, compression_params)) {
+        return true;
     }
 
-    // Placeholder: write JPEG XL signature
-    const uint8_t jxl_signature[] = {0xFF, 0x0A};  // JPEG XL codestream signature
-    file.write(reinterpret_cast<const char*>(jxl_signature), 2);
-
-    file.close();
-    return true;
+    // If JXL is not supported by this OpenCV build, return false
+    return false;
 }
 
 auto ExtendedImageWriter::WriteWebP(
@@ -365,26 +597,21 @@ auto ExtendedImageWriter::WriteWebP(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // WebP requires libwebp
-    // Key advantages:
-    // - Better compression than JPEG
-    // - Alpha channel support
-    // - Lossless mode
-    // - Animation support
+    if (!image) return false;
 
-    // Placeholder - would use WebPEncode API
+    cv::Mat bgr = ImageBufferToBgrMat(image);
+    if (bgr.empty()) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
+    std::vector<int> compression_params;
+    if (params.lossless) {
+        compression_params.push_back(cv::IMWRITE_WEBP_QUALITY);
+        compression_params.push_back(100);
+    } else {
+        compression_params.push_back(cv::IMWRITE_WEBP_QUALITY);
+        compression_params.push_back(params.quality);
     }
 
-    // Placeholder: write RIFF header
-    const uint8_t riff_header[] = {'R', 'I', 'F', 'F'};
-    file.write(reinterpret_cast<const char*>(riff_header), 4);
-
-    file.close();
-    return true;
+    return TryImwrite(path, bgr, compression_params);
 }
 
 auto ExtendedImageWriter::WriteHEIF(
@@ -392,21 +619,18 @@ auto ExtendedImageWriter::WriteHEIF(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // HEIF requires libheif
-    // Key advantages:
-    // - HEVC encoding (better compression)
-    // - HDR support
-    // - Container for multiple images
+    if (!image) return false;
 
-    // Placeholder - would use heif_context API
+    cv::Mat bgr = ImageBufferToBgrMat(image);
+    if (bgr.empty()) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
-    }
+    // HEIF support in OpenCV depends on build configuration
+    // Try cv::imwrite with .heic extension; return false if not supported
+    std::vector<int> compression_params;
+    compression_params.push_back(cv::IMWRITE_HEIF_QUALITY);
+    compression_params.push_back(params.quality);
 
-    file.close();
-    return true;
+    return TryImwrite(path, bgr, compression_params);
 }
 
 auto ExtendedImageWriter::WriteEXR(
@@ -414,21 +638,16 @@ auto ExtendedImageWriter::WriteEXR(
     const std::string& path,
     const ExportParams& params
 ) -> bool {
-    // OpenEXR for HDR output
-    // Key advantages:
-    // - Full HDR range (16/32-bit float)
-    // - Multi-channel support
-    // - Industry standard for VFX
+    if (!image) return false;
 
-    // Placeholder - would use OpenEXR library
+    cv::Mat bgr = ImageBufferToFloatBgra(image);
+    if (bgr.empty()) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
-    }
+    std::vector<int> compression_params;
+    compression_params.push_back(cv::IMWRITE_EXR_TYPE);
+    compression_params.push_back(cv::IMWRITE_EXR_TYPE_HALF);
 
-    file.close();
-    return true;
+    return TryImwrite(path, bgr, compression_params);
 }
 
 // ============================================================================
@@ -556,16 +775,60 @@ auto WebPAnimationWriter::AddFrame(
 }
 
 auto WebPAnimationWriter::Finalize(const std::string& path, int quality) -> bool {
-    // Would use WebPAnimEncoder API
-    // Placeholder implementation
+    if (impl_->frames.empty()) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return false;
+    // For single frame, write as a static WebP image
+    if (impl_->frames.size() == 1) {
+        const auto& frame = impl_->frames[0];
+        if (!frame) return false;
+
+        if (!frame->cpu_data_valid_) {
+            if (frame->gpu_data_valid_) {
+                frame->SyncToCPU();
+            } else {
+                return false;
+            }
+        }
+
+        cv::Mat& src = frame->GetCPUData();
+        if (src.empty()) return false;
+
+        cv::Mat bgr;
+        const int channels = src.channels();
+        if (channels == 4) {
+            if (src.depth() == CV_32F) {
+                cv::Mat tmp;
+                src.convertTo(tmp, CV_8UC4, 255.0);
+                cv::cvtColor(tmp, bgr, cv::COLOR_RGBA2BGRA);
+            } else {
+                cv::cvtColor(src, bgr, cv::COLOR_RGBA2BGRA);
+            }
+        } else if (channels == 3) {
+            if (src.depth() == CV_32F) {
+                cv::Mat tmp;
+                src.convertTo(tmp, CV_8UC3, 255.0);
+                cv::cvtColor(tmp, bgr, cv::COLOR_RGB2BGR);
+            } else {
+                cv::cvtColor(src, bgr, cv::COLOR_RGB2BGR);
+            }
+        } else if (channels == 1) {
+            if (src.depth() == CV_32F) {
+                src.convertTo(bgr, CV_8UC1, 255.0);
+            } else {
+                bgr = src.clone();
+            }
+        } else {
+            return false;
+        }
+
+        if (bgr.empty()) return false;
+
+        std::vector<int> params = {cv::IMWRITE_WEBP_QUALITY, quality};
+        return TryImwrite(path, bgr, params);
     }
 
-    file.close();
-    return true;
+    // Multi-frame WebP animation is not supported via cv::imwrite
+    return false;
 }
 
 auto WebPAnimationWriter::GetFrameCount() const -> int {
@@ -608,16 +871,59 @@ auto JPEGXLMultiLayerWriter::AddMetadata(const std::string& metadata_json) -> bo
 }
 
 auto JPEGXLMultiLayerWriter::Write(const std::string& path, bool lossless) -> bool {
-    // JPEG XL supports storing additional metadata and layers
-    // This enables non-destructive editing workflows
+    // JPEG XL multi-layer support depends on libjxl.
+    // Write the base image as a single-layer JXL file as a minimum.
+    if (!impl_->base_image) return false;
 
-    std::ofstream file(path, std::ios::binary);
-    if (!file.is_open()) {
+    if (!impl_->base_image->cpu_data_valid_) {
+        if (impl_->base_image->gpu_data_valid_) {
+            impl_->base_image->SyncToCPU();
+        } else {
+            return false;
+        }
+    }
+
+    cv::Mat& src = impl_->base_image->GetCPUData();
+    if (src.empty()) return false;
+
+    cv::Mat bgr;
+    const int channels = src.channels();
+    if (channels == 4) {
+        if (src.depth() == CV_32F) {
+            cv::Mat tmp;
+            src.convertTo(tmp, CV_8UC4, 255.0);
+            cv::cvtColor(tmp, bgr, cv::COLOR_RGBA2BGRA);
+        } else {
+            cv::cvtColor(src, bgr, cv::COLOR_RGBA2BGRA);
+        }
+    } else if (channels == 3) {
+        if (src.depth() == CV_32F) {
+            cv::Mat tmp;
+            src.convertTo(tmp, CV_8UC3, 255.0);
+            cv::cvtColor(tmp, bgr, cv::COLOR_RGB2BGR);
+        } else {
+            cv::cvtColor(src, bgr, cv::COLOR_RGB2BGR);
+        }
+    } else if (channels == 1) {
+        if (src.depth() == CV_32F) {
+            src.convertTo(bgr, CV_8UC1, 255.0);
+        } else {
+            bgr = src.clone();
+        }
+    } else {
         return false;
     }
 
-    file.close();
-    return true;
+    if (bgr.empty()) return false;
+
+    // Try to write as JPEG XL; return false if format not supported
+    std::vector<int> params;
+    params.push_back(cv::IMWRITE_JPEGXL_QUALITY);
+    params.push_back(lossless ? 100 : 90);
+    params.push_back(cv::IMWRITE_JPEGXL_EFFORT);
+    params.push_back(5);
+
+    return TryImwrite(path, bgr, params);
 }
 
 }  // namespace io

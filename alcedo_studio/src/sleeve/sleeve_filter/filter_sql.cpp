@@ -8,6 +8,32 @@
 #include "sleeve/sleeve_filter/filter_combo.hpp"
 
 namespace alcedo {
+
+static inline std::wstring EscapeSqlString(const std::wstring& s) {
+  std::wstring out;
+  out.reserve(s.size() + 8);
+  for (wchar_t c : s) {
+    if (c == L'\'') {
+      out += L"''";
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
+static inline std::wstring EscapeLikePattern(const std::wstring& s) {
+  std::wstring out;
+  out.reserve(s.size() + 8);
+  for (wchar_t c : s) {
+    if (c == L'%' || c == L'_' || c == L'!') {
+      out += L'!';
+    }
+    out += c;
+  }
+  return out;
+}
+
 std::wstring FilterSQLCompiler::FieldToColumn(FilterField field) {
   switch (field) {
     case FilterField::ExifCameraModel:
@@ -81,7 +107,7 @@ static inline std::wstring FilterValueToString(const FilterValue& value) {
   } else if (std::holds_alternative<bool>(value)) {
     return std::get<bool>(value) ? L"1" : L"0";
   } else if (std::holds_alternative<std::wstring>(value)) {
-    return L"'" + std::get<std::wstring>(value) + L"'";
+    return L"'" + EscapeSqlString(std::get<std::wstring>(value)) + L"'";
   } else if (std::holds_alternative<std::tm>(value)) {
     const std::tm& tm_value = std::get<std::tm>(value);
     wchar_t        buffer[32];
@@ -101,11 +127,11 @@ std::wstring FilterSQLCompiler::GenerateConditionString(const FieldCondition& co
     return std::format(L"({} BETWEEN {} AND {})", column, FilterValueToString(value),
                        FilterValueToString(cond.second_value_.value()));
   } else if (cond.op_ == CompareOp::CONTAINS) {
-    return std::format(L"({} LIKE '%{}%')", column, std::get<std::wstring>(value));
+    return std::format(L"({} LIKE '%{}%' ESCAPE '!')", column, EscapeLikePattern(std::get<std::wstring>(value)));
   } else if (cond.op_ == CompareOp::STARTS_WITH) {
-    return std::format(L"({} LIKE '{}%')", column, std::get<std::wstring>(value));
+    return std::format(L"({} LIKE '{}%' ESCAPE '!')", column, EscapeLikePattern(std::get<std::wstring>(value)));
   } else if (cond.op_ == CompareOp::ENDS_WITH) {
-    return std::format(L"({} LIKE '%{}')", column, std::get<std::wstring>(value));
+    return std::format(L"({} LIKE '%{}' ESCAPE '!')", column, EscapeLikePattern(std::get<std::wstring>(value)));
   } else {
     return std::format(L"({} {} {})", column, op, FilterValueToString(value));
   }

@@ -147,9 +147,10 @@ void ColorWheelOp::Apply(std::shared_ptr<ImageBuffer> input) {
   });
 }
 
-void ColorWheelOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  // GPU implementation not available yet.
-  throw std::runtime_error("ColorWheelOp::ApplyGPU not implemented yet.");
+void ColorWheelOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // Fallback to CPU when called directly.
+  Apply(input);
 }
 
 auto ColorWheelOp::GetParams() const -> nlohmann::json {

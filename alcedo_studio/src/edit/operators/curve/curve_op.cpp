@@ -111,9 +111,10 @@ void CurveOp::Apply(std::shared_ptr<ImageBuffer> input) {
   });
 }
 
-void CurveOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  // GPU implementation not provided
-  throw std::runtime_error("CurveOp::ApplyGPU not implemented");
+void CurveOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // Fallback to CPU when called directly.
+  Apply(input);
 }
 
 void CurveOp::SetCtrlPts(const std::vector<cv::Point2f>& control_points) {

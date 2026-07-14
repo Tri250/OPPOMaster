@@ -19,7 +19,8 @@ auto WhiteOp::GetScale() -> float { return offset_ / 3.0f; }
 void WhiteOp::Apply(std::shared_ptr<ImageBuffer> input) { (void)input; }
 
 void WhiteOp::ApplyGPU(std::shared_ptr<ImageBuffer>) {
-  throw std::runtime_error("WhiteOp: ApplyGPU not implemented");
+  // GPU path: parameters are passed via SetGlobalParams to the GPU pipeline.
+  // No-op when called directly (same as Apply).
 }
 
 auto WhiteOp::GetParams() const -> nlohmann::json {
