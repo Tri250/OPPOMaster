@@ -62,12 +62,13 @@ jobs:
           vcpkgGitCommitId: "2024.12.16"
 
       - name: Configure CMake
-        run: cmake --preset win_debug
+        run: cmake --preset ${{ inputs.preset || 'win_debug' }}
         env:
           CMAKE_PREFIX_PATH: ${{ env.OPENCL_ROOT }}
 
       - name: Build CI targets
-        run: cmake --build --preset win_debug
+        run: cmake --build --preset ${{ inputs.preset || 'win_debug' }}
 
       - name: Run tests
-        run: ctest --preset win_debug --output-on-failure
+        if: ${{ inputs.skip_tests != true }}
+        run: ctest --preset ${{ inputs.preset || 'win_debug' }} --output-on-failure
