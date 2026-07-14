@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -34,7 +35,7 @@ class ElementAccessGuard {
 class SleeveBase {
  private:
   size_t                                                              size_;
-  sl_element_id_t                                                     next_element_id_;
+  std::atomic<sl_element_id_t>                                        next_element_id_;
   filter_id_t                                                         next_filter_id_;
 
   std::unordered_map<sl_element_id_t, std::shared_ptr<SleeveElement>> storage_;

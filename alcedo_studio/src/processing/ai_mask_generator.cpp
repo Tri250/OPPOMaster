@@ -10,6 +10,10 @@
 #include <mutex>
 #include <thread>
 
+#include <onnxruntime_cxx_api.h>
+
+#include "utils/diagnostics/app_logging.hpp"
+
 namespace alcedo {
 namespace ai {
 
@@ -564,20 +568,240 @@ auto AIMaskService::RefineMask(
 }
 
 // ============================================================================
-// AIMaskGeneratorFactory Implementation (Stub - actual implementation would load ONNX models)
+// ONNX Runtime-backed SAM-2 Model
+// ============================================================================
+
+class OnnxSAM2Model : public ISAM2Model {
+public:
+    OnnxSAM2Model() = default;
+
+    auto IsReady() const -> bool override { return ready_; }
+
+    auto LoadModel(const std::string& model_path, ProgressCallback callback) -> bool override {
+        try {
+            if (callback) callback(0.0f, "Creating ONNX Runtime environment for SAM-2...");
+
+            env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "alcedo-sam2");
+
+            if (callback) callback(0.3f, "Loading SAM-2 ONNX model...");
+
+            Ort::SessionOptions session_options;
+            session_options.SetIntraOpNumThreads(static_cast<int>(std::thread::hardware_concurrency()));
+            session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+            session_ = std::make_unique<Ort::Session>(*env_, model_path.c_str(), session_options);
+
+            if (callback) callback(0.8f, "Inspecting SAM-2 model inputs...");
+
+            // Query input dimensions from the model
+            auto input_count = session_->GetInputCount();
+            if (input_count > 0) {
+                auto input_name = session_->GetInputNameAllocated(0, Ort::AllocatorWithDefaultOptions());
+                auto type_info = session_->GetInputTypeInfo(0);
+                auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+                auto shape = tensor_info.GetShape();
+                // SAM-2 image encoder expects [1, 3, H, W]
+                if (shape.size() >= 4) {
+                    input_dims_ = {static_cast<int>(shape[2]), static_cast<int>(shape[3])};
+                }
+            }
+
+            ready_ = true;
+            model_name_ = model_path;
+            qCInfo(alcedo::diag::appLog, "SAM-2 model loaded successfully from: %s", model_path.c_str());
+
+            if (callback) callback(1.0f, "SAM-2 model loaded");
+            return true;
+        } catch (const Ort::Exception& e) {
+            qCWarning(alcedo::diag::appLog, "ONNX Runtime error loading SAM-2 model '%s': %s",
+                      model_path.c_str(), e.what());
+            ready_ = false;
+            session_.reset();
+            env_.reset();
+            return false;
+        } catch (const std::exception& e) {
+            qCWarning(alcedo::diag::appLog, "Error loading SAM-2 model '%s': %s",
+                      model_path.c_str(), e.what());
+            ready_ = false;
+            session_.reset();
+            env_.reset();
+            return false;
+        }
+    }
+
+    void UnloadModel() override {
+        session_.reset();
+        env_.reset();
+        ready_ = false;
+        qCDebug(alcedo::diag::appLog, "SAM-2 model unloaded");
+    }
+
+    auto GetModelName() const -> std::string override { return model_name_; }
+
+    auto GetInputDimensions() const -> std::pair<int, int> override { return input_dims_; }
+
+    auto GenerateFromPoints(
+        const uint8_t* image_data,
+        int width,
+        int height,
+        int channels,
+        const std::vector<PointSelection>& points,
+        ProgressCallback callback
+    ) -> AIMaskResult override {
+        if (!ready_ || !session_) {
+            return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "SAM-2 model not loaded"};
+        }
+        // Inference implementation to be completed when integrating full SAM-2 pipeline
+        return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "SAM-2 point inference not yet implemented"};
+    }
+
+    auto GenerateFromBox(
+        const uint8_t* image_data,
+        int width,
+        int height,
+        int channels,
+        const BoundingBox& box,
+        ProgressCallback callback
+    ) -> AIMaskResult override {
+        if (!ready_ || !session_) {
+            return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "SAM-2 model not loaded"};
+        }
+        return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "SAM-2 box inference not yet implemented"};
+    }
+
+    auto GenerateAutomatic(
+        const uint8_t* image_data,
+        int width,
+        int height,
+        int channels,
+        ProgressCallback callback
+    ) -> AIMaskResult override {
+        if (!ready_ || !session_) {
+            return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "SAM-2 model not loaded"};
+        }
+        return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "SAM-2 automatic inference not yet implemented"};
+    }
+
+private:
+    std::unique_ptr<Ort::Env> env_;
+    std::unique_ptr<Ort::Session> session_;
+    std::string model_name_;
+    std::pair<int, int> input_dims_{1024, 1024};
+    bool ready_ = false;
+};
+
+// ============================================================================
+// ONNX Runtime-backed Semantic Segmentation Model
+// ============================================================================
+
+class OnnxSemanticSegmentationModel : public ISemanticSegmentationModel {
+public:
+    OnnxSemanticSegmentationModel() = default;
+
+    auto IsReady() const -> bool override { return ready_; }
+
+    auto LoadModel(const std::string& model_path, ProgressCallback callback) -> bool override {
+        try {
+            if (callback) callback(0.0f, "Creating ONNX Runtime environment for semantic segmentation...");
+
+            env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "alcedo-semantic-seg");
+
+            if (callback) callback(0.3f, "Loading semantic segmentation ONNX model...");
+
+            Ort::SessionOptions session_options;
+            session_options.SetIntraOpNumThreads(static_cast<int>(std::thread::hardware_concurrency()));
+            session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+            session_ = std::make_unique<Ort::Session>(*env_, model_path.c_str(), session_options);
+
+            if (callback) callback(0.8f, "Inspecting semantic segmentation model inputs...");
+
+            auto input_count = session_->GetInputCount();
+            if (input_count > 0) {
+                auto type_info = session_->GetInputTypeInfo(0);
+                auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+                auto shape = tensor_info.GetShape();
+                if (shape.size() >= 4) {
+                    input_dims_ = {static_cast<int>(shape[2]), static_cast<int>(shape[3])};
+                }
+            }
+
+            ready_ = true;
+            model_name_ = model_path;
+            qCInfo(alcedo::diag::appLog, "Semantic segmentation model loaded successfully from: %s",
+                   model_path.c_str());
+
+            if (callback) callback(1.0f, "Semantic segmentation model loaded");
+            return true;
+        } catch (const Ort::Exception& e) {
+            qCWarning(alcedo::diag::appLog,
+                      "ONNX Runtime error loading semantic segmentation model '%s': %s",
+                      model_path.c_str(), e.what());
+            ready_ = false;
+            session_.reset();
+            env_.reset();
+            return false;
+        } catch (const std::exception& e) {
+            qCWarning(alcedo::diag::appLog, "Error loading semantic segmentation model '%s': %s",
+                      model_path.c_str(), e.what());
+            ready_ = false;
+            session_.reset();
+            env_.reset();
+            return false;
+        }
+    }
+
+    void UnloadModel() override {
+        session_.reset();
+        env_.reset();
+        ready_ = false;
+        qCDebug(alcedo::diag::appLog, "Semantic segmentation model unloaded");
+    }
+
+    auto GetModelName() const -> std::string override { return model_name_; }
+
+    auto GetInputDimensions() const -> std::pair<int, int> override { return input_dims_; }
+
+    auto GenerateForClass(
+        const uint8_t* image_data,
+        int width,
+        int height,
+        int channels,
+        mask::MaskType target_class,
+        ProgressCallback callback
+    ) -> AIMaskResult override {
+        if (!ready_ || !session_) {
+            return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "Semantic segmentation model not loaded"};
+        }
+        return {mask::MaskBitmap{}, 0.0f, 0.0f, false, "Semantic segmentation inference not yet implemented"};
+    }
+
+    auto GetSupportedClasses() const -> std::vector<mask::MaskType> override {
+        return {mask::MaskType::AiSky, mask::MaskType::AiForeground, mask::MaskType::AiDepth};
+    }
+
+private:
+    std::unique_ptr<Ort::Env> env_;
+    std::unique_ptr<Ort::Session> session_;
+    std::string model_name_;
+    std::pair<int, int> input_dims_{512, 512};
+    bool ready_ = false;
+};
+
+// ============================================================================
+// AIMaskGeneratorFactory Implementation
 // ============================================================================
 
 auto AIMaskGeneratorFactory::CreateSAM2Model(const std::string& model_type)
     -> std::shared_ptr<ISAM2Model> {
-    // TODO: Implement actual SAM-2 model loading via ONNX Runtime
-    // This would be implemented with ONNX Runtime or similar
-    return nullptr;
+    qCDebug(alcedo::diag::appLog, "Creating SAM-2 model (type: %s)", model_type.c_str());
+    return std::make_shared<OnnxSAM2Model>();
 }
 
 auto AIMaskGeneratorFactory::CreateSemanticSegmentationModel(const std::string& model_type)
     -> std::shared_ptr<ISemanticSegmentationModel> {
-    // TODO: Implement actual semantic segmentation model loading
-    return nullptr;
+    qCDebug(alcedo::diag::appLog, "Creating semantic segmentation model (type: %s)", model_type.c_str());
+    return std::make_shared<OnnxSemanticSegmentationModel>();
 }
 
 auto AIMaskGeneratorFactory::IsSAM2Available() -> bool {

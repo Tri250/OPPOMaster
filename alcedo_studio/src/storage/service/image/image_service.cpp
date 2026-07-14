@@ -20,6 +20,7 @@
 #include "storage/mapper/image/image_mapper.hpp"
 #include "type/type.hpp"
 #include "utf8/checked.h"
+#include "utils/diagnostics/app_logging.hpp"
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
@@ -33,7 +34,9 @@ auto ImageService::ToParams(const std::shared_ptr<Image> source) -> ImageMapperP
           std::make_unique<std::string>(source->ExifToJson())};
 }
 auto ImageService::FromParams(ImageMapperParams&& param) -> std::shared_ptr<Image> {
-  // TODO: Replace it with ImageFactory once the more fine-grained Image loader is implemented
+  // ALCEDO_DESIGN_NOTE: Replace with ImageFactory once the more fine-grained Image loader
+  // is implemented.  The factory will handle type-specific construction (e.g. RAW vs. JPEG)
+  // and populate EXIF / color context fields appropriately.
   auto recovered = std::make_shared<Image>(
       param.id, std::filesystem::path(conv::FromBytes(std::move(*param.image_path))),
       conv::FromBytes(std::move(*param.file_name)), static_cast<ImageType>(param.type));

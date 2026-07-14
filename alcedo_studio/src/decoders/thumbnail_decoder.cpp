@@ -14,6 +14,7 @@
 
 #include "image/image.hpp"
 #include "image/image_buffer.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 /**
@@ -43,7 +44,7 @@ void ThumbnailDecoder::Decode(std::vector<char> buffer, std::filesystem::path fi
     result->push(img);
     promise->set_value(id);
   } catch (std::exception& e) {
-    // TODO: Append error message to log
+    qCWarning(appLog, "ThumbnailDecoder::Decode failed for id: %s", e.what());
   }
 }
 

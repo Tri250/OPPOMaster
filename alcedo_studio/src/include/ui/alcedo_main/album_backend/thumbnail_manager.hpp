@@ -13,6 +13,7 @@
 
 #include "app/thumbnail_service.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 
 namespace alcedo::ui {

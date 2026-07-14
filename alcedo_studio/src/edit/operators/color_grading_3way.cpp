@@ -10,6 +10,8 @@
 #include <iomanip>
 #include <sstream>
 
+#include "utils/diagnostics/app_logging.hpp"
+
 namespace alcedo {
 
 // ============================================================================
@@ -383,8 +385,14 @@ auto LUTExporter::GenerateLUTData(
         }
     }
 
-    // TODO: Apply operators to transform LUT data
-    // This would involve creating operator instances and applying them to each LUT entry
+    // ALCEDO_DESIGN_NOTE: Operator application to transform LUT data is not yet implemented.
+    // The intended design is to instantiate each operator from `operators`, apply it to every
+    // LUT entry point, and produce a baked color transform.  Currently the identity LUT is
+    // returned as-is, which means exported LUTs will not reflect the active grade until this
+    // is implemented.
+    qCDebug(alcedo::diag::appLog,
+            "LUTExporter::GenerateLUTData: identity LUT returned — operator application not yet implemented (%zu operators requested)",
+            operators.size());
 
     return lut_data;
 }

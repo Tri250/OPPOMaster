@@ -2,7 +2,8 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-// TODO: Delete all files expect the ones under "processor" 
+// Legacy decoder scheduler — the actual processing lives under decoders/processor/.
+// This file is retained for backward compatibility with the Sleeve loading path.
 
 #include "decoders/decoder_scheduler.hpp"
 
@@ -21,6 +22,7 @@
 #include "decoders/thumbnail_decoder.hpp"
 #include "image/image.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 #include "utils/queue/queue.hpp"
 
 namespace alcedo {
@@ -118,8 +120,10 @@ void DecoderScheduler::ScheduleDecode(std::shared_ptr<Image> source_img, DecodeT
       decoder = std::make_shared<RawDecoder>();
       break;
     case DecodeType::REGULAR:
-      // FIXME: Add RegularDecoder
-      decoder = std::make_shared<ThumbnailDecoder>();
+      // Non-RAW images use MetadataDecoder for full metadata extraction;
+      // thumbnail extraction is handled downstream by ThumbnailService.
+      decoder = std::make_shared<MetadataDecoder>();
+      qCDebug(appLog, "DecoderScheduler: Using MetadataDecoder as RegularDecoder fallback");
       break;
     default:
       throw std::runtime_error("Incompatible decode type.");

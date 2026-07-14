@@ -21,6 +21,7 @@
 #include "storage/image_pool/image_pool_manager.hpp"
 #include "storage_service.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 class SleeveManager {

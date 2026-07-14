@@ -22,6 +22,7 @@
 #include "image/image_buffer.hpp"
 #include "image/metadata_extractor.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 /**
@@ -34,12 +35,19 @@ namespace alcedo {
 void RawDecoder::Decode(std::vector<char> buffer, std::filesystem::path file_path,
                         std::shared_ptr<BufferQueue> result, image_id_t id,
                         std::shared_ptr<std::promise<image_id_t>> promise) {
-  // TODO: Add Implementation
+  try {
+    auto source_img = std::make_shared<Image>(id, file_path, file_path.filename().wstring(), ImageType::RAW);
+    Decode(std::move(buffer), source_img, result, promise);
+  } catch (std::exception& e) {
+    qCCritical(appLog, "RawDecoder::Decode (buffer/path overload) failed for %s: %s",
+               file_path.string().c_str(), e.what());
+    auto fallback_img = std::make_shared<Image>(id, file_path, file_path.filename().wstring(), ImageType::RAW);
+    result->push(fallback_img);
+    promise->set_value(id);
+  }
 }
 
 void RawDecoder::Decode(std::vector<char>&& buffer, std::shared_ptr<Image> source_img) {
-  // TODO: Add Implementation
-
   // LibRaw is too large for ASan-instrumented worker-thread stacks on macOS.
   auto raw_processor = std::make_unique<LibRaw>();
   int  ret           = raw_processor->open_buffer((void*)buffer.data(), buffer.size());
@@ -94,7 +102,16 @@ void RawDecoder::Decode(std::vector<char>&& buffer, std::shared_ptr<Image> sourc
 void RawDecoder::Decode(std::vector<char> buffer, std::shared_ptr<Image> source_img,
                         std::shared_ptr<BufferQueue>              result,
                         std::shared_ptr<std::promise<image_id_t>> promise) {
-  throw std::runtime_error("RawDecoder: Not implemented");
+  try {
+    Decode(std::move(buffer), source_img);
+    result->push(source_img);
+    promise->set_value(source_img->image_id_);
+  } catch (std::exception& e) {
+    qCCritical(appLog, "RawDecoder::Decode (buffer/Image overload) failed for image %lld: %s",
+               static_cast<long long>(source_img->image_id_), e.what());
+    result->push(source_img);
+    promise->set_value(source_img->image_id_);
+  }
 }
 
 };  // namespace alcedo

@@ -1772,6 +1772,10 @@ endif()
 set(ALCEDO_TRANSLATION_TS_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_en.ts
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_zh_CN.ts
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_ja.ts
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_ko.ts
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_fr.ts
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_de.ts
 )
 
 qt_add_translations(TARGETS alcedo_main

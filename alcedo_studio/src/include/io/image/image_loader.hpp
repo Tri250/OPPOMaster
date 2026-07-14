@@ -13,6 +13,7 @@
 #include "decoders/decoder_scheduler.hpp"
 #include "image/image.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 #include "utils/queue/queue.hpp"
 namespace alcedo {
 

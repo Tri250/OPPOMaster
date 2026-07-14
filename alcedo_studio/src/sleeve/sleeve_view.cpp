@@ -16,6 +16,7 @@
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 #include "storage/image_pool/image_pool_manager.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 
@@ -88,6 +89,17 @@ void SleeveView::LoadPreview(uint32_t range_low, uint32_t range_high,
   // thumbnail locks
   std::vector<DisplayingImage>           to_display;
   range_high = range_high > children_.size() - 1 ? children_.size() - 1 : range_high;
+
+  // Notify UI framework in advance for each item in the range before any data changes
+  for (size_t i = range_low; i <= range_high; ++i) {
+    auto e_shared = children_[i].lock();
+    if (e_shared->type_ == ElementType::FILE) {
+      auto e_file = std::dynamic_pointer_cast<SleeveFile>(e_shared);
+      // Pre-notify UI that loading is starting for this index
+      callback(i, std::weak_ptr<Image>());
+    }
+  }
+
   for (size_t i = range_low; i <= range_high; ++i) {
     auto e_shared = children_[i].lock();
     if (e_shared->type_ == ElementType::FILE) {
@@ -97,7 +109,7 @@ void SleeveView::LoadPreview(uint32_t range_low, uint32_t range_high,
         loader_.StartLoading(e_file->GetImage(), DecodeType::THUMB);
         ++empty_img_count;
       } else {
-        // TODO: notify the UI framework in advance
+        qCInfo(appLog) << "SleeveView::LoadPreview: cached thumbnail available for index" << i;
         callback(i, img_opt.value());
         to_display.push_back({img_opt.value(), true, false});
       }
@@ -107,16 +119,27 @@ void SleeveView::LoadPreview(uint32_t range_low, uint32_t range_high,
     }
   }
 
-  // The size of the thumbnail cache should be slightly bigger than the window size
-  // TODO: For now, the cache size can only be expanded. It is okay, since the sleeve view will
-  // flush the cache periodically
+  // Grow cache if needed to accommodate the viewing range
   if (image_pool_->Capacity(AccessType::THUMB) < range_high - range_low + 10)
     image_pool_->ResizeCache(range_high - range_low + 10, AccessType::THUMB);
-  // TODO: Fetch the loaded image, notify UI to update
+
+  // Shrink cache with LRU eviction when it far exceeds the current viewing range
+  static constexpr uint32_t kCacheShrinkThreshold = 3;
+  const uint32_t needed_capacity = range_high - range_low + 10;
+  if (image_pool_->Capacity(AccessType::THUMB) > needed_capacity * kCacheShrinkThreshold) {
+    uint32_t target_capacity = needed_capacity * 2;
+    qCInfo(appLog) << "SleeveView::LoadPreview: shrinking thumb cache from"
+                   << image_pool_->Capacity(AccessType::THUMB) << "to" << target_capacity
+                   << "(LRU eviction will evict least recently used entries)";
+    image_pool_->ResizeCache(target_capacity, AccessType::THUMB);
+  }
+
+  // Fetch loaded images and notify UI to update
   for (size_t i = 0; i < empty_img_count; i++) {
     auto   loaded     = loader_.LoadImage();
     size_t view_index = index_map.at(loaded->image_id_);
-    // Do something with view_index...
+    qCInfo(appLog) << "SleeveView::LoadPreview: loaded thumbnail for image_id"
+                   << loaded->image_id_ << "at view_index" << view_index;
     callback(view_index, loaded);
     image_pool_->RecordAccess(loaded->image_id_, AccessType::THUMB);
     to_display.push_back({loaded, true, false});

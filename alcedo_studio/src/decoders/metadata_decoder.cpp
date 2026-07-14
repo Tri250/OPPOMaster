@@ -18,6 +18,7 @@
 #include <stdexcept>
 
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 namespace {
@@ -142,8 +143,7 @@ void MetadataDecoder::Decode(std::vector<char> buffer, std::filesystem::path fil
 
     return;
   } catch (std::exception& e) {
-    // TODO: Append error message to log
-    std::cout << e.what() << std::endl;
+    qCWarning(appLog, "MetadataDecoder::Decode failed: %s", e.what());
   }
   // If it fails to read metadata, produce a plain image with minimum metadata
   std::shared_ptr<Image> img =
@@ -166,8 +166,7 @@ void MetadataDecoder::Decode(std::vector<char> buffer, std::shared_ptr<Image> so
 
     return;
   } catch (std::exception& e) {
-    // TODO: Append error message to log
-    std::cout << e.what() << std::endl;
+    qCWarning(appLog, "MetadataDecoder::Decode failed: %s", e.what());
   }
   // If it fails to read metadata, produce a plain image with minimum metadata
   result->push(source_img);

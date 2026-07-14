@@ -17,6 +17,7 @@
 #include "decoders/processor/raw_color_context.hpp"
 #include "image/image_buffer.hpp"
 #include "image/metadata.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 enum class ImageType { DEFAULT, JPEG, PNG, TIFF, ARW, CR2, CR3, NEF, DNG };
@@ -28,8 +29,16 @@ enum class ImageSyncState : uint8_t { SYNCED, UNSYNCED, MODIFIED, DELETED };
  *
  */
 class Image {
-  // FIXME: Image should not hold any image data, only metadata
-  // FIXME: Remove all has_xxx_ atomic flags, use sync_state_ only
+  // ALCEDO_DESIGN_NOTE: Image currently holds both image data and metadata for pragmatic reasons.
+  // Ideally Image would be a metadata-only facade, with pixel buffers managed exclusively by
+  // ImagePool / ImageBuffer.  The co-location persists because the import pipeline and the
+  // thumbnail system both write buffers directly into Image before the pool takes ownership,
+  // and refactoring that data flow requires a coordinated change across several subsystems.
+  // ALCEDO_DESIGN_NOTE: The per-field has_xxx_ atomic flags are redundant with sync_state_.
+  // They exist because multiple threads (decode workers, UI pin logic) update individual
+  // readiness bits independently and rely on atomic visibility.  Unifying them into
+  // sync_state_ requires introducing a finer-grained state machine (e.g. per-subresource
+  // readiness) which is a larger refactor deferred until the import pipeline stabilizes.
  public:
   image_id_t                  image_id_;
   image_path_t                image_path_;

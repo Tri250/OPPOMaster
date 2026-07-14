@@ -15,6 +15,7 @@
 #include "edit/pipeline/default_pipeline_params.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 namespace {
@@ -253,7 +254,11 @@ auto PipelineMgmtService::LoadPipeline(sl_element_id_t id) -> std::shared_ptr<Pi
     ResyncGlobalParamsFromOperators(*pipeline);
     storage_service_->RememberLivePipeline(id, pipeline);
 
-    pipeline->SetExecutionStages(); // TODO: Use service as the only way to set/reset execution stages
+    pipeline->SetExecutionStages(); // DESIGN_INTENT: PipelineMgmtService should be the sole
+    // owner of execution-stage setup / teardown.  Callers should not call
+    // SetExecutionStages() directly on the executor; instead they should go
+    // through this service so that cache-invalidation and repair logic stay
+    // consistent.
     pipeline_guard->pipeline_              = std::move(pipeline);
     pipeline_guard->id_                    = id;
     pipeline_guard->pinned_                = true;

@@ -7,6 +7,8 @@
 #include <exception>
 #include <mutex>
 
+#include "utils/diagnostics/app_logging.hpp"
+
 namespace alcedo {
 NodeStorageHandler::NodeStorageHandler(
     ElementController&                                                   db_ctrl,
@@ -47,7 +49,8 @@ void NodeStorageHandler::EnsureChildrenLoaded(std::shared_ptr<SleeveFolder> fold
     }
     folder->MarkChildrenLoaded();
   } catch (std::exception& e) {
-    // TODO: LOG
+    qCWarning(alcedo::diag::appLog, "EnsureChildrenLoaded failed for folder id=%u: %s",
+              folder->element_id_, e.what());
   }
 }
 

@@ -116,13 +116,20 @@ std::wstring FilterSQLCompiler::CompileNode(const FilterNode& node) {
     const FieldCondition& cond = node.condition_.value();
     return GenerateConditionString(cond);
   } else if (node.type_ == FilterNode::Type::Logical) {
+    if (node.op_ == FilterOp::NOT) {
+      // NOT is unary: wrap the single child with NOT (...)
+      if (!node.children_.empty()) {
+        return std::format(L"NOT ({})", CompileNode(node.children_[0]));
+      }
+      return L"";
+    }
+
     std::wstring combined;
     // Reserve some space to avoid multiple allocations
     combined.reserve(256);
     combined.append(L"(");
     for (size_t i = 0; i < node.children_.size(); ++i) {
       if (i > 0) {
-        // TODO: Add handling for NOT
         combined.append((node.op_ == FilterOp::AND) ? L" AND " : L" OR ");
       }
       combined.append(CompileNode(node.children_[i]));

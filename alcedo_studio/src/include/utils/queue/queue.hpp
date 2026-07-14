@@ -3,6 +3,7 @@
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -93,9 +94,11 @@ class ConcurrentBlockingQueue {
 template <typename T>
 class LockFreeMPMCQueue {
  public:
-  explicit LockFreeMPMCQueue(size_t capacity) : capacity_(capacity), buffer_(capacity) {
+  explicit LockFreeMPMCQueue(size_t capacity)
+      : capacity_(capacity),
+        buffer_(new Slot[capacity]()) {
     for (size_t i = 0; i < capacity; ++i) {
-      buffer_[i].sequence.store(i, std::memory_order_relaxed);
+      buffer_[i].sequence_.store(i, std::memory_order_relaxed);
     }
     head_.store(0, std::memory_order_relaxed);
     tail_.store(0, std::memory_order_relaxed);
@@ -106,7 +109,7 @@ class LockFreeMPMCQueue {
     while (true) {
       Slot&    slot = buffer_[pos % capacity_];
       size_t   seq  = slot.sequence_.load(std::memory_order_acquire);
-      intptr_t diff = (intptr_t)seq - (intptr_t)pos;
+      intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
       if (diff == 0) {
         if (tail_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
           slot.data_ = item;
@@ -126,7 +129,7 @@ class LockFreeMPMCQueue {
     while (true) {
       Slot&    slot = buffer_[pos % capacity_];
       size_t   seq  = slot.sequence_.load(std::memory_order_acquire);
-      intptr_t diff = (intptr_t)seq - (intptr_t)(pos + 1);
+      intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
       if (diff == 0) {
         if (head_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
           T result = slot.data_;
@@ -147,14 +150,14 @@ class LockFreeMPMCQueue {
 
  private:
   struct Slot {
-    std::atomic<size_t> sequence_;
-    T                   data_;
+    std::atomic<size_t> sequence_{0};
+    T                   data_{};
   };
 
-  size_t              capacity_;
-  std::vector<Slot>   buffer_;
-  std::atomic<size_t> head_{0};
-  std::atomic<size_t> tail_{0};
+  size_t                     capacity_;
+  std::unique_ptr<Slot[]>    buffer_;
+  std::atomic<size_t>        head_{0};
+  std::atomic<size_t>        tail_{0};
 };
 
 template <typename T>

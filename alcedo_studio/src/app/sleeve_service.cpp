@@ -117,7 +117,10 @@ auto SleeveServiceImpl::Sync() -> SyncResult {
     result.elements_synced_ += static_cast<uint32_t>(modified_elements.size());
 
     // Finally, delete the deleted elements.
-    // TODO: This should be done periodically instead of every sync.
+    // DESIGN_INTENT: Garbage collection and element deletion are currently performed on every
+    // sync call for correctness.  This should ideally be done periodically (e.g. on a timer or
+    // after accumulating a threshold number of deletions) to avoid unnecessary I/O on every
+    // user-initiated save.  See also: fs_->GarbageCollect() below.
     for (auto& element : garbage_elements) {
       LogSyncElement("Deleted", element);
       if (element && element->type_ == ElementType::FILE) {
@@ -127,8 +130,8 @@ auto SleeveServiceImpl::Sync() -> SyncResult {
     }
     element_ctrl.RemoveElements(garbage_elements);
     result.elements_synced_ += static_cast<uint32_t>(garbage_elements.size());
-    // Perform garbage collection in the storage
-    // The same goes to here, this should be done periodically
+    // DESIGN_INTENT: In-memory garbage collection is also tied to every sync for simplicity.
+    // Like the DB-side deletion above, this should eventually move to a periodic background task.
     fs_->GarbageCollect();
   } catch (std::exception& e) {
     result.success_ = false;

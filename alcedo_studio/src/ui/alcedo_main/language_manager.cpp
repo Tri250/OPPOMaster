@@ -22,6 +22,18 @@ auto DisplayLabelForCode(const QString& code) -> QString {
   if (code == QStringLiteral("zh-CN")) {
     return QCoreApplication::translate("LanguageManager", "Simplified Chinese");
   }
+  if (code == QStringLiteral("ja")) {
+    return QCoreApplication::translate("LanguageManager", "Japanese");
+  }
+  if (code == QStringLiteral("ko")) {
+    return QCoreApplication::translate("LanguageManager", "Korean");
+  }
+  if (code == QStringLiteral("fr")) {
+    return QCoreApplication::translate("LanguageManager", "French");
+  }
+  if (code == QStringLiteral("de")) {
+    return QCoreApplication::translate("LanguageManager", "German");
+  }
   return QCoreApplication::translate("LanguageManager", "English");
 }
 
@@ -43,13 +55,35 @@ auto LanguageManager::AvailableLanguages() const -> QVariantList {
                   {"label", DisplayLabelForCode(QStringLiteral("en"))}},
       QVariantMap{{"code", QStringLiteral("zh-CN")},
                   {"label", DisplayLabelForCode(QStringLiteral("zh-CN"))}},
+      QVariantMap{{"code", QStringLiteral("ja")},
+                  {"label", DisplayLabelForCode(QStringLiteral("ja"))}},
+      QVariantMap{{"code", QStringLiteral("ko")},
+                  {"label", DisplayLabelForCode(QStringLiteral("ko"))}},
+      QVariantMap{{"code", QStringLiteral("fr")},
+                  {"label", DisplayLabelForCode(QStringLiteral("fr"))}},
+      QVariantMap{{"code", QStringLiteral("de")},
+                  {"label", DisplayLabelForCode(QStringLiteral("de"))}},
   };
 }
 
 auto LanguageManager::ResolveSystemLanguageCode(const QLocale& locale) -> QString {
-  return locale.bcp47Name().startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)
-             ? QStringLiteral("zh-CN")
-             : QStringLiteral("en");
+  const auto bcp = locale.bcp47Name();
+  if (bcp.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)) {
+    return QStringLiteral("zh-CN");
+  }
+  if (bcp.startsWith(QStringLiteral("ja"), Qt::CaseInsensitive)) {
+    return QStringLiteral("ja");
+  }
+  if (bcp.startsWith(QStringLiteral("ko"), Qt::CaseInsensitive)) {
+    return QStringLiteral("ko");
+  }
+  if (bcp.startsWith(QStringLiteral("fr"), Qt::CaseInsensitive)) {
+    return QStringLiteral("fr");
+  }
+  if (bcp.startsWith(QStringLiteral("de"), Qt::CaseInsensitive)) {
+    return QStringLiteral("de");
+  }
+  return QStringLiteral("en");
 }
 
 void LanguageManager::AttachEngine(QQmlEngine* engine) {
@@ -80,6 +114,22 @@ auto LanguageManager::NormalizeLanguageCode(const QString& code) -> QString {
       normalized.compare(QStringLiteral("zh"), Qt::CaseInsensitive) == 0) {
     return QStringLiteral("zh-CN");
   }
+  if (normalized.compare(QStringLiteral("ja"), Qt::CaseInsensitive) == 0 ||
+      normalized.compare(QStringLiteral("ja-JP"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("ja");
+  }
+  if (normalized.compare(QStringLiteral("ko"), Qt::CaseInsensitive) == 0 ||
+      normalized.compare(QStringLiteral("ko-KR"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("ko");
+  }
+  if (normalized.compare(QStringLiteral("fr"), Qt::CaseInsensitive) == 0 ||
+      normalized.compare(QStringLiteral("fr-FR"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("fr");
+  }
+  if (normalized.compare(QStringLiteral("de"), Qt::CaseInsensitive) == 0 ||
+      normalized.compare(QStringLiteral("de-DE"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("de");
+  }
   return QStringLiteral("en");
 }
 
@@ -93,6 +143,18 @@ auto LanguageManager::EffectiveCodeForCurrentSelection() const -> QString {
 auto LanguageManager::TranslationResourcePathForCode(const QString& code) const -> QString {
   if (code == QStringLiteral("zh-CN")) {
     return QStringLiteral(":/i18n/alcedo_main_zh_CN.qm");
+  }
+  if (code == QStringLiteral("ja")) {
+    return QStringLiteral(":/i18n/alcedo_main_ja.qm");
+  }
+  if (code == QStringLiteral("ko")) {
+    return QStringLiteral(":/i18n/alcedo_main_ko.qm");
+  }
+  if (code == QStringLiteral("fr")) {
+    return QStringLiteral(":/i18n/alcedo_main_fr.qm");
+  }
+  if (code == QStringLiteral("de")) {
+    return QStringLiteral(":/i18n/alcedo_main_de.qm");
   }
   return QStringLiteral(":/i18n/alcedo_main_en.qm");
 }

@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "image_decoder.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 class DataDecoder : public ImageDecoder {

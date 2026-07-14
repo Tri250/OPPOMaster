@@ -4,6 +4,7 @@
 
 #include "sleeve/sleeve_base.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <deque>
 #include <iostream>
@@ -14,6 +15,7 @@
 #include <unordered_set>
 
 #include "sleeve/sleeve_element/sleeve_element.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 #include "sleeve/sleeve_element/sleeve_element_factory.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 #include "sleeve/sleeve_filter/filter_combo.hpp"
@@ -37,8 +39,7 @@ ElementAccessGuard::~ElementAccessGuard() {
  * @param id
  */
 SleeveBase::SleeveBase(sleeve_id_t id) : re_(delimiter_), sleeve_id_(id) {
-  // TODO: change the id assignment logic
-  next_element_id_   = 0;
+  next_element_id_.store(0);
   size_              = 0;
   filter_storage_[0] = std::make_shared<FilterCombo>();
   next_filter_id_    = 0;
@@ -51,11 +52,14 @@ SleeveBase::SleeveBase(sleeve_id_t id) : re_(delimiter_), sleeve_id_(id) {
  *
  */
 void SleeveBase::InitializeRoot() {
-  // FIXME: Inconsistent reinitalization logic here
-  if (root_ == nullptr) size_ += 1;
-  root_ = std::make_shared<SleeveFolder>(next_element_id_++, L"root");
+  if (root_ != nullptr) {
+    qCWarning(diag::appLog, "SleeveBase::InitializeRoot root already initialized, skipping");
+    return;
+  }
+  root_ = std::make_shared<SleeveFolder>(next_element_id_.fetch_add(1), L"root");
   root_->IncrementRefCount();
   storage_[root_->element_id_] = root_;
+  size_ += 1;
 }
 
 auto SleeveBase::GetStorage()
@@ -78,7 +82,7 @@ auto SleeveBase::AccessElementById(const sl_element_id_t& id) const
     -> std::optional<std::shared_ptr<SleeveElement>> {
   auto target = storage_.find(id);
   if (target == storage_.end()) {
-    // TODO: Log
+    qCDebug(diag::appLog, "SleeveBase::AccessElementById id=%u not found", id);
     return std::nullopt;
   }
 
@@ -112,7 +116,7 @@ auto SleeveBase::AccessElementByPath(const sl_path_t& path)
 
   while (curr_element != std::nullopt && !path_elements.empty()) {
     if (curr_element.value()->type_ == ElementType::FILE) {
-      // TODO: Log
+      qCDebug(diag::appLog, "SleeveBase::AccessElementByPath file cannot be path prefix");
       // the path of a file cannot be a prefix of a full path
       return std::nullopt;
     }
@@ -122,7 +126,7 @@ auto SleeveBase::AccessElementByPath(const sl_path_t& path)
     auto next_element_id = std::dynamic_pointer_cast<SleeveFolder>(curr_element.value())
                                ->GetElementIdByName(curr_path);
     if (!next_element_id.has_value()) {
-      // TODO: Log
+      qCDebug(diag::appLog, "SleeveBase::AccessElementByPath element '%ls' not found", curr_path.c_str());
       return std::nullopt;
     }
     curr_element = AccessElementById(next_element_id.value());
@@ -146,18 +150,17 @@ auto SleeveBase::CreateElementToPath(const sl_path_t& path, const file_name_t& f
   auto parent_folder_opt = GetWriteGuard(path);
   if (!parent_folder_opt.has_value() ||
       parent_folder_opt.value().access_element_->type_ == ElementType::FILE) {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::CreateElementToPath invalid parent path");
     return std::nullopt;
   }
   auto parent_folder =
       std::dynamic_pointer_cast<SleeveFolder>(parent_folder_opt.value().access_element_);
   if (parent_folder->Contains(file_name)) {
-    // TODO: Log
-    // TODO: Add duplication handling here
+    qCWarning(diag::appLog, "SleeveBase::CreateElementToPath duplicate name '%ls' in path", file_name.c_str());
     return std::nullopt;
   }
   std::shared_ptr<SleeveElement> newElement =
-      SleeveElementFactory::CreateElement(type, next_element_id_++, file_name);
+      SleeveElementFactory::CreateElement(type, next_element_id_.fetch_add(1), file_name);
   // Update the map
   storage_[newElement->element_id_] = newElement;
   parent_folder->AddElementToMap(newElement);
@@ -181,7 +184,7 @@ auto SleeveBase::CreateElementToPath(const sl_path_t& path, const file_name_t& f
 auto SleeveBase::RemoveElementInPath(const sl_path_t& target)
     -> std::optional<std::shared_ptr<SleeveElement>> {
   if (target == L"root") {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::RemoveElementInPath cannot remove root");
     return std::nullopt;
   }
   size_t pos = target.rfind(delimiter_);
@@ -199,13 +202,14 @@ auto SleeveBase::RemoveElementInPath(const sl_path_t& path, const file_name_t& f
   auto parent_folder_opt = GetWriteGuard(path);
   if (!parent_folder_opt.has_value() ||
       parent_folder_opt.value().access_element_->type_ == ElementType::FILE) {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::RemoveElementInPath invalid parent path");
     return std::nullopt;
   }
   auto parent_folder =
       std::dynamic_pointer_cast<SleeveFolder>(parent_folder_opt.value().access_element_);
   auto del_id = parent_folder->GetElementIdByName(file_name);
   if (!del_id.has_value()) {
+    qCDebug(diag::appLog, "SleeveBase::RemoveElementInPath element '%ls' not found", file_name.c_str());
     return std::nullopt;
   }
   auto del_element = AccessElementById(del_id.value()).value();
@@ -223,7 +227,7 @@ auto SleeveBase::RemoveElementInPath(const sl_path_t& path, const file_name_t& f
 
     parent_folder->DecrementFolderCount();
   } else {
-    // TODO: Add remove code for file elements
+    storage_.erase(del_element->element_id_);
     parent_folder->DecrementFileCount();
   }
   parent_folder->RemoveNameFromMap(del_element->element_name_);
@@ -250,7 +254,7 @@ auto SleeveBase::RemoveElementInPath(const sl_path_t& path, const file_name_t& f
 auto SleeveBase::GetReadGuard(const sl_path_t& target) -> std::optional<ElementAccessGuard> {
   auto read_element = AccessElementByPath(target);
   if (!read_element.has_value()) {
-    // TODO: Log
+    qCDebug(diag::appLog, "SleeveBase::GetReadGuard element not found for path");
     return std::nullopt;
   }
   return read_element.value();
@@ -260,7 +264,7 @@ auto inline SleeveBase::WriteCopy(std::shared_ptr<SleeveElement> src_element,
                                   std::shared_ptr<SleeveFolder>  dest_folder)
     -> std::shared_ptr<SleeveElement> {
   src_element->DecrementRefCount();
-  auto copy                   = src_element->Copy(next_element_id_++);
+  auto copy                   = src_element->Copy(next_element_id_.fetch_add(1));
   storage_[copy->element_id_] = copy;
   // Parent folder now contains a "true" copy of the current folder
   dest_folder->UpdateElementMap(src_element->element_name_, src_element->element_id_,
@@ -278,7 +282,7 @@ auto inline SleeveBase::WriteCopy(std::shared_ptr<SleeveElement> src_element,
 auto SleeveBase::GetWriteGuard(const sl_path_t& target) -> std::optional<ElementAccessGuard> {
   // Copy on write, make a copy to the current folder
   if (target == L"root") {
-    // TODO: Log
+    qCInfo(diag::appLog, "SleeveBase::GetWriteGuard returning root element");
     return std::static_pointer_cast<SleeveElement>(root_);
   }
   size_t pos = target.rfind(delimiter_);
@@ -315,7 +319,7 @@ auto SleeveBase::GetWriteGuard(const sl_path_t& parent_folder_path, const file_n
 
   while (curr_element_opt != std::nullopt && !path_elements.empty()) {
     if (curr_element_opt.value()->type_ == ElementType::FILE) {
-      // TODO: Log
+      qCDebug(diag::appLog, "SleeveBase::GetWriteGuard file cannot be path prefix");
       // the path of a file cannot be a prefix of a full path
       return std::nullopt;
     }
@@ -332,7 +336,7 @@ auto SleeveBase::GetWriteGuard(const sl_path_t& parent_folder_path, const file_n
       curr_parent_folder = std::dynamic_pointer_cast<SleeveFolder>(copy);
       next_element_id    = curr_parent_folder->GetElementIdByName(curr_path);
       if (!next_element_id.has_value()) {
-        // TODO: Log
+        qCDebug(diag::appLog, "SleeveBase::GetWriteGuard element '%ls' not found in copy path", curr_path.c_str());
         return std::nullopt;
       }
       curr_element_opt = AccessElementById(next_element_id.value());
@@ -346,14 +350,14 @@ auto SleeveBase::GetWriteGuard(const sl_path_t& parent_folder_path, const file_n
     curr_parent_folder = curr_element;
     next_element_id    = curr_parent_folder->GetElementIdByName(curr_path);
     if (!next_element_id.has_value()) {
-      // TODO: Log
+      qCDebug(diag::appLog, "SleeveBase::GetWriteGuard element '%ls' not found in path traversal", curr_path.c_str());
       return std::nullopt;
     }
     curr_element_opt = AccessElementById(next_element_id.value());
   }
   // Check the last element along the path
   if (curr_element_opt == std::nullopt || curr_element_opt.value()->type_ == ElementType::FILE) {
-    // TODO: Log
+    qCDebug(diag::appLog, "SleeveBase::GetWriteGuard parent is null or a file, cannot write");
     // the path of a file cannot be a prefix of a full path
     return std::nullopt;
   }
@@ -365,7 +369,7 @@ auto SleeveBase::GetWriteGuard(const sl_path_t& parent_folder_path, const file_n
 
   auto write_file_opt = parent_folder->GetElementIdByName(file_name);
   if (!write_file_opt.has_value()) {
-    // TODO: Log
+    qCDebug(diag::appLog, "SleeveBase::GetWriteGuard file '%ls' not found in parent folder", file_name.c_str());
     return std::nullopt;
   }
   auto write_file = storage_.at(write_file_opt.value());
@@ -400,7 +404,7 @@ auto SleeveBase::IsSubFolder(const std::shared_ptr<SleeveFolder> src_folder,
     path_elements.pop_front();
     auto curr_folder = std::dynamic_pointer_cast<SleeveFolder>(curr_element.value());
     if (curr_folder == src_folder) {
-      // TODO: LOG
+      qCInfo(diag::appLog, "SleeveBase::IsSubFolder dest is a subfolder of src");
       return true;
     }
     auto next_element_id = curr_folder->GetElementIdByName(curr_path);
@@ -421,7 +425,7 @@ auto SleeveBase::CopyElement(const sl_path_t& src, const sl_path_t& dest)
   }
   auto src_read_guard = GetReadGuard(src);
   if (!src_read_guard.has_value()) {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::CopyElement source element not found");
     return std::nullopt;
   }
   auto src_file        = src_read_guard->access_element_;
@@ -429,7 +433,7 @@ auto SleeveBase::CopyElement(const sl_path_t& src, const sl_path_t& dest)
   auto dest_folder_opt = GetReadGuard(dest);
   if (!dest_folder_opt.has_value() ||
       dest_folder_opt.value().access_element_->type_ == ElementType::FILE) {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::CopyElement destination folder not found or is a file");
     return std::nullopt;
   }
 
@@ -437,13 +441,13 @@ auto SleeveBase::CopyElement(const sl_path_t& src, const sl_path_t& dest)
       std::dynamic_pointer_cast<SleeveFolder>(dest_folder_opt.value().access_element_);
 
   if (dest_folder->Contains(src_file->element_name_)) {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::CopyElement duplicate name '%ls' in destination", src_file->element_name_.c_str());
     return std::nullopt;
   }
   // if source is a folder, target folder should not be a subfolder of the source
   if (src_file->type_ == ElementType::FOLDER &&
       IsSubFolder(std::dynamic_pointer_cast<SleeveFolder>(src_file), dest)) {
-    // TODO: Log
+    qCWarning(diag::appLog, "SleeveBase::CopyElement destination is a subfolder of source, cannot copy");
     return std::nullopt;
   }
 

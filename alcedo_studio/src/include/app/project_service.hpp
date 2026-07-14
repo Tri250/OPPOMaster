@@ -16,6 +16,7 @@
 #include "image_pool_service.hpp"
 #include "sleeve/storage_service.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 class ProjectPackageService;

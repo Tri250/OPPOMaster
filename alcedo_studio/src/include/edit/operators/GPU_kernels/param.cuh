@@ -407,7 +407,18 @@ struct GPUOperatorParams {
   // Working space
   bool      to_ws_enabled_                                            = true;
   GPU_LUT3D to_ws_lut_                                                = {};
-  // TODO: NOT IMPLEMENTED
+  // ALCEDO_DESIGN_NOTE: to_ws LUT upload requires an OCIO::ConstBakerRcPtr or equivalent
+  // GPU processor that is not currently stored in OperatorParams (the cpu_to_working_processor_
+  // and gpu_to_working_processor_ fields are commented out). When the working-space OCIO
+  // processor pipeline is wired in, the upload path should mirror the LMT pattern:
+  //   if (cpu_params.to_ws_dirty) {
+  //     gpu_params.to_ws_lut_.Reset();
+  //     gpu_params.to_ws_lut_ = CreateLUTTextureObject(cpu_params.to_ws_lut_baker);
+  //     cpu_params.to_ws_dirty_ = false;
+  //   } else {
+  //     gpu_params.to_ws_lut_ = orig_resources.uploaded_params_.to_ws_lut_;
+  //   }
+  // Until then, the LUT remains empty (identity pass-through).
 
   // RAW color temperature runtime state.
   bool      color_temp_enabled_                                       = true;
@@ -433,7 +444,8 @@ struct GPUOperatorParams {
   // Look modification transform
   bool      lmt_enabled_                  = false;
   GPU_LUT3D lmt_lut_                      = {};
-  // TODO: NOT IMPLEMENTED
+  // LMT LUT upload is implemented in CudaFusedParamUploader::Upload() — see the
+  // lmt_enabled_ / to_lmt_dirty_ / lmt_lut_path_ branch around line 636.
 
   // Output transform
   bool      to_output_enabled_            = true;
@@ -600,13 +612,18 @@ class CudaFusedParamUploader {
     gpu_params.vibrance_enabled_          = fused_params.vibrance_enabled_;
     gpu_params.vibrance_offset_           = fused_params.vibrance_offset_;
     gpu_params.to_ws_enabled_             = fused_params.to_ws_enabled_;
-    // if (cpu_params.to_ws_dirty) {
-    //   gpu_params.to_ws_lut.Reset();  // Explicitly reset existing LUT
-    //   gpu_params.to_ws_lut        = CreateLUTTextureObject(cpu_params.to_ws_lut_baker);
-    //   cpu_params.to_ws_dirty      = false;
-    // } else {
-    //   gpu_params.to_ws_lut = orig_resources.uploaded_params_.to_ws_lut;
-    // }
+    // ALCEDO_DESIGN_NOTE: to_ws LUT upload is deferred until the OCIO processor pipeline
+    // is wired into OperatorParams (see ALCEDO_DESIGN_NOTE above in GPUOperatorParams).
+    // The intended upload path mirrors the LMT pattern:
+    //   if (cpu_params.to_ws_dirty) {
+    //     gpu_params.to_ws_lut_.Reset();
+    //     gpu_params.to_ws_lut_ = CreateLUTTextureObject(cpu_params.to_ws_lut_baker);
+    //     cpu_params.to_ws_dirty_ = false;
+    //   } else {
+    //     gpu_params.to_ws_lut_ = orig_resources.uploaded_params_.to_ws_lut_;
+    //   }
+    // For now, the working-space LUT is left empty (identity pass-through) because
+    // the OCIO baker / GPU processor fields are not yet available in OperatorParams.
 
     gpu_params.color_temp_enabled_        = fused_params.color_temp_enabled_;
     gpu_params.color_temp_mode_           = fused_params.color_temp_mode_;
@@ -650,13 +667,18 @@ class CudaFusedParamUploader {
     }
 
     gpu_params.to_output_enabled_   = fused_params.to_output_enabled_;
-    // if (cpu_params.to_output_dirty) {
-    //   gpu_params.to_output_lut.Reset();  // Explicitly reset existing LUT
-    //   gpu_params.to_output_lut        = CreateLUTTextureObject(cpu_params.to_output_lut_baker);
-    //   cpu_params.to_output_dirty      = false;
-    // } else {
-    //   gpu_params.to_output_lut = orig_resources.uploaded_params_.to_output_lut;
-    // }
+    // ALCEDO_DESIGN_NOTE: to_output LUT upload follows the same deferred pattern as to_ws.
+    // When the OCIO baker / GPU processor fields are available in OperatorParams, the
+    // upload path should be:
+    //   if (cpu_params.to_output_dirty) {
+    //     gpu_params.to_output_lut_.Reset();
+    //     gpu_params.to_output_lut_ = CreateLUTTextureObject(cpu_params.to_output_lut_baker);
+    //     cpu_params.to_output_dirty_ = false;
+    //   } else {
+    //     gpu_params.to_output_lut_ = orig_resources.uploaded_params_.to_output_lut_;
+    //   }
+    // Currently the ACES-2 and OpenDRT runtime params are uploaded directly via
+    // to_output_params_ (see below), so no 3D LUT is needed for the output transform.
 
     gpu_params.curve_enabled_       = fused_params.curve_enabled_;
     gpu_params.curve_ctrl_pts_size_ = fused_params.curve_ctrl_pts_size_;

@@ -2,18 +2,17 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-// TODO: Change tasks to MPMS Queue to improve efficiency
-
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <future>
 #include <memory>
-#include <queue>
 #include <type_traits>
 #include <vector>
 
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 #include "utils/queue/queue.hpp"
 
 #pragma once
@@ -47,13 +46,19 @@ class ThreadPool {
   }
 
  private:
-  std::queue<std::function<void()>> tasks_;
-  std::mutex                        mtx_;
-  std::condition_variable           condition_;
-  std::vector<std::thread>          workers_;
+  static constexpr size_t kQueueCapacity = 4096;
 
-  bool                              stop_;
+  // MPMS ring-buffer queue — producers push lock-free, consumers pop lock-free.
+  // A separate condition variable + mutex are used only for worker wake-up and
+  // stop-signal coordination, not for queue access itself.
+  LockFreeMPMCQueue<std::function<void()>> tasks_;
 
-  void                              WorkerThread();
+  std::mutex                              wake_mtx_;
+  std::condition_variable                 wake_cv_;
+  std::vector<std::thread>                workers_;
+
+  std::atomic<bool>                       stop_;
+
+  void                                    WorkerThread();
 };
 };  // namespace alcedo

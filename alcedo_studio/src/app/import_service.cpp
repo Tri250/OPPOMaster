@@ -52,8 +52,10 @@ auto ImportServiceImpl::ImportToFolder(const std::vector<image_path_t>& paths,
                                        std::shared_ptr<ImportJob> job)
     -> std::shared_ptr<ImportJob> {
   (void)options;
-  // TODO: Use sleeve service to interact with FS
-  // The current implementation is a temporary solution
+  // DESIGN_INTENT: Use sleeve service to interact with FS directly instead of
+  // reaching into fs_service_ here.  The current implementation is a temporary
+  // solution that will be replaced once the import pipeline is refactored to go
+  // through SleeveService exclusively.
   auto import_log = std::make_shared<ImportLog>();
   if (job) {
     job->import_log_ = import_log;
@@ -131,7 +133,9 @@ auto ImportServiceImpl::ImportToFolder(const std::vector<image_path_t>& paths,
     auto image_ptr = image_handler_ptr->Get();
     image_ptr->image_path_ = image_path;
     image_ptr->image_name_ = file_name;
-    // TODO: Parse image type for future use
+    // DESIGN_INTENT: Parse image type (e.g. JPEG, RAW) from file content/extension
+    // so that ImageType can be set accurately instead of leaving it as DEFAULT.
+    // This is deferred until the import pipeline supports type-specific decode paths.
 
     // Link the image to the SleeveFile
     sleeve_file->SetImage(image_ptr);

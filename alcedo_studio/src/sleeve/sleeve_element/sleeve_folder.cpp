@@ -135,11 +135,12 @@ auto SleeveFolder::ContainsElementId(sl_element_id_t element_id) const -> bool {
 }
 
 auto SleeveFolder::Clear() -> bool {
-  // TODO: Add Implementation
   contents_.clear();
   indicies_cache_.clear();
   indicies_cache_[default_filter_] = {};
-  children_loaded_                 = true;
+  file_count_                       = 0;
+  folder_count_                     = 0;
+  children_loaded_                  = true;
 
   return true;
 }

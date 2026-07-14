@@ -20,6 +20,7 @@
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 #include "type/type.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 #include "utils/id/id_generator.hpp"
 
 namespace alcedo {
@@ -75,8 +76,13 @@ auto PathResolver::Resolve(const std::filesystem::path& path) -> std::shared_ptr
 
   for (const auto& part : visit_path) {
     if (current->type_ == ElementType::FILE) {
-      // TODO: add customized exception class
-      throw std::runtime_error("Path Resolver: Illegal path.");
+      // ALCEDO_DESIGN_NOTE: A custom PathResolutionException would carry the resolved
+      // file path and the remaining unresolved path components, making it easier for
+      // callers to distinguish "traversed through a file" from other path errors.
+      qCWarning(alcedo::diag::appLog,
+                "PathResolver: attempted to traverse through a file node (id=%u) as if it were a folder",
+                current->element_id_);
+      throw std::runtime_error("Path Resolver: Illegal path — encountered a file where a folder was expected.");
     }
 
     std::shared_ptr<SleeveFolder> folder = std::static_pointer_cast<SleeveFolder>(current);

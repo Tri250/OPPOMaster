@@ -477,7 +477,11 @@ void FileSystem::Copy(std::filesystem::path from, std::filesystem::path dest) {
 auto FileSystem::ApplyFilterToFolder(const std::filesystem::path&       folder_path,
                                      const std::shared_ptr<FilterCombo> filter)
     -> std::vector<std::shared_ptr<SleeveElement>> {
-  // TODO: Decouple this into a separate FilterService
+  // ALCEDO_DESIGN_NOTE: Filter logic should be decoupled from FileSystem into a dedicated
+  // FilterService.  FileSystem is responsible for path resolution and element lifecycle;
+  // filtering is a query concern that belongs in its own service layer.  This method remains
+  // here temporarily because the filter index cache lives on SleeveFolder, and moving it
+  // requires a coordinated refactor of the sleeve element hierarchy.
   if (!resolver_.Contains(folder_path, ElementType::FOLDER)) {
     throw std::runtime_error("Filesystem: Specified folder does not exist");
   }

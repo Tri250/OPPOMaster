@@ -10,6 +10,8 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "utils/diagnostics/app_logging.hpp"
+
 namespace duckorm {
 void PreparedStatement::RecycleResources() {
   if (stmt_) {
@@ -27,7 +29,10 @@ PreparedStatement::PreparedStatement(duckdb_connection& con, const std::string& 
     : stmt_(), con_(con) {
   std::memset(&result_, 0, sizeof(result_));
 
-  // FIXME: Unified error handling
+  // ALCEDO_DESIGN_NOTE: Unified error handling for prepared statements is needed.
+  // The current pattern uses a mix of std::cerr and exceptions.  Once the error-handling
+  // strategy is finalized, all DuckDB errors should go through a single path (log + throw
+  // or log + return error code) so callers don't have to catch in two places.
   try {
     if (duckdb_prepare(con_, prepare_query.c_str(), &stmt_) != DuckDBSuccess) {
       const char* err = duckdb_prepare_error(stmt_);
@@ -40,7 +45,7 @@ PreparedStatement::PreparedStatement(duckdb_connection& con, const std::string& 
       throw std::runtime_error(msg);
     }
   } catch (const std::exception& e) {
-    std::cerr << "Exception in PreparedStatement constructor: " << e.what() << std::endl;
+    qCCritical(alcedo::diag::appLog, "Exception in PreparedStatement constructor: %s", e.what());
     RecycleResources();
     throw;
   }

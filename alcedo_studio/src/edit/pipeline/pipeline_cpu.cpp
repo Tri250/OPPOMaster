@@ -25,6 +25,7 @@
 #include "edit/pipeline/default_pipeline_params.hpp"
 #include "edit/pipeline/pipeline_stage.hpp"
 #include "image/image_buffer.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 
@@ -278,19 +279,24 @@ auto CPUPipelineExecutor::Apply(std::shared_ptr<ImageBuffer> input)
 }
 
 [[deprecated("SetPreviewMode is deprecated, set from pipeline scheduler instead")]] void
-CPUPipelineExecutor::SetPreviewMode(bool) {
-  // is_thumbnail_  = is_thumbnail;
+CPUPipelineExecutor::SetPreviewMode(bool is_thumbnail) {
+  is_thumbnail_ = is_thumbnail;
 
-  // render_params_ = {};  // TODO: Use default params for now
-  // if (!is_thumbnail_) {
-  //   // Disable resizing in image loading stage
-  //   stages_[static_cast<int>(PipelineStageName::Image_Loading)].EnableOperator(
-  //       OperatorType::RESIZE,
-  //       false);  // If RESIZE operator not exist, this function will do nothing
-  //   return;
-  // }
-  // stages_[static_cast<int>(PipelineStageName::Geometry_Adjustment)].SetOperator(
-  //     OperatorType::RESIZE, render_params_);
+  render_params_["resize"]                         = {};
+  render_params_["resize"]["downsample_algorithm"] = ToResizeAlgorithmParam(
+      ResizeDownsampleAlgorithm::Area);
+  render_params_["resize"]["enable_scale"]         = is_thumbnail_;
+  render_params_["resize"]["maximum_edge"]         = 2048;
+
+  if (!is_thumbnail_) {
+    // Disable resizing in image loading stage
+    stages_[static_cast<int>(PipelineStageName::Image_Loading)].EnableOperator(
+        OperatorType::RESIZE,
+        false);  // If RESIZE operator not exist, this function will do nothing
+    return;
+  }
+  stages_[static_cast<int>(PipelineStageName::Geometry_Adjustment)].SetOperator(
+      OperatorType::RESIZE, render_params_);
 }
 
 void CPUPipelineExecutor::SetExecutionStages() {
@@ -525,7 +531,9 @@ void CPUPipelineExecutor::SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm
 void CPUPipelineExecutor::SetDecodeRes(DecodeRes res) {
   decode_res_ = res;
 
-  // TODO: Abstraction leak, need better design later
+  qCWarning(appLog) << "CPUPipelineExecutor::SetDecodeRes: abstraction leak — directly accessing"
+                    << "RawDecode operator params from pipeline executor";
+
   auto& raw_stage = GetStage(PipelineStageName::Image_Loading);
   auto  raw_param = raw_stage.GetOperator(OperatorType::RAW_DECODE).value()->ExportOperatorParams();
   auto& params = raw_param["params"];

@@ -25,7 +25,10 @@ SleeveFile::SleeveFile(sl_element_id_t id, file_name_t element_name, std::shared
 }
 
 auto SleeveFile::Clear() -> bool {
-  // FIXME: Add implementation
+  image_.reset();
+  edit_history_.reset();
+  current_version_.reset();
+  image_id_ = 0;
   return true;
 }
 
@@ -33,8 +36,8 @@ auto SleeveFile::Copy(uint32_t new_id) const -> std::shared_ptr<SleeveElement> {
   std::shared_ptr<SleeveFile> new_file = std::make_shared<SleeveFile>(new_id, element_name_);
   new_file->edit_history_              =
       edit_history_ ? edit_history_->CloneForFile(new_id) : std::make_shared<EditHistory>(new_id);
-  // TODO: Update the current_version pointer once finish implementing edit history module
-  new_file->current_version_           = nullptr;
+  new_file->current_version_           =
+      std::make_shared<Version>(new_file->edit_history_->GetActiveVersion());
   // The image object is still reused
   new_file->image_                     = image_;
   new_file->image_id_                  = image_id_;
