@@ -48,6 +48,8 @@ jobs:
 
       - name: Configure CMake
         run: cmake --preset win_debug
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.OPENCL_ROOT }}
 
       - name: Build CI targets
         run: cmake --build --preset win_debug

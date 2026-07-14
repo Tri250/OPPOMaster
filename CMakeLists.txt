@@ -435,12 +435,17 @@ find_package(Exiv2 QUIET CONFIG)
 if (TARGET Exiv2::Exiv2 AND NOT TARGET Exiv2)
     add_library(Exiv2 ALIAS Exiv2::Exiv2)
 elseif(WIN32)
-    add_library(Exiv2 SHARED IMPORTED)
-    set_target_properties(Exiv2 PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/bin/exiv2.dll"
-        IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/lib/exiv2.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/include"
-    )
+    # Prefer vcpkg-installed Exiv2; fall back to local third_party only if present.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/lib/exiv2.lib")
+        add_library(Exiv2 SHARED IMPORTED)
+        set_target_properties(Exiv2 PROPERTIES
+            IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/bin/exiv2.dll"
+            IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/lib/exiv2.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/include"
+        )
+    else()
+        message(FATAL_ERROR "Exiv2 not found. Install via vcpkg (exiv2) or provide alcedo_studio/third_party/exiv2_x64-windows.")
+    endif()
 else()
   find_library(EXIV2_LIB NAMES exiv2 PATHS ${ALCEDO_LIBRARY_HINTS})
   find_path(EXIV2_INC NAMES exiv2/exiv2.hpp PATHS ${ALCEDO_INCLUDE_HINTS})
@@ -469,6 +474,21 @@ if (WIN32)
             INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows")
     else()
         message(FATAL_ERROR "DuckDB not found. Install vcpkg package `duckdb` or provide alcedo_studio/third_party/libduckdb-windows.")
+    endif()
+    # Ensure the DuckDB DLL is copied next to the executable at build time
+    # when using the vcpkg-installed DuckDB (not the third_party fallback).
+    if(DUCKDB_INC AND DUCKDB_LIB AND TARGET alcedo_main)
+        get_filename_component(_duckdb_lib_dir "${DUCKDB_LIB}" DIRECTORY)
+        set(_duckdb_dll_candidate "${_duckdb_lib_dir}/../bin/duckdb.dll")
+        file(TO_CMAKE_PATH "${_duckdb_dll_candidate}" _duckdb_dll_candidate)
+        if(EXISTS "${_duckdb_dll_candidate}")
+            add_custom_command(TARGET alcedo_main POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_duckdb_dll_candidate}"
+                    "$<TARGET_FILE_DIR:alcedo_main>/duckdb.dll"
+                VERBATIM
+            )
+        endif()
     endif()
 else()        
   find_path(DUCKDB_INC NAMES duckdb.h PATHS ${ALCEDO_INCLUDE_HINTS})

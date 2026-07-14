@@ -64,8 +64,17 @@ $requiredFiles = @(
     'config\icc\rec709_gamma22.icc'
 )
 
+$requiredDirectories = @(
+    'LUTs',
+    'config\lens_calib'
+)
+
 foreach ($file in $requiredFiles) {
     Assert-File (Join-Path $binDir $file)
+}
+
+foreach ($dir in $requiredDirectories) {
+    Assert-Directory (Join-Path $binDir $dir)
 }
 
 Assert-AnyFile -Directory $binDir -Filter 'cudart64_*.dll'

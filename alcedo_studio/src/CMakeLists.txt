@@ -1668,6 +1668,9 @@ if(WIN32)
     set(ALCEDO_MAIN_ICON_RC "${CMAKE_CURRENT_SOURCE_DIR}/config/ICON/alcedo_main.rc")
     if(EXISTS "${ALCEDO_MAIN_ICON_RC}")
         target_sources(alcedo_main PRIVATE "${ALCEDO_MAIN_ICON_RC}")
+        # The RC file references "alcedo_icon.ico" as a relative path;
+        # add the ICON directory as an include path so the RC compiler can find it.
+        target_include_directories(alcedo_main PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/config/ICON")
     else()
         message(WARNING "Windows app icon resource not found: ${ALCEDO_MAIN_ICON_RC}")
     endif()

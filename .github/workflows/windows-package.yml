@@ -76,6 +76,11 @@ jobs:
         run: |
           choco install nsis -y --no-progress
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
       - name: Install vcpkg dependencies
         uses: lukka/run-vcpkg@v11
         with:
@@ -87,6 +92,8 @@ jobs:
             -DALCEDO_QT_PREFIX="$env:Qt6_Dir" `
             -DALCEDO_DUCKDB_VSS_EXTENSION="$env:ALCEDO_DUCKDB_VSS_EXTENSION" `
             -DALCEDO_DUCKDB_FTS_EXTENSION="$env:ALCEDO_DUCKDB_FTS_EXTENSION"
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.OPENCL_ROOT }}
 
       - name: Build
         run: cmake --build --preset win_release --parallel 4
