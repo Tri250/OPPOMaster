@@ -66,7 +66,14 @@ jobs:
         run: |
           cmake --preset macos_release \
             -DALCEDO_DUCKDB_VSS_EXTENSION="${ALCEDO_DUCKDB_VSS_EXTENSION}" \
-            -DALCEDO_DUCKDB_FTS_EXTENSION="${ALCEDO_DUCKDB_FTS_EXTENSION}"
+            -DALCEDO_DUCKDB_FTS_EXTENSION="${ALCEDO_DUCKDB_FTS_EXTENSION}" \
+          || {
+            echo "=== CMake configure failed. Dumping logs ==="
+            cat build/macos-release/CMakeFiles/CMakeError.log 2>/dev/null || true
+            echo "=== CMakeOutput.log tail ==="
+            tail -n 100 build/macos-release/CMakeFiles/CMakeOutput.log 2>/dev/null || true
+            exit 1
+          }
 
       - name: Build
         run: cmake --build --preset macos_release --parallel $(sysctl -n hw.logicalcpu)
