@@ -31,7 +31,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          submodules: recursive
 
       - name: Prepare third-party source trees
         run: bash scripts/ci_prepare_third_party.sh
