@@ -1,0 +1,106 @@
+name: Linux Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (Release or Debug)'
+        required: false
+        default: 'Release'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build Linux Package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Prepare third-party source trees
+        run: bash scripts/ci_prepare_third_party.sh
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config git \
+            qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-declarative-dev \
+            qt6-svg-dev qt6-wayland qt6-l10n-tools \
+            libgl-dev libvulkan-dev libxkbcommon-dev \
+            libopencv-dev libopencolorio-dev libopenimageio-dev \
+            libexiv2-dev liblcms2-dev \
+            libduckdb-dev libxxhash-dev libeigen3-dev libhwy-dev libglib2.0-dev \
+            libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc \
+            libomp-dev
+
+      - name: Configure CMake
+        run: cmake --preset linux_release
+
+      - name: Build
+        run: cmake --build --preset linux_release --parallel $(nproc)
+
+      - name: Install
+        run: cmake --install build/linux-release --prefix build/install
+
+      - name: Package with CPack
+        run: |
+          mkdir -p build/package
+          cpack --config build/linux-release/CPackConfig.cmake -B build/package
+
+      - name: List generated packages
+        run: |
+          for f in build/package/*.zip; do
+            [ -e "$f" ] || continue
+            size=$(du -h "$f" | cut -f1)
+            echo "  $(basename "$f") ($size)"
+          done
+
+      - name: Upload ZIP archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlcedoStudio-Linux-ZIP
+          path: build/package/*.zip
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          assets=()
+          for f in build/package/*.zip; do
+            [ -e "$f" ] && assets+=("$f")
+          done
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No package assets found."
+            exit 1
+          fi
+          # Try to create release; if it already exists, upload assets instead.
+          if gh release create "$tag" \
+              --title "Alcedo Studio $tag" \
+              --notes "Alcedo Studio $tag release packages." \
+              "${assets[@]}"; then
+            echo "Created release and uploaded assets."
+          else
+            echo "Release may already exist; uploading assets with --clobber..."
+            gh release upload "$tag" "${assets[@]}" --clobber
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
