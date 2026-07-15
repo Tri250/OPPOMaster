@@ -147,18 +147,28 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Create GitHub Release
+      - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
-          $releaseArgs = @(
+          $assets = Get-ChildItem -Path "build/package" -Include *.msi,*.exe,*.zip -Recurse | Select-Object -ExpandProperty FullName
+          if ($assets.Count -eq 0) {
+            Write-Error "No package assets found."
+            exit 1
+          }
+          $createArgs = @(
             'release', 'create', $tag,
             '--title', "Alcedo Studio $tag",
-            '--notes', "Windows installer packages for Alcedo Studio $tag."
+            '--notes', "Alcedo Studio $tag release packages."
           )
-          Get-ChildItem -Path "build/package" -Include *.msi,*.exe,*.zip -Recurse | ForEach-Object {
-            $releaseArgs += $_.FullName
+          $createArgs += $assets
+          & gh @createArgs
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release may already exist; uploading assets with --clobber..."
+            $uploadArgs = @('release', 'upload', $tag)
+            $uploadArgs += $assets
+            $uploadArgs += '--clobber'
+            & gh @uploadArgs
           }
-          & gh @releaseArgs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
