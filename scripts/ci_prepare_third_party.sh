@@ -42,13 +42,13 @@ clone_if_missing \
   "https://github.com/lensfun/lensfun.git"
 
 if [[ ! -e "alcedo_studio/src/third_party/libultrahdr/third_party/image_io/includes/image_io/base/data_segment_data_source.h" ]]; then
-  git submodule sync -- "alcedo_studio/src/third_party/libultrahdr"
-  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libultrahdr"
+  rm -rf "alcedo_studio/src/third_party/libultrahdr"
+  git clone --depth 1 --branch alcedo-v1.4.0-dither https://github.com/zidage/libultrahdr.git alcedo_studio/src/third_party/libultrahdr
 fi
 
 if [[ ! -e "alcedo_studio/src/third_party/libraw/libraw/libraw.h" ]]; then
-  git submodule sync -- "alcedo_studio/src/third_party/libraw"
-  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libraw"
+  rm -rf "alcedo_studio/src/third_party/libraw"
+  git clone --depth 1 --branch codex/merge-pr-825-826 https://github.com/zidage/LibRaw.git alcedo_studio/src/third_party/libraw
 fi
 
 # The CI preset forces PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON, so gRPC and protobuf
