@@ -7,6 +7,7 @@ macro(def_library target_name)
     
     add_library(${target_name} ${ARG_SOURCES})
     target_include_directories(${target_name} PUBLIC include)
+    target_link_libraries(${target_name} PUBLIC Qt6::Core)
     
     if(ARG_PUBLIC_DEPS)
         target_link_libraries(${target_name} PUBLIC ${ARG_PUBLIC_DEPS})
@@ -1781,11 +1782,7 @@ set(ALCEDO_TRANSLATION_TS_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_de.ts
 )
 
-qt_add_translations(TARGETS alcedo_main
-    SOURCE_TARGETS
-        alcedo_main
-        AlbumBackendLib
-        UiLocalization
+qt_add_translations(alcedo_main
     TS_FILES
         ${ALCEDO_TRANSLATION_TS_FILES}
     RESOURCE_PREFIX

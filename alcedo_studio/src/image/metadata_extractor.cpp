@@ -1177,7 +1177,7 @@ void PopulateDngMetadataHintFromOpenLibRaw(LibRaw& raw_processor, ExifDisplayMet
 }
 
 auto ExtractDngMetadataToImageFast(const image_path_t& image_path, Image& image) -> bool {
-  Exiv2::Image::UniquePtr exif_image;
+  std::unique_ptr<Exiv2::Image> exif_image;
   try {
     exif_image = MetadataExtractor::ExtractEXIF(image_path);
   } catch (...) {
@@ -1546,24 +1546,24 @@ void PopulateStandardRating(const Exiv2::Image& exif_image,
   }
 }
 
-auto MetadataExtractor::ExtractEXIF(const image_path_t& image_path) -> Exiv2::Image::UniquePtr {
-  Exiv2::Image::UniquePtr image = Exiv2::ImageFactory::open(image_path.string());
+auto MetadataExtractor::ExtractEXIF(const image_path_t& image_path) -> std::unique_ptr<Exiv2::Image> {
+  std::unique_ptr<Exiv2::Image> image = Exiv2::ImageFactory::open(image_path.string());
   image->readMetadata();
   return image;
 }
 
 auto MetadataExtractor::ExtractEXIFFromBuffer(const uint8_t* buffer, size_t size)
-    -> Exiv2::Image::UniquePtr {
+    -> std::unique_ptr<Exiv2::Image> {
   if (!buffer || size == 0) {
     throw std::runtime_error("MetadataExtractor: empty buffer");
   }
-  Exiv2::Image::UniquePtr image =
+  std::unique_ptr<Exiv2::Image> image =
       Exiv2::ImageFactory::open(reinterpret_cast<const Exiv2::byte*>(buffer), size);
   image->readMetadata();
   return image;
 }
 
-auto MetadataExtractor::EXIFToDisplayMetaData(const Exiv2::Image::UniquePtr& exif_data)
+auto MetadataExtractor::EXIFToDisplayMetaData(const std::unique_ptr<Exiv2::Image>& exif_data)
     -> ExifDisplayMetaData {
   ExifDisplayMetaData display_metadata;
   if (!exif_data) {
@@ -1595,7 +1595,7 @@ auto MetadataExtractor::BufferToDisplayMetaData(const uint8_t* buffer, size_t si
 }
 
 
-auto MetadataExtractor::EXIFToJSON(const Exiv2::Image::UniquePtr& exif_data) -> nlohmann::json {
+auto MetadataExtractor::EXIFToJSON(const std::unique_ptr<Exiv2::Image>& exif_data) -> nlohmann::json {
   // The full EXIF is too large, we only convert the display-friendly metadata to JSON
   nlohmann::json exif_json;
   auto           display_metadata = EXIFToDisplayMetaData(exif_data);

@@ -106,7 +106,7 @@
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="573"/>
         <source>Metadata &amp; Output</source>
-        <translation>Metadaten & Ausgabe</translation>
+        <translation>Metadaten &amp; Ausgabe</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="601"/>
@@ -508,7 +508,7 @@
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="299"/>
         <source>Crop &amp; Aspect Ratio</source>
-        <translation>Zuschnitt & Seitenverhältnis</translation>
+        <translation>Zuschnitt &amp; Seitenverhältnis</translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="300"/>
@@ -518,7 +518,7 @@
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="301"/>
         <source>Rotate &amp; Flip</source>
-        <translation>Drehen & Spiegeln</translation>
+        <translation>Drehen &amp; Spiegeln</translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="302"/>

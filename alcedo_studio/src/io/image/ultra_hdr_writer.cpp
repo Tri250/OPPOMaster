@@ -398,7 +398,7 @@ void AttachExifToJpeg(const std::filesystem::path& path, const std::vector<uint8
     return;
   }
 
-  auto image = Exiv2::ImageFactory::open(PathToUtf8(path));
+  std::unique_ptr<Exiv2::Image> image = Exiv2::ImageFactory::open(PathToUtf8(path));
   if (!image) {
     throw std::runtime_error("UltraHdrWriter: failed to reopen base JPEG for EXIF injection.");
   }
@@ -464,7 +464,7 @@ auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int
                                             const std::optional<ExifDisplayMetaData>&
                                                 export_metadata) -> std::vector<uint8_t> {
   try {
-    auto image = Exiv2::ImageFactory::open(PathToUtf8(source_path));
+    std::unique_ptr<Exiv2::Image> image = Exiv2::ImageFactory::open(PathToUtf8(source_path));
     if (!image) {
       return {};
     }
@@ -547,10 +547,11 @@ void UltraHdrWriter::WriteImageToPath(const image_path_t&             src_path,
   ThrowIfUhdrError(uhdr_enc_set_quality(encoder.get(), options.ultra_hdr_quality_,
                                         UHDR_GAIN_MAP_IMG),
                    "uhdr_enc_set_quality(gainmap)");
-  ThrowIfUhdrError(
-      uhdr_enc_set_using_gainmap_dithering(encoder.get(),
-                                           options.ultra_hdr_dither_enabled_ ? 1 : 0),
-      "uhdr_enc_set_using_gainmap_dithering");
+  // uhdr_enc_set_using_gainmap_dithering not available in this libultrahdr version
+  // ThrowIfUhdrError(
+  //     uhdr_enc_set_using_gainmap_dithering(encoder.get(),
+  //                                          options.ultra_hdr_dither_enabled_ ? 1 : 0),
+  //     "uhdr_enc_set_using_gainmap_dithering");
   ThrowIfUhdrError(uhdr_enc_set_gainmap_scale_factor(encoder.get(), kUltraHdrGainMapScaleFactor),
                    "uhdr_enc_set_gainmap_scale_factor");
   ThrowIfUhdrError(uhdr_enc_set_using_multi_channel_gainmap(encoder.get(), 1),

@@ -9,6 +9,10 @@
 
 #include <chrono>
 
+// Logging macros that use QLoggingCategory
+#define ALCEDO_LOG_DEBUG(...) qCDebug(alcedo::diag::appLog, __VA_ARGS__)
+#define ALCEDO_LOG_WARN(...)  qCWarning(alcedo::diag::appLog, __VA_ARGS__)
+
 namespace alcedo::diag {
 
 Q_DECLARE_LOGGING_CATEGORY(appLog)

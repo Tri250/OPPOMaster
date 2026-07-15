@@ -11,6 +11,8 @@
 #include <exiv2/exiv2.hpp>
 #include <json.hpp>
 
+
+
 #include "utils/import/import_error_code.hpp"
 #include "decoders/processor/raw_color_context.hpp"
 #include "image.hpp"
@@ -49,11 +51,11 @@ class MetadataExtractor {
    * @brief Extract EXIF metadata from image file
    *
    * @param image_path
-   * @return Exiv2::Image::UniquePtr
+   * @return std::unique_ptr<Exiv2::Image>
    */
-  static auto ExtractEXIF(const image_path_t& image_path) -> Exiv2::Image::UniquePtr;
+  static auto ExtractEXIF(const image_path_t& image_path) -> std::unique_ptr<Exiv2::Image>;
   static auto ExtractEXIFFromBuffer(const uint8_t* buffer, size_t size)
-      -> Exiv2::Image::UniquePtr;
+      -> std::unique_ptr<Exiv2::Image>;
 
   /**
    * @brief Convert EXIF data to JSON format
@@ -61,7 +63,7 @@ class MetadataExtractor {
    * @param exif_data
    * @return nlohmann::json
    */
-  static auto EXIFToJSON(const Exiv2::Image::UniquePtr& exif_data) -> nlohmann::json;
+  static auto EXIFToJSON(const std::unique_ptr<Exiv2::Image>& exif_data) -> nlohmann::json;
 
   /**
    * @brief Convert EXIF data to display-friendly format
@@ -69,7 +71,7 @@ class MetadataExtractor {
    * @param exif_data
    * @return ExifDisplayMetaData
    */
-  static auto EXIFToDisplayMetaData(const Exiv2::Image::UniquePtr& exif_data)
+  static auto EXIFToDisplayMetaData(const std::unique_ptr<Exiv2::Image>& exif_data)
       -> ExifDisplayMetaData;
   static auto BufferToDisplayMetaData(const uint8_t* buffer, size_t size)
       -> ExifDisplayMetaData;
