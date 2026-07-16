@@ -466,8 +466,15 @@ if (NOT TARGET OpenImageIO::OpenImageIO)
 endif()
 
 # Exiv2
+# vcpkg installs exiv2 with lowercase CMake package name (exiv2Config.cmake),
+# while Homebrew/system packages may use mixed case. Try both.
 find_package(Exiv2 QUIET CONFIG)
-if (TARGET Exiv2::Exiv2 AND NOT TARGET Exiv2)
+if(NOT TARGET Exiv2::Exiv2)
+    find_package(exiv2 QUIET CONFIG)
+endif()
+if (TARGET Exiv2::exiv2lib AND NOT TARGET Exiv2)
+    add_library(Exiv2 ALIAS Exiv2::exiv2lib)
+elseif (TARGET Exiv2::Exiv2 AND NOT TARGET Exiv2)
     add_library(Exiv2 ALIAS Exiv2::Exiv2)
 elseif(WIN32)
     # Prefer vcpkg-installed Exiv2; fall back to local third_party only if present.
