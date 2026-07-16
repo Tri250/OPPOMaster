@@ -45,16 +45,25 @@ jobs:
             libgl-dev libvulkan-dev libxkbcommon-dev \
             libopencv-dev libopencolorio-dev libopenimageio-dev \
             libexiv2-dev liblcms2-dev \
-            libduckdb-dev libxxhash-dev libeigen3-dev libhwy-dev libglib2.0-dev \
+            libxxhash-dev libeigen3-dev libhwy-dev libglib2.0-dev \
             libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc \
             libomp-dev \
           || {
             echo "=== apt install failed. Diagnosing unavailable packages ==="
-            for pkg in build-essential cmake ninja-build pkg-config git qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-declarative-dev qt6-svg-dev qt6-wayland qt6-l10n-tools libgl-dev libvulkan-dev libxkbcommon-dev libopencv-dev libopencolorio-dev libopenimageio-dev libexiv2-dev liblcms2-dev libduckdb-dev libxxhash-dev libeigen3-dev libhwy-dev libglib2.0-dev libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc libomp-dev; do
+            for pkg in build-essential cmake ninja-build pkg-config git qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-declarative-dev qt6-svg-dev qt6-wayland qt6-l10n-tools libgl-dev libvulkan-dev libxkbcommon-dev libopencv-dev libopencolorio-dev libopenimageio-dev libexiv2-dev liblcms2-dev libxxhash-dev libeigen3-dev libhwy-dev libglib2.0-dev libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc libomp-dev; do
               apt-cache policy "$pkg" 2>/dev/null || echo "$pkg: NOT FOUND IN APT CACHE"
             done
             exit 1
           }
+
+      - name: Install DuckDB
+        run: |
+          DUCKDB_VERSION="1.5.4"
+          curl -fsSL "https://install.duckdb.org/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -o /tmp/duckdb.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local
+          sudo cp /usr/local/libduckdb.so /usr/local/lib/libduckdb.so 2>/dev/null || true
+          sudo ldconfig
+          echo "DuckDB version: $(duckdb --version 2>/dev/null || echo "library only")"
 
       - name: Configure CMake
         run: cmake --preset linux_release
