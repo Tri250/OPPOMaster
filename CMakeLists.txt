@@ -209,13 +209,22 @@ set(ALCEDO_QT_COMPONENTS
     Qml
     QuickControls2
     QuickDialogs2
-    QuickEffects
     Network
 )
-if(ALCEDO_BUILD_TESTS)
-    list(APPEND ALCEDO_QT_COMPONENTS Test)
-endif()
+# QuickEffects: not available in Ubuntu 24.04 Qt6 packages; make it optional
 find_package(Qt6 REQUIRED COMPONENTS ${ALCEDO_QT_COMPONENTS})
+find_package(Qt6 QUIET COMPONENTS QuickEffects)
+if(Qt6QuickEffects_FOUND)
+    list(APPEND ALCEDO_QT_COMPONENTS QuickEffects)
+    set(ALCEDO_HAS_QT_QUICK_EFFECTS TRUE)
+    message(STATUS "Qt6::QuickEffects found")
+else()
+    set(ALCEDO_HAS_QT_QUICK_EFFECTS FALSE)
+    message(WARNING "Qt6::QuickEffects not found — QML MultiEffect visuals will be degraded")
+endif()
+if(ALCEDO_BUILD_TESTS)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+endif()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)

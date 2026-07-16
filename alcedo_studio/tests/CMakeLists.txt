@@ -1058,10 +1058,12 @@ target_link_libraries(GlobalSearchDialogQmlTest
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
-        Qt6::QuickEffects
         Qt6::Svg
         Qt6::Widgets
 )
+if(ALCEDO_HAS_QT_QUICK_EFFECTS)
+    target_link_libraries(GlobalSearchDialogQmlTest PRIVATE Qt6::QuickEffects)
+endif()
 target_compile_definitions(GlobalSearchDialogQmlTest
     PRIVATE ALCEDO_TEST_SRC_DIR="${ALCEDO_SRC_DIR}"
 )

@@ -1693,7 +1693,6 @@ target_link_libraries(alcedo_main
         Qt6::QuickDialogs2
         Qt6::Widgets
         Qt6::Svg
-        Qt6::QuickEffects
         MaskEngine
         Denoiser
         PanoramaStitcher
@@ -1710,6 +1709,10 @@ target_link_libraries(alcedo_main
         ExportEnhancements
         UiScopes
 )
+
+if(ALCEDO_HAS_QT_QUICK_EFFECTS)
+    target_link_libraries(alcedo_main PRIVATE Qt6::QuickEffects)
+endif()
 
 if(WIN32 AND ALCEDO_OPENCL_ENABLED)
     target_link_libraries(alcedo_main PRIVATE OpenGL::GL)
