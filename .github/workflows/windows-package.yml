@@ -22,7 +22,7 @@ jobs:
   package:
     name: Build Windows Installer
     runs-on: windows-2022
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
 
@@ -96,7 +96,7 @@ jobs:
           CMAKE_PREFIX_PATH: ${{ env.OPENCL_ROOT }}
 
       - name: Build
-        run: cmake --build --preset win_release --parallel 4
+        run: cmake --build --preset win_release --parallel 8
 
       - name: Install
         run: cmake --install build/release --prefix build/install
