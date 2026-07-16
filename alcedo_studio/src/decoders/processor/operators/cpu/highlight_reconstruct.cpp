@@ -52,7 +52,9 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
+#ifdef ALCEDO_HAS_OPENCV_HIGHGUI
 #include <opencv2/highgui.hpp>
+#endif
 #include <opencv2/imgproc.hpp>
 
 #define HL_POWERF 3.0f

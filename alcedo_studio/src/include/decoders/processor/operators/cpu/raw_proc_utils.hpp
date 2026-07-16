@@ -14,7 +14,9 @@
 #include <vector>
 
 #include <opencv2/core.hpp>
+#ifdef ALCEDO_HAS_OPENCV_HIGHGUI
 #include <opencv2/highgui.hpp>
+#endif
 #include <opencv2/imgproc.hpp>
 
 #include "hwy/highway.h"
@@ -206,10 +208,14 @@ void boxblur_resamp(const cv::Mat1f& src, cv::Mat1f& dst, cv::Mat1f& temp, int H
                     int samp);
 
 inline static void DebuggingPreview(cv::Mat& src) {
+#ifdef ALCEDO_HAS_OPENCV_HIGHGUI
   cv::Mat resized;
   cv::resize(src, resized, cv::Size(512, 512));
   cv::imshow("Debugging Preview", resized);
   cv::waitKey(0);
+#else
+  (void)src;
+#endif
 }
 };  // namespace CPU
 };  // namespace alcedo

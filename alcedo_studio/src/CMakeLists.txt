@@ -28,8 +28,10 @@ set(ALCEDO_OPENCV_IMAGE_DEPS
     opencv_core
     opencv_imgproc
     opencv_imgcodecs
-    opencv_highgui
 )
+if(ALCEDO_HAS_OPENCV_HIGHGUI)
+    list(APPEND ALCEDO_OPENCV_IMAGE_DEPS opencv_highgui)
+endif()
 
 def_library(ThreadPool SOURCES concurrency/thread_pool.cpp)
 if(ALCEDO_METAL_ENABLED)
@@ -1712,6 +1714,10 @@ target_link_libraries(alcedo_main
 
 if(ALCEDO_HAS_QT_QUICK_EFFECTS)
     target_link_libraries(alcedo_main PRIVATE Qt6::QuickEffects)
+endif()
+
+if(ALCEDO_HAS_OPENCV_HIGHGUI)
+    target_compile_definitions(alcedo_main PRIVATE ALCEDO_HAS_OPENCV_HIGHGUI)
 endif()
 
 if(WIN32 AND ALCEDO_OPENCL_ENABLED)

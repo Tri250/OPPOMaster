@@ -11,7 +11,9 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#ifdef ALCEDO_HAS_OPENCV_HIGHGUI
 #include <opencv2/highgui.hpp>
+#endif
 #include <sstream>
 #include <stdexcept>
 #include <vector>

@@ -7,7 +7,9 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
+#ifdef ALCEDO_HAS_OPENCV_HIGHGUI
 #include <opencv2/highgui.hpp>
+#endif
 #include <opencv2/imgproc.hpp>
 #include <opencv2/opencv.hpp>
 

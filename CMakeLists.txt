@@ -368,7 +368,17 @@ target_include_directories(JSON INTERFACE "${CMAKE_SOURCE_DIR}/alcedo_studio/thi
 
 # Other libraries
 # OpenCV
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+# highgui is only used for debug visualisation (cv::imshow etc.); make it optional
+# because vcpkg/homebrew OpenCV may not ship it by default.
+find_package(OpenCV QUIET COMPONENTS highgui)
+if(OpenCV_highgui_FOUND OR TARGET opencv_highgui)
+    set(ALCEDO_HAS_OPENCV_HIGHGUI TRUE)
+    message(STATUS "OpenCV highgui found – debug visualisation available")
+else()
+    set(ALCEDO_HAS_OPENCV_HIGHGUI FALSE)
+    message(STATUS "OpenCV highgui NOT found – debug visualisation disabled")
+endif()
 
 # Eigen3
 find_package(Eigen3 CONFIG REQUIRED)
