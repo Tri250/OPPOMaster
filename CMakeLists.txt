@@ -332,7 +332,23 @@ set_target_properties(MurmurHash3 PROPERTIES
 )
 
 # xxHash
-find_package(xxHash CONFIG REQUIRED)
+find_package(xxHash CONFIG QUIET)
+if (NOT xxHash_FOUND)
+    # Fallback for systems without xxHash CMake config (e.g. Ubuntu libxxhash-dev)
+    find_path(XXHASH_INCLUDE_DIR xxhash.h)
+    find_library(XXHASH_LIBRARY xxhash)
+    if(XXHASH_INCLUDE_DIR AND XXHASH_LIBRARY)
+        add_library(xxhash_imported UNKNOWN IMPORTED)
+        set_target_properties(xxhash_imported PROPERTIES
+            IMPORTED_LOCATION "${XXHASH_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${XXHASH_INCLUDE_DIR}"
+        )
+        add_library(xxHash INTERFACE)
+        target_link_libraries(xxHash INTERFACE xxhash_imported)
+    else()
+        message(FATAL_ERROR "xxHash not found. Install libxxhash-dev or equivalent.")
+    endif()
+endif()
 # Create a unified alias target 'xxHash' so the rest of the project can link to it.
 if (NOT TARGET xxHash)
     add_library(xxHash INTERFACE)
