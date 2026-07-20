@@ -214,7 +214,8 @@
         "ALCEDO_ENABLE_OPENCL": "ON",
         "ALCEDO_ENABLE_OPENGL_EDITOR": "ON",
         "ALCEDO_BUILD_TESTS": "OFF",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install"
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
       }
     }
   ],

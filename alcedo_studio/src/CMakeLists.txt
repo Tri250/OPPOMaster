@@ -33,7 +33,7 @@ if(ALCEDO_HAS_OPENCV_HIGHGUI)
     list(APPEND ALCEDO_OPENCV_IMAGE_DEPS opencv_highgui)
 endif()
 
-def_library(ThreadPool SOURCES concurrency/thread_pool.cpp)
+def_library(ThreadPool SOURCES concurrency/thread_pool.cpp PUBLIC_DEPS Qt6::Core)
 if(ALCEDO_METAL_ENABLED)
     target_link_libraries(ThreadPool PUBLIC alcedo::metal_cpp)
 endif()
@@ -461,9 +461,9 @@ endif()
 def_library(Image
     SOURCES image/image.cpp 
     image/metadata_extractor.cpp
-    PUBLIC_DEPS ImageBuffer
+    PUBLIC_DEPS ImageBuffer Qt6::Core
 )
-target_link_libraries(Image PRIVATE OpenImageIO::OpenImageIO Qt6::Core)
+target_link_libraries(Image PRIVATE OpenImageIO::OpenImageIO)
 
 # Image Pool
 def_library(ImagePool
