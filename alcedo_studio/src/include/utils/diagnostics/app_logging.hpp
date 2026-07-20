@@ -38,3 +38,9 @@ class TraceScope final {
 };
 
 }  // namespace alcedo::diag
+
+using alcedo::diag::appLog;
+using alcedo::diag::editorLog;
+using alcedo::diag::semanticDbLog;
+using alcedo::diag::semanticLog;
+using alcedo::diag::semanticRpcLog;

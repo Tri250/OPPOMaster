@@ -4,14 +4,15 @@
 # Usage: def_library(Name SOURCES src1 src2 PUBLIC_DEPS lib1 PRIVATE_DEPS lib2)
 macro(def_library target_name)
     cmake_parse_arguments(ARG "" "" "SOURCES;PUBLIC_DEPS;PRIVATE_DEPS" ${ARGN})
-    
+
     add_library(${target_name} ${ARG_SOURCES})
     target_include_directories(${target_name} PUBLIC include)
-    
+    target_link_libraries(${target_name} PUBLIC Qt6::Core)
+
     if(ARG_PUBLIC_DEPS)
         target_link_libraries(${target_name} PUBLIC ${ARG_PUBLIC_DEPS})
     endif()
-    
+
     if(ARG_PRIVATE_DEPS)
         target_link_libraries(${target_name} PRIVATE ${ARG_PRIVATE_DEPS})
     endif()
