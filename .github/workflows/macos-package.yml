@@ -86,6 +86,8 @@ jobs:
           ln -sf "${qt_prefix}/share" build/qt-prefix/share || true
           ln -sf "${qt_prefix}/plugins" build/qt-prefix/plugins || true
           ls -la build/qt-prefix/
+          echo "Qt6_DIR=${qt_prefix}/lib/cmake/Qt6" >> "$GITHUB_ENV"
+          echo "QT_DIR=${qt_prefix}" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         run: |
