@@ -463,7 +463,7 @@ def_library(Image
     image/metadata_extractor.cpp
     PUBLIC_DEPS ImageBuffer
 )
-target_link_libraries(Image PRIVATE OpenImageIO::OpenImageIO)
+target_link_libraries(Image PRIVATE OpenImageIO::OpenImageIO Qt6::Core)
 
 # Image Pool
 def_library(ImagePool

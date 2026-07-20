@@ -43,7 +43,7 @@ jobs:
             qt6-base-dev qt6-tools-dev qt6-tools-dev-tools qt6-declarative-dev \
             qt6-svg-dev qt6-wayland qt6-l10n-tools \
             libgl-dev libvulkan-dev libxkbcommon-dev \
-            libopencv-dev libopencolorio-dev libopenimageio-dev \
+            libopencv-dev libopencolorio-dev libopenimageio-dev openimageio-tools \
             libexiv2-dev liblcms2-dev \
             libxxhash-dev libeigen3-dev libhwy-dev libglib2.0-dev \
             libprotobuf-dev protobuf-compiler libgrpc++-dev protobuf-compiler-grpc \
