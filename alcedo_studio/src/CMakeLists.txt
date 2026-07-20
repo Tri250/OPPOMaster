@@ -1789,7 +1789,7 @@ set(ALCEDO_TRANSLATION_TS_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_de.ts
 )
 
-qt_add_translations(TARGET alcedo_main
+qt_add_translations(alcedo_main
     SOURCE_TARGETS
         alcedo_main
         AlbumBackendLib
