@@ -799,11 +799,11 @@ auto ReadExifUnsignedIntTag(const Exiv2::ExifData& exif_data, const char* key, u
   }
 
   try {
-    out_value = static_cast<uint32_t>(it->toUint32());
+    out_value = Exiv2ToUint32(*it);
     return true;
   } catch (...) {
     try {
-      out_value = static_cast<uint32_t>(it->toInt64());
+      out_value = static_cast<uint32_t>(Exiv2ToInt64(*it));
       return true;
     } catch (...) {
       return false;
@@ -1177,7 +1177,7 @@ void PopulateDngMetadataHintFromOpenLibRaw(LibRaw& raw_processor, ExifDisplayMet
 }
 
 auto ExtractDngMetadataToImageFast(const image_path_t& image_path, Image& image) -> bool {
-  Exiv2::Image::UniquePtr exif_image;
+  Exiv2ImagePtr exif_image;
   try {
     exif_image = MetadataExtractor::ExtractEXIF(image_path);
   } catch (...) {
@@ -1472,7 +1472,7 @@ static void GetDisplayMetadataFromExif(Exiv2::ExifData&     exif_data,
   }
   if (exif_data.findKey(Exiv2::ExifKey("Exif.Photo.FocalLengthIn35mmFilm")) != exif_data.end()) {
     display_metadata.focal_35mm_ =
-        static_cast<float>(exif_data["Exif.Photo.FocalLengthIn35mmFilm"].toInt64());
+        static_cast<float>(Exiv2ToInt64(exif_data["Exif.Photo.FocalLengthIn35mmFilm"]));
   }
   if (exif_data.findKey(Exiv2::ExifKey("Exif.Photo.SubjectDistance")) != exif_data.end()) {
     display_metadata.focus_distance_m_ =

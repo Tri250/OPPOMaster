@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <exiv2/exif.hpp>
 #include <exiv2/exiv2.hpp>
@@ -15,6 +16,25 @@
 #include "decoders/processor/raw_color_context.hpp"
 #include "image.hpp"
 #include "type/type.hpp"
+
+// Exiv2 0.28+ compatibility: Image::UniquePtr was removed in favor of std::unique_ptr<Image>
+#if EXIV2_TEST_VERSION(0, 28, 0)
+using Exiv2ImagePtr = std::unique_ptr<Exiv2::Image>;
+inline uint32_t Exiv2ToUint32(const Exiv2::Metadatum& datum) {
+    return static_cast<uint32_t>(datum.toInt64());
+}
+inline int64_t Exiv2ToInt64(const Exiv2::Metadatum& datum) {
+    return datum.toInt64();
+}
+#else
+using Exiv2ImagePtr = Exiv2::Image::UniquePtr;
+inline uint32_t Exiv2ToUint32(const Exiv2::Metadatum& datum) {
+    return datum.toUint32();
+}
+inline int64_t Exiv2ToInt64(const Exiv2::Metadatum& datum) {
+    return datum.toInt64();
+}
+#endif
 
 // Forward declare LibRaw so callers that only need the header do not pull in libraw.h
 class LibRaw;
@@ -51,9 +71,9 @@ class MetadataExtractor {
    * @param image_path
    * @return Exiv2::Image::UniquePtr
    */
-  static auto ExtractEXIF(const image_path_t& image_path) -> Exiv2::Image::UniquePtr;
+  static auto ExtractEXIF(const image_path_t& image_path) -> Exiv2ImagePtr;
   static auto ExtractEXIFFromBuffer(const uint8_t* buffer, size_t size)
-      -> Exiv2::Image::UniquePtr;
+      -> Exiv2ImagePtr;
 
   /**
    * @brief Convert EXIF data to JSON format
@@ -61,7 +81,7 @@ class MetadataExtractor {
    * @param exif_data
    * @return nlohmann::json
    */
-  static auto EXIFToJSON(const Exiv2::Image::UniquePtr& exif_data) -> nlohmann::json;
+  static auto EXIFToJSON(const Exiv2ImagePtr& exif_data) -> nlohmann::json;
 
   /**
    * @brief Convert EXIF data to display-friendly format
@@ -69,7 +89,7 @@ class MetadataExtractor {
    * @param exif_data
    * @return ExifDisplayMetaData
    */
-  static auto EXIFToDisplayMetaData(const Exiv2::Image::UniquePtr& exif_data)
+  static auto EXIFToDisplayMetaData(const Exiv2ImagePtr& exif_data)
       -> ExifDisplayMetaData;
   static auto BufferToDisplayMetaData(const uint8_t* buffer, size_t size)
       -> ExifDisplayMetaData;
