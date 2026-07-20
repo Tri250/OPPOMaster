@@ -130,17 +130,33 @@ void main() {
 void OpenGLViewerRenderer::Initialize() {
   initializeOpenGLFunctions();
 
+  delete program_;
+  program_ = nullptr;
+
   program_ = new QOpenGLShaderProgram();
+  bool shader_ok = true;
   if (!program_->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertexShaderSource)) {
     qWarning("Vertex shader compile failed: %s", program_->log().toUtf8().constData());
+    shader_ok = false;
   }
-  if (!program_->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShaderSource)) {
+  if (shader_ok && !program_->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShaderSource)) {
     qWarning("Fragment shader compile failed: %s", program_->log().toUtf8().constData());
+    shader_ok = false;
   }
-  if (!program_->link()) {
+  if (shader_ok && !program_->link()) {
     qWarning("Shader program link failed: %s", program_->log().toUtf8().constData());
+    shader_ok = false;
   }
 
+  if (!shader_ok) {
+    delete program_;
+    program_ = nullptr;
+  }
+
+  if (vbo_) {
+    glDeleteBuffers(1, &vbo_);
+    vbo_ = 0;
+  }
   const float vertices[] = {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f};
   glGenBuffers(1, &vbo_);
   glBindBuffer(GL_ARRAY_BUFFER, vbo_);
@@ -183,7 +199,8 @@ auto OpenGLViewerRenderer::UploadPendingFrame(const FrameMailbox::PendingFrame& 
   }
 
   GLBuffer& buffer = buffers_[pending_frame.slot_index];
-  if (!buffer.cuda_resource || !pending_frame.staging_ptr || pending_frame.staging_bytes == 0) {
+  if (!buffer.cuda_resource || buffer.width <= 0 || buffer.height <= 0 ||
+      !pending_frame.staging_ptr || pending_frame.staging_bytes == 0) {
     return false;
   }
 
@@ -311,6 +328,7 @@ bool OpenGLViewerRenderer::InitBuffer(GLBuffer& buffer, int width, int height) {
   if (err != cudaSuccess) {
     qWarning("Failed to register texture with CUDA: %s", cudaGetErrorString(err));
     FreeBuffer(buffer);
+    glBindTexture(GL_TEXTURE_2D, 0);
     return false;
   }
 
@@ -406,6 +424,7 @@ auto OpenGLViewerRenderer::ComputeHistogram(GLuint texture_id, int width, int he
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
   glUseProgram(0);
   glFlush();
 
@@ -424,6 +443,9 @@ auto OpenGLViewerRenderer::BuildComputeProgram(const char* source, const char* d
   }
 
   const GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
+  if (shader == 0) {
+    return false;
+  }
   glShaderSource(shader, 1, &source, nullptr);
   glCompileShader(shader);
 
@@ -442,6 +464,10 @@ auto OpenGLViewerRenderer::BuildComputeProgram(const char* source, const char* d
   }
 
   const GLuint program = glCreateProgram();
+  if (program == 0) {
+    glDeleteShader(shader);
+    return false;
+  }
   glAttachShader(program, shader);
   glLinkProgram(program);
   glDeleteShader(shader);
@@ -514,6 +540,11 @@ bool OpenGLViewerRenderer::InitHistogramResources() {
   histogram_resources_ready_ = histogram_count_ssbo_ != 0 && histogram_norm_ssbo_ != 0;
   histogram_has_data_        = false;
   last_histogram_update_time_ = {};
+
+  if (!histogram_resources_ready_) {
+    FreeHistogramResources();
+  }
+
   return histogram_resources_ready_;
 }
 

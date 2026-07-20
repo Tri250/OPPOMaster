@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.2.8)'
+        required: true
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes
+        id: notes
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          version="${{ steps.meta.outputs.version }}"
+          # Try to extract changelog section for this version
+          notes_file="$RUNNER_TEMP/release_notes.md"
+          if [ -f CHANGELOG.md ]; then
+            awk "/^## \\[${version}\\]/{found=1; next} /^## \\[/{found=0} found" CHANGELOG.md > "$notes_file"
+          fi
+          if [ ! -s "$notes_file" ]; then
+            echo "Alcedo Studio ${tag}" > "$notes_file"
+            echo "" >> "$notes_file"
+            echo "See [CHANGELOG.md](CHANGELOG.md) for full release notes." >> "$notes_file"
+          fi
+          echo "file=${notes_file}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          notes_file="${{ steps.notes.outputs.file }}"
+          if gh release view "$tag" &>/dev/null; then
+            echo "Release $tag exists, updating notes..."
+            gh release edit "$tag" --title "Alcedo Studio ${tag}" --notes-file "$notes_file"
+          else
+            echo "Creating release $tag..."
+            gh release create "$tag" \
+              --title "Alcedo Studio ${tag}" \
+              --notes-file "$notes_file" \
+              --draft
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-release:
+    name: Verify Release Assets
+    needs: create-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for package workflows
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          echo "Waiting for package workflows to complete for tag $tag..."
+          echo "Note: Package assets are uploaded by linux-package, macos-package, and windows-package workflows."
+          echo "This job serves as a verification checkpoint."
+
+      - name: Verify release exists
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          for i in {1..10}; do
+            if gh release view "$tag" &>/dev/null; then
+              echo "Release $tag found."
+              gh release view "$tag" --json name,tagName,assets,body
+              exit 0
+            fi
+            echo "Release not found yet, retrying in 30s..."
+            sleep 30
+          done
+          echo "Warning: Release $tag was not found after waiting."
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -54,19 +54,19 @@ class Image {
   ImageBuffer                 thumbnail_;
   ImageType                   image_type_ = ImageType::DEFAULT;
 
-  std::atomic<bool>           has_thumbnail_;
+  std::atomic<bool>           has_thumbnail_    = false;
 
-  std::atomic<ThumbState>     thumb_state_ = ThumbState::NOT_PRESENT;
+  std::atomic<ThumbState>     thumb_state_      = ThumbState::NOT_PRESENT;
 
-  std::atomic<ImageSyncState> sync_state_  = ImageSyncState::SYNCED;
+  std::atomic<ImageSyncState> sync_state_       = ImageSyncState::SYNCED;
 
   p_hash_t                    checksum_;
 
-  std::atomic<bool>           has_full_img_;
-  std::atomic<bool>           has_thumb_;
-  std::atomic<bool>           has_exif_;
-  std::atomic<bool>           has_exif_json_;
-  std::atomic<bool>           has_exif_display_;
+  std::atomic<bool>           has_full_img_     = false;
+  std::atomic<bool>           has_thumb_        = false;
+  std::atomic<bool>           has_exif_         = false;
+  std::atomic<bool>           has_exif_json_    = false;
+  std::atomic<bool>           has_exif_display_ = false;
 
   std::atomic<bool>           thumb_pinned_ = false;
   std::atomic<bool>           full_pinned_  = false;

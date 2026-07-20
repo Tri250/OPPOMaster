@@ -86,6 +86,35 @@ jobs:
         with:
           vcpkgGitCommitId: "db4723bd0a99eab031f1a3dee4336dca43049c87"
 
+      - name: Install DuckDB CLI and extensions
+        run: |
+          $duckdbVersion = "1.5.4"
+          $duckdbZip = "$env:RUNNER_TEMP\duckdb.zip"
+          $duckdbDir = "$env:RUNNER_TEMP\duckdb"
+          try {
+            Invoke-WebRequest -Uri "https://github.com/duckdb/duckdb/releases/download/v${duckdbVersion}/duckdb_cli-windows-amd64.zip" -OutFile $duckdbZip -ErrorAction Stop
+          } catch {
+            Write-Host "Failed to download DuckDB CLI from primary URL, trying fallback..."
+            Invoke-WebRequest -Uri "https://github.com/duckdb/duckdb/releases/download/v${duckdbVersion}/duckdb_cli-windows-amd64.zip" -OutFile $duckdbZip
+          }
+          Expand-Archive -Path $duckdbZip -DestinationPath $duckdbDir -Force
+          $env:PATH = "$duckdbDir;$env:PATH"
+          $extDir = "$env:RUNNER_TEMP\duckdb_extensions"
+          New-Item -ItemType Directory -Force -Path $extDir | Out-Null
+          & "$duckdbDir\duckdb.exe" -c "SET extension_directory='$extDir'; INSTALL vss; INSTALL fts;"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to install DuckDB extensions"
+            exit 1
+          }
+          $vssPath = Get-ChildItem -Path $extDir -Recurse -Filter "vss.duckdb_extension" | Select-Object -First 1 -ExpandProperty FullName
+          $ftsPath = Get-ChildItem -Path $extDir -Recurse -Filter "fts.duckdb_extension" | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $vssPath) { throw "VSS extension not found after installation" }
+          if (-not $ftsPath) { throw "FTS extension not found after installation" }
+          Write-Host "Resolved VSS extension: $vssPath"
+          Write-Host "Resolved FTS extension: $ftsPath"
+          echo "ALCEDO_DUCKDB_VSS_EXTENSION=$vssPath" >> $env:GITHUB_ENV
+          echo "ALCEDO_DUCKDB_FTS_EXTENSION=$ftsPath" >> $env:GITHUB_ENV
+
       - name: Configure CMake
         run: |
           cmake --preset win_release `

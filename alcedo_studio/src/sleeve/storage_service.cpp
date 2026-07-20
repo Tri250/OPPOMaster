@@ -26,6 +26,10 @@ auto NodeStorageHandler::GetElement(uint32_t id) -> std::shared_ptr<SleeveElemen
   // If the element is not presented in the memory, get it from the db.
   // Then loaded pointer into the storage
   auto result                   = db_ctrl_.GetElementById(id);
+  if (!result) {
+    qCWarning(alcedo::diag::appLog, "NodeStorageHandler::GetElement db returned null for id=%u", id);
+    return nullptr;
+  }
   storage_[result->element_id_] = result;
   return result;
 }

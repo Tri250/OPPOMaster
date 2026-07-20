@@ -99,7 +99,11 @@ auto SleeveBase::AccessElementByPath(const sl_path_t& path)
     -> std::optional<std::shared_ptr<SleeveElement>> {
   auto result = dentry_cache_.AccessElement(path);
   if (result.has_value()) {
-    return storage_.at(result.value());
+    auto it = storage_.find(result.value());
+    if (it != storage_.end()) {
+      return it->second;
+    }
+    qCWarning(diag::appLog, "SleeveBase::AccessElementByPath dentry cache hit but element id=%u not in storage", result.value());
   }
 
   std::wsregex_token_iterator first{path.begin(), path.end(), re_, -1}, last;
@@ -212,7 +216,12 @@ auto SleeveBase::RemoveElementInPath(const sl_path_t& path, const file_name_t& f
     qCDebug(diag::appLog, "SleeveBase::RemoveElementInPath element '%ls' not found", file_name.c_str());
     return std::nullopt;
   }
-  auto del_element = AccessElementById(del_id.value()).value();
+  auto del_element_opt = AccessElementById(del_id.value());
+  if (!del_element_opt.has_value()) {
+    qCWarning(diag::appLog, "SleeveBase::RemoveElementInPath element id=%u not found in storage", del_id.value());
+    return std::nullopt;
+  }
+  auto del_element = del_element_opt.value();
   if (del_element->pinned_) {
     return std::nullopt;
   }
@@ -372,7 +381,12 @@ auto SleeveBase::GetWriteGuard(const sl_path_t& parent_folder_path, const file_n
     qCDebug(diag::appLog, "SleeveBase::GetWriteGuard file '%ls' not found in parent folder", file_name.c_str());
     return std::nullopt;
   }
-  auto write_file = storage_.at(write_file_opt.value());
+  auto write_file_it = storage_.find(write_file_opt.value());
+  if (write_file_it == storage_.end()) {
+    qCWarning(diag::appLog, "SleeveBase::GetWriteGuard file id=%u not found in storage", write_file_opt.value());
+    return std::nullopt;
+  }
+  auto write_file = write_file_it->second;
   if (write_file->ref_count_ > 1) {
     write_file = WriteCopy(write_file, parent_folder);
   }
@@ -408,6 +422,9 @@ auto SleeveBase::IsSubFolder(const std::shared_ptr<SleeveFolder> src_folder,
       return true;
     }
     auto next_element_id = curr_folder->GetElementIdByName(curr_path);
+    if (!next_element_id.has_value()) {
+      return false;
+    }
 
     curr_element         = AccessElementById(next_element_id.value());
   }

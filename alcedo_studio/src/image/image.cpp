@@ -84,6 +84,8 @@ auto RawContextFromJson(const json& value, RawRuntimeColorContext& ctx) -> bool 
     return false;
   }
 
+  ctx = RawRuntimeColorContext{};
+
   ctx.valid_                  = value.value("Valid", false);
   ctx.output_in_camera_space_ = value.value("OutputInCameraSpace", false);
   LoadJsonArray(value, "CamMul", ctx.cam_mul_, 3);

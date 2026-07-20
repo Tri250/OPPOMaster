@@ -74,6 +74,9 @@ void OpenClImage::Create(int width, int height, int type) {
   if (width <= 0 || height <= 0) {
     throw std::runtime_error("OpenClImage: image dimensions must be positive.");
   }
+  if (CV_ELEM_SIZE(type) == 0) {
+    throw std::runtime_error("OpenClImage: invalid OpenCV type.");
+  }
 
   const auto row_bytes = static_cast<size_t>(width) * CV_ELEM_SIZE(type);
   const auto byte_size = row_bytes * static_cast<size_t>(height);
@@ -127,6 +130,9 @@ void OpenClImage::Download(cv::Mat& cpu_data) const {
   }
 
   cpu_data.create(height_, width_, type_);
+  if (cpu_data.empty()) {
+    throw std::runtime_error("OpenClImage: failed to allocate CPU memory for download.");
+  }
   auto& context = CheckedContext();
 
   if (cpu_data.isContinuous() && cpu_data.step == row_bytes_) {
@@ -192,7 +198,8 @@ void OpenClImage::CropTo(OpenClImage& dst, const cv::Rect& crop_rect) const {
     throw std::runtime_error("OpenClImage: cannot crop an empty image.");
   }
   if (crop_rect.x < 0 || crop_rect.y < 0 || crop_rect.width <= 0 || crop_rect.height <= 0 ||
-      crop_rect.x + crop_rect.width > width_ || crop_rect.y + crop_rect.height > height_) {
+      static_cast<long long>(crop_rect.x) + crop_rect.width > width_ ||
+      static_cast<long long>(crop_rect.y) + crop_rect.height > height_) {
     throw std::runtime_error("OpenClImage: invalid crop rectangle.");
   }
 

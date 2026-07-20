@@ -426,6 +426,9 @@ auto ImageBuffer::GetBuffer() -> std::vector<uint8_t>& {
   if (!buffer_valid_) {
     throw std::runtime_error("ImageBuffer: No valid encoded buffer data.");
   }
+  if (!buffer_) {
+    throw std::runtime_error("ImageBuffer: Internal buffer pointer is null.");
+  }
   return *buffer_;
 }
 
@@ -553,6 +556,9 @@ void ImageBuffer::CopyGPUDataTo(ImageBuffer& dst) const {
 }
 
 void ImageBuffer::InitGPUData(int width, int height, int type, GpuBackendKind backend) {
+  if (width <= 0 || height <= 0) {
+    throw std::runtime_error("ImageBuffer: GPU data dimensions must be positive.");
+  }
   const auto requested_backend = ResolveGpuBackend(backend);
   if ((gpu_data_valid_ || !gpu_data_.Empty()) && gpu_data_.Backend() == requested_backend) {
     return;
@@ -573,6 +579,9 @@ ImageBuffer ImageBuffer::Clone() const {
     return ImageBuffer{std::move(cpu_copy)};
   }
   if (buffer_valid_) {
+    if (!buffer_) {
+      throw std::runtime_error("ImageBuffer: Internal buffer pointer is null.");
+    }
     auto buffer = *buffer_;
     return ImageBuffer{std::move(buffer)};
   }

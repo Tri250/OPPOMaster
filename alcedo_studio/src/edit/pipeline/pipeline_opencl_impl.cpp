@@ -83,6 +83,9 @@ auto ResolveViewerDisplayConfig(const OperatorParams& params) -> ViewerDisplayCo
 
 auto BuildGaussianWeights(float sigma, uint32_t radius)
     -> std::array<float, kOpenClNeighborMaxTapCount> {
+  if (radius >= kOpenClNeighborMaxTapCount) {
+    radius = kOpenClNeighborMaxTapCount - 1;
+  }
   std::array<float, kOpenClNeighborMaxTapCount> weights{};
   const double safe_sigma  = std::max(static_cast<double>(sigma), 1.0e-4);
   const double inv2sigma2  = 0.5 / (safe_sigma * safe_sigma);
@@ -339,6 +342,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
     }
 
     cl_mem params_buf = resources_.params_buffer_.Get();
+    if (params_buf == nullptr) {
+      clReleaseMemObject(output_buffer);
+      throw std::runtime_error("OpenCL fused pipeline: params buffer is null.");
+    }
     try {
       SetKernelArgs(kernel, "validation", params_buf, output_buffer);
     } catch (...) {
@@ -363,7 +370,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
       throw std::runtime_error("OpenCL fused pipeline: failed to read validation output.");
     }
 
-    clFinish(context.Queue());
+    err = clFinish(context.Queue());
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("OpenCL fused pipeline: clFinish after validation failed.");
+    }
 
     const auto nearly_equal = [](float lhs, float rhs) {
       return std::abs(lhs - rhs) <= 1.0e-5f * std::max(1.0f, std::abs(rhs));
@@ -393,6 +403,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
 
     working_.Create(src.Width(), src.Height(), src.Type());
 
+    cl_kernel          kernel            = fused_kernel_.Get();
+    if (kernel == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: fused kernel is null.");
+    }
+
     cl_int             err               = CL_SUCCESS;
 
     cl_mem             src_buffer        = src.Buffer();
@@ -401,6 +416,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
     cl_mem             lmt_lut_buffer    = resources_.lmt_lut_buffer_.Get();
     cl_int             width             = src.Width();
     cl_int             height            = src.Height();
+
+    if (src_buffer == nullptr || dst_buffer == nullptr || params_buffer == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: invalid kernel argument buffer.");
+    }
 
     static const float kDummyLutEntry[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     cl_mem             fallback_lut      = nullptr;
@@ -415,14 +434,13 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
     }
 
     try {
-      SetKernelArgs(fused_kernel_.Get(), "fused kernel", src_buffer, dst_buffer, params_buffer,
+      SetKernelArgs(kernel, "fused kernel", src_buffer, dst_buffer, params_buffer,
                     lmt_lut_buffer, width, height);
+      EnqueueKernel2D(kernel, width, height, "fused kernel");
     } catch (...) {
       if (fallback_lut != nullptr) clReleaseMemObject(fallback_lut);
       throw;
     }
-
-    EnqueueKernel2D(fused_kernel_.Get(), width, height, "fused kernel");
     if (fallback_lut != nullptr) {
       clReleaseMemObject(fallback_lut);
     }
@@ -437,6 +455,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
 
     dst.Create(src.Width(), src.Height(), src.Type());
 
+    cl_kernel          kernel            = fused_stage_kernel_.Get();
+    if (kernel == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: fused stage kernel is null.");
+    }
+
     cl_int             err               = CL_SUCCESS;
     cl_mem             src_buffer        = src.Buffer();
     cl_mem             dst_buffer        = dst.Buffer();
@@ -445,6 +468,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
     cl_int             width             = src.Width();
     cl_int             height            = src.Height();
     cl_int             stage_arg         = stage;
+
+    if (src_buffer == nullptr || dst_buffer == nullptr || params_buffer == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: invalid stage kernel argument buffer.");
+    }
 
     static const float kDummyLutEntry[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     cl_mem             fallback_lut      = nullptr;
@@ -459,14 +486,13 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
     }
 
     try {
-      SetKernelArgs(fused_stage_kernel_.Get(), "fused stage", src_buffer, dst_buffer, params_buffer,
+      SetKernelArgs(kernel, "fused stage", src_buffer, dst_buffer, params_buffer,
                     lmt_lut_buffer, width, height, stage_arg);
+      EnqueueKernel2D(kernel, width, height, "fused stage");
     } catch (...) {
       if (fallback_lut != nullptr) clReleaseMemObject(fallback_lut);
       throw;
     }
-
-    EnqueueKernel2D(fused_stage_kernel_.Get(), width, height, "fused stage");
     if (fallback_lut != nullptr) {
       clReleaseMemObject(fallback_lut);
     }
@@ -476,15 +502,24 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
                                      cl_mem stage_buffer) {
     dst.Create(src.Width(), src.Height(), src.Type());
 
+    cl_kernel kernel = blur_h_kernel_.Get();
+    if (kernel == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: blur horizontal kernel is null.");
+    }
+
     cl_mem src_buf = src.Buffer();
     cl_mem dst_buf = dst.Buffer();
     cl_int width   = src.Width();
     cl_int height  = src.Height();
 
-    SetKernelArgs(blur_h_kernel_.Get(), "neighbor blur horizontal", src_buf, dst_buf, stage_buffer,
+    if (src_buf == nullptr || dst_buf == nullptr || stage_buffer == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: invalid neighbor blur horizontal argument.");
+    }
+
+    SetKernelArgs(kernel, "neighbor blur horizontal", src_buf, dst_buf, stage_buffer,
                   width, height);
 
-    EnqueueKernel2D(blur_h_kernel_.Get(), width, height, "neighbor blur horizontal kernel");
+    EnqueueKernel2D(kernel, width, height, "neighbor blur horizontal kernel");
   }
 
   void EnqueueNeighborApplyVertical(const opencl::OpenClImage& src,
@@ -492,16 +527,25 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl,
                                     opencl::OpenClImage& dst, cl_mem stage_buffer) {
     dst.Create(src.Width(), src.Height(), src.Type());
 
+    cl_kernel kernel = apply_v_kernel_.Get();
+    if (kernel == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: apply vertical kernel is null.");
+    }
+
     cl_mem src_buf  = src.Buffer();
     cl_mem blur_buf = blur_horizontal.Buffer();
     cl_mem dst_buf  = dst.Buffer();
     cl_int width    = src.Width();
     cl_int height   = src.Height();
 
-    SetKernelArgs(apply_v_kernel_.Get(), "neighbor apply vertical", src_buf, blur_buf, dst_buf,
+    if (src_buf == nullptr || blur_buf == nullptr || dst_buf == nullptr || stage_buffer == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: invalid neighbor apply vertical argument.");
+    }
+
+    SetKernelArgs(kernel, "neighbor apply vertical", src_buf, blur_buf, dst_buf,
                   stage_buffer, width, height);
 
-    EnqueueKernel2D(apply_v_kernel_.Get(), width, height, "neighbor apply vertical kernel");
+    EnqueueKernel2D(kernel, width, height, "neighbor apply vertical kernel");
   }
 
   auto ShouldRunSharpen() const -> bool {

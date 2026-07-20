@@ -103,14 +103,22 @@ void RawDecoder::Decode(std::vector<char> buffer, std::shared_ptr<Image> source_
                         std::shared_ptr<BufferQueue>              result,
                         std::shared_ptr<std::promise<image_id_t>> promise) {
   try {
+    if (!source_img) {
+      throw std::runtime_error("RawDecoder: source_img is null");
+    }
     Decode(std::move(buffer), source_img);
     result->push(source_img);
     promise->set_value(source_img->image_id_);
   } catch (std::exception& e) {
+    auto image_id = source_img ? source_img->image_id_ : image_id_t{0};
     qCCritical(appLog, "RawDecoder::Decode (buffer/Image overload) failed for image %lld: %s",
-               static_cast<long long>(source_img->image_id_), e.what());
-    result->push(source_img);
-    promise->set_value(source_img->image_id_);
+               static_cast<long long>(image_id), e.what());
+    if (source_img) {
+      result->push(source_img);
+      promise->set_value(source_img->image_id_);
+    } else {
+      promise->set_value(image_id_t{0});
+    }
   }
 }
 

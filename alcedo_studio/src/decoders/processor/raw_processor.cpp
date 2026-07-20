@@ -507,6 +507,10 @@ auto RawProcessor::Process() -> ImageBuffer {
     throw std::runtime_error("RawProcessor: CPU backend does not support X-Trans CFA input.");
   }
 
+  if (!raw_data_.raw_image) {
+    throw std::runtime_error("RawProcessor: raw_image is null after unpack");
+  }
+
   if (IsRawGpuBackend(params_.gpu_backend_)) {
     NormalizeDecodeResForGpu(cv::Size(static_cast<int>(raw_data_.sizes.raw_width),
                                       static_cast<int>(raw_data_.sizes.raw_height)),

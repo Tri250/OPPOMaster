@@ -347,7 +347,13 @@ void FileSystem::Delete(std::filesystem::path target) {
   }
   auto parent_node    = std::static_pointer_cast<SleeveFolder>(resolver_.Resolve(parent));
   auto delete_node_id = parent_node->GetElementIdByName(delete_node_name.wstring());
-  auto delete_node    = storage_handler_.GetElement(delete_node_id.value());
+  if (!delete_node_id.has_value()) {
+    throw std::runtime_error("Filesystem: Deleting node does not exist in parent folder");
+  }
+  auto delete_node = storage_handler_.GetElement(delete_node_id.value());
+  if (!delete_node) {
+    throw std::runtime_error("Filesystem: Deleting node not found in storage");
+  }
   if (delete_node->type_ == ElementType::FILE) {
     if (IsRootPath(parent)) {
       DeleteFileEverywhere(delete_node->element_id_);
