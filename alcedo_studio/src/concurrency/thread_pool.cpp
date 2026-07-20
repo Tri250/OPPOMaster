@@ -21,8 +21,8 @@ ThreadPool::ThreadPool(size_t thread_count)
   for (size_t i = 0; i < thread_count; ++i) {
     workers_.emplace_back(&ThreadPool::WorkerThread, this);
   }
-  ALCEDO_LOG_DEBUG("ThreadPool: started with {} worker threads (MPMS queue capacity={})",
-                   thread_count, kQueueCapacity);
+  qCDebug(appLog, "ThreadPool: started with %zu worker threads (MPMS queue capacity=%zu)",
+          thread_count, kQueueCapacity);
 }
 
 ThreadPool::~ThreadPool() {
@@ -56,12 +56,12 @@ void ThreadPool::Shutdown() {
       worker.join();
     }
   }
-  ALCEDO_LOG_DEBUG("ThreadPool: shutdown complete, all workers joined");
+  qCDebug(appLog, "ThreadPool: shutdown complete, all workers joined");
 }
 
 void ThreadPool::Submit(std::function<void()> task) {
   if (stop_.load(std::memory_order_acquire)) {
-    ALCEDO_LOG_WARN("ThreadPool::Submit: task submitted after stop, discarding");
+    qCWarning(appLog, "ThreadPool::Submit: task submitted after stop, discarding");
     return;
   }
   tasks_.push(std::move(task));
