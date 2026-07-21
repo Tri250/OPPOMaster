@@ -89,13 +89,53 @@ const std::wregex& PureNumberRe() {
 
 const std::unordered_set<std::wstring>& CameraLensMakers() {
   static const std::unordered_set<std::wstring> makers = {
+      // English
       L"canon",    L"nikon",     L"sony",       L"fuji",     L"fujifilm",
       L"leica",    L"panasonic", L"lumix",      L"olympus",  L"pentax",
       L"ricoh",    L"sigma",     L"tamron",     L"zeiss",    L"hasselblad",
       L"apple",    L"samsung",   L"phase",      L"mamiya",   L"contax",
       L"nikkor",   L"canon rf",  L"sony alpha", L"pentax k", L"pentax fa",
-      L"sigma art"};
+      L"sigma art",
+      // Chinese brand names
+      L"佳能",     L"尼康",      L"索尼",       L"富士",     L"徕卡",
+      L"松下",     L"奥林巴斯",   L"宾得",      L"理光",     L"适马",
+      L"腾龙",     L"蔡司",      L"哈苏",       L"三星"};
   return makers;
+}
+
+// Chinese photography terms that indicate metadata/structured search.
+const std::unordered_set<std::wstring>& ChineseMetadataKeywords() {
+  static const std::unordered_set<std::wstring> keywords = {
+      // Camera & lens terms
+      L"相机",   L"镜头",   L"光圈",   L"快门",   L"焦距",
+      L"感光度", L"曝光",   L"对焦",   L"白平衡", L"像素",
+      L"分辨率", L"格式",   L"大小",   L"尺寸",   L"文件",
+      // Rating & labeling
+      L"评分",   L"评星",   L"标签",   L"标记",   L"收藏",
+      L"星级",   L"等级",
+      // Date & time
+      L"日期",   L"时间",   L"年",     L"月",     L"日",
+      L"今天",   L"昨天",   L"前天",   L"本周",   L"上周",
+      L"本月",   L"上月",   L"今年",   L"去年",
+      // Category filters
+      L"类型",   L"种类",   L"颜色",   L"色彩",   L"人像",
+      L"风景",   L"街拍",   L"建筑",   L"美食",   L"动物",
+      L"植物",   L"夜景",   L"微距",   L"航拍"};
+  return keywords;
+}
+
+// Chinese word segments that strongly suggest natural language (semantic search).
+const std::unordered_set<std::wstring>& ChineseSemanticKeywords() {
+  static const std::unordered_set<std::wstring> keywords = {
+      L"像",     L"类似",   L"感觉",   L"好像",   L"如同",
+      L"温暖",   L"冷调",   L"柔和",   L"强烈",   L"梦幻",
+      L"复古",   L"清新",   L"暗调",   L"明亮",   L"忧郁",
+      L"浪漫",   L"宁静",   L"热闹",   L"孤独",   L"神秘",
+      L"有",     L"包含",   L"带有",   L"拥有",   L"带着",
+      L"在",     L"里",     L"中",     L"旁边",   L"上面",
+      L"的"  // structural particle - usually indicates NL phrase
+  };
+  return keywords;
 }
 
 const std::unordered_set<std::wstring>& ImageExtensions() {
@@ -140,7 +180,69 @@ auto IsMetadataToken(const std::wstring& raw_token) -> bool {
   if (CameraLensMakers().contains(token)) {
     return true;
   }
+  // Chinese metadata keywords
+  if (ChineseMetadataKeywords().contains(raw_token)) {
+    return true;
+  }
   return false;
+}
+
+/// Multi-keyword weighted scoring for mixed language queries.
+/// Returns a score in [-1.0, 1.0]: positive => likely Traditional,
+/// negative => likely Semantic.  Scores near 0 are ambiguous.
+auto ComputeQueryRouteScore(const std::wstring& query) -> double {
+  double score = 0.0;
+
+  // Scan for Chinese metadata keywords (high positive weight)
+  for (const auto& kw : ChineseMetadataKeywords()) {
+    if (query.find(kw) != std::wstring::npos) {
+      score += 0.4;
+    }
+  }
+
+  // Scan for Chinese semantic keywords (negative weight)
+  for (const auto& kw : ChineseSemanticKeywords()) {
+    if (query.find(kw) != std::wstring::npos) {
+      score -= 0.3;
+    }
+  }
+
+  // Scan for English metadata tokens
+  const auto tokens = SplitTokens(query);
+  for (const auto& token : tokens) {
+    if (IsMetadataToken(token)) {
+      score += 0.3;
+    }
+  }
+
+  // Count CJK vs non-CJK character ratio
+  size_t cjk_count = 0;
+  size_t total_alpha = 0;
+  for (const auto ch : query) {
+    if (IsCjk(ch)) {
+      ++cjk_count;
+    }
+    if (std::iswalnum(ch) != 0 || IsCjk(ch)) {
+      ++total_alpha;
+    }
+  }
+  // If mostly CJK with no metadata hints, lean semantic
+  if (total_alpha > 0 && cjk_count > total_alpha * 0.7 && score <= 0.0) {
+    score -= 0.2;
+  }
+
+  return score;
+}
+
+/// Check if a query contains mixed Chinese and English content.
+auto IsMixedLanguageQuery(const std::wstring& query) -> bool {
+  bool has_cjk    = false;
+  bool has_latin  = false;
+  for (const auto ch : query) {
+    if (IsCjk(ch)) has_cjk = true;
+    if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z')) has_latin = true;
+  }
+  return has_cjk && has_latin;
 }
 
 auto IsCjk(wchar_t ch) -> bool {
@@ -229,6 +331,29 @@ SearchQueryClassification ClassifySearchQuery(const std::wstring& query,
       })) {
     result.route_ = SearchQueryRoute::Traditional;
     return result;
+  }
+
+  // For mixed-language or CJK-heavy queries, use weighted scoring.
+  const bool mixed = IsMixedLanguageQuery(result.normalized_query_);
+  bool has_cjk = false;
+  for (const auto ch : result.normalized_query_) {
+    if (IsCjk(ch)) { has_cjk = true; break; }
+  }
+
+  if (mixed || has_cjk) {
+    const double route_score = ComputeQueryRouteScore(result.normalized_query_);
+    // Score > 0.2: clearly metadata/traditional
+    // Score < -0.1: clearly semantic/natural language
+    // In between: ambiguous, lean on toggle
+    if (route_score > 0.2) {
+      result.route_ = SearchQueryRoute::Traditional;
+      return result;
+    }
+    if (route_score < -0.1 && semantic_toggle_enabled) {
+      result.route_    = SearchQueryRoute::Semantic;
+      result.too_long_ = EstimatePromptTokens(result.normalized_query_) > max_prompt_tokens;
+      return result;
+    }
   }
 
   // Natural language.

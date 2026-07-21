@@ -17,6 +17,15 @@
 #include <cmath>
 
 namespace alcedo {
+
+// Static member definitions (shared by all platforms)
+std::mutex ColorManager::cache_mutex_;
+std::unordered_map<ColorTransformCacheKey,
+                   ColorTransformHandle,
+                   ColorTransformCacheKeyHash> ColorManager::transform_cache_;
+MonitorIccProfile ColorManager::cached_display_profile_;
+ColorManager::DisplayProfileChangeCallback ColorManager::profile_change_callback_;
+
 namespace {
 
 auto FindMetalLayerInLayerHierarchy(CALayer* layer) -> CAMetalLayer* {
@@ -245,6 +254,50 @@ auto ColorManager::ApplyWindowColorSpace(void*                      native_view_
     LogFallbackColorSpace(config, color_name);
   }
   return true;
+}
+
+// ---- Stubs for Windows-only API (no-op on macOS) ----
+
+auto ColorManager::DetectMonitorIccProfile(void* native_window) -> std::optional<MonitorIccProfile> {
+  (void)native_window;
+  return std::nullopt;
+}
+
+auto ColorManager::GetOrCreateColorTransform(const ViewerDisplayConfig& source_config,
+                                             const MonitorIccProfile&  display_profile)
+    -> ColorTransformHandle {
+  (void)source_config;
+  (void)display_profile;
+  return {};
+}
+
+auto ColorManager::ApplyTransformToBuffer(const ColorTransformHandle& handle,
+                                          float* pixel_data, int width, int height) -> bool {
+  (void)handle;
+  (void)pixel_data;
+  (void)width;
+  (void)height;
+  return false;
+}
+
+void ColorManager::ReleaseColorTransform(ColorTransformHandle& handle) {
+  (void)handle;
+}
+
+void ColorManager::SetDisplayProfileChangeCallback(DisplayProfileChangeCallback callback) {
+  std::lock_guard<std::mutex> lock(cache_mutex_);
+  profile_change_callback_ = std::move(callback);
+}
+
+auto ColorManager::CheckAndInvalidateDisplayProfile(void* native_window) -> bool {
+  (void)native_window;
+  return false;
+}
+
+void ColorManager::ClearCache() {
+  std::lock_guard<std::mutex> lock(cache_mutex_);
+  transform_cache_.clear();
+  cached_display_profile_ = {};
 }
 
 }  // namespace alcedo

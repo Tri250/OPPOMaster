@@ -17,6 +17,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <opencv2/imgproc.hpp>
+
 #include "app/history_mgmt_service.hpp"
 #include "app/pipeline_service.hpp"
 #include "app/render_service.hpp"
@@ -24,6 +26,8 @@
 #include "concurrency/thread_pool.hpp"
 #include "json.hpp"
 #include "renderer/pipeline_task.hpp"
+#include "utils/diagnostics/app_logging.hpp"
+#include "utils/string/convert.hpp"
 
 namespace alcedo {
 namespace {
@@ -68,6 +72,91 @@ void DispatchThumbnailResultCallback(const ThumbnailResultCallback& callback,
 auto IsRenderableThumbnailResult(const ImageBuffer& result_buffer) -> bool {
   return result_buffer.buffer_valid_ || result_buffer.cpu_data_valid_ ||
          result_buffer.gpu_data_valid_;
+}
+
+// ── Placeholder Thumbnail Rendering ──────────────────────────────────────────
+
+auto RenderPlaceholderImage(const std::string& filename,
+                            const std::string& error_reason,
+                            uint32_t size) -> cv::Mat {
+  // Create a dark gray background with a subtle pattern
+  cv::Mat placeholder(size, size, CV_8UC4,
+                      cv::Scalar(45, 45, 48, 255));  // BGRA: dark gray
+
+  // Draw a diagonal stripe pattern to indicate "broken"
+  const int stripe_width = size / 8;
+  for (int i = -static_cast<int>(size); i < static_cast<int>(size * 2); i += stripe_width * 2) {
+    cv::Point pts[4] = {
+        {i, 0},
+        {i + stripe_width, 0},
+        {i + stripe_width + static_cast<int>(size), static_cast<int>(size)},
+        {i + static_cast<int>(size), static_cast<int>(size)},
+    };
+    cv::fillConvexPoly(placeholder, pts, 4, cv::Scalar(55, 55, 58, 255));
+  }
+
+  // Draw a centered "X" icon in red-orange
+  const int center   = static_cast<int>(size) / 2;
+  const int icon_r   = static_cast<int>(size) / 6;
+  const cv::Scalar icon_color(60, 80, 220, 255);  // BGRA: reddish-orange
+  const int thickness = std::max(2, static_cast<int>(size) / 64);
+  cv::line(placeholder,
+           cv::Point(center - icon_r, center - icon_r),
+           cv::Point(center + icon_r, center + icon_r),
+           icon_color, thickness, cv::LINE_AA);
+  cv::line(placeholder,
+           cv::Point(center + icon_r, center - icon_r),
+           cv::Point(center - icon_r, center + icon_r),
+           icon_color, thickness, cv::LINE_AA);
+
+  // Draw a circle around the X
+  cv::circle(placeholder, cv::Point(center, center), icon_r + thickness,
+             icon_color, thickness, cv::LINE_AA);
+
+  // Draw the filename at the bottom
+  std::string display_name = filename;
+  const int max_chars = std::max(8, static_cast<int>(size) / 16);
+  if (static_cast<int>(display_name.size()) > max_chars) {
+    display_name = display_name.substr(0, max_chars - 2) + "..";
+  }
+  const double font_scale = size / 512.0 * 0.45;
+  const int    font_thick = std::max(1, static_cast<int>(size / 256.0));
+  int          baseline   = 0;
+  cv::Size     text_size  = cv::getTextSize(display_name, cv::FONT_HERSHEY_SIMPLEX,
+                                            font_scale, font_thick, &baseline);
+  cv::Point    text_org((static_cast<int>(size) - text_size.width) / 2,
+                        static_cast<int>(size) - text_size.height / 2 - size / 16);
+  cv::putText(placeholder, display_name, text_org, cv::FONT_HERSHEY_SIMPLEX,
+              font_scale, cv::Scalar(200, 200, 200, 255), font_thick, cv::LINE_AA);
+
+  // Draw error reason below filename if space allows
+  if (!error_reason.empty() && size >= 256) {
+    std::string err_display = error_reason;
+    const int max_err_chars = std::max(6, static_cast<int>(size) / 20);
+    if (static_cast<int>(err_display.size()) > max_err_chars) {
+      err_display = err_display.substr(0, max_err_chars - 2) + "..";
+    }
+    const double err_font_scale = font_scale * 0.7;
+    const int    err_font_thick = std::max(1, font_thick - 1);
+    cv::Size     err_size = cv::getTextSize(err_display, cv::FONT_HERSHEY_SIMPLEX,
+                                             err_font_scale, err_font_thick, &baseline);
+    cv::Point    err_org((static_cast<int>(size) - err_size.width) / 2,
+                         text_org.y + text_size.height + err_size.height + 4);
+    cv::putText(placeholder, err_display, err_org, cv::FONT_HERSHEY_SIMPLEX,
+                err_font_scale, cv::Scalar(140, 140, 160, 255), err_font_thick, cv::LINE_AA);
+  }
+
+  return placeholder;
+}
+
+auto MakePlaceholderThumbnailBuffer(const std::string& filename,
+                                    const std::string& error_reason,
+                                    uint32_t size) -> std::unique_ptr<ImageBuffer> {
+  cv::Mat placeholder = RenderPlaceholderImage(filename, error_reason, size);
+  if (placeholder.empty() || placeholder.type() != CV_8UC4) {
+    return nullptr;
+  }
+  return std::make_unique<ImageBuffer>(std::move(placeholder));
 }
 
 auto ConvertThumbnailMatToRgba8(const cv::Mat& src) -> cv::Mat {
@@ -413,10 +502,11 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
       }
     };
 
-    auto fail_pending_request = [st, cache_key, task_context, release_task_pipeline](
-                                    const std::string&                    message,
-                                    const std::shared_ptr<PipelineGuard>& pipeline,
-                                    bool                                  throw_after) -> bool {
+    auto fail_pending_request = [st, id, image_id, cache_key, resolution,
+                                  task_context, release_task_pipeline](
+                                     const std::string&                    message,
+                                     const std::shared_ptr<PipelineGuard>& pipeline,
+                                     bool                                  throw_after) -> bool {
       std::vector<State::PendingCallback> callbacks;
       {
         std::unique_lock lock(st->cache_lock_);
@@ -440,14 +530,36 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
         }
       }
 
+      // Generate a placeholder thumbnail for the failed image
+      std::string filename;
+      try {
+        auto element = st->sleeve_service_->ResolveElement(
+            std::filesystem::path(L"/") / std::to_wstring(id));
+        if (element) {
+          filename = conv::ToBytes(element->element_name_);
+        }
+      } catch (...) {
+      }
+      if (filename.empty()) {
+        filename = std::format("image_{}", id);
+      }
+
+      auto placeholder_guard = ThumbnailService::GeneratePlaceholderThumbnail(
+          filename, message, resolution);
+
       for (const auto& pending_cb : callbacks) {
         DispatchThumbnailResultCallback(
             pending_cb.callback_, pending_cb.dispatcher_,
-            ThumbnailRequestResult{.guard   = nullptr,
-                                   .status  = ThumbnailRequestStatus::kError,
+            ThumbnailRequestResult{.guard   = placeholder_guard,
+                                   .status  = ThumbnailRequestStatus::kFailed,
                                    .message = message,
                                    .key     = cache_key});
       }
+
+      qCWarning(diag::thumbnailLog).noquote()
+          << QStringLiteral("ThumbnailService: Failed for element %1: %2")
+                 .arg(static_cast<qulonglong>(id),
+                      QString::fromStdString(message));
 
       if (throw_after) {
         throw std::runtime_error(message);
@@ -621,18 +733,46 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
 
       release_task_pipeline();
 
-      const auto status = guard ? ThumbnailRequestStatus::kReady : ThumbnailRequestStatus::kError;
-      const std::string message =
-          guard
-              ? std::string{}
-              : std::format(
-                    "[ERROR] ThumbnailService: Render for element {} produced no thumbnail buffer.",
-                    id);
-      for (const auto& pending_cb : callbacks) {
-        DispatchThumbnailResultCallback(
-            pending_cb.callback_, pending_cb.dispatcher_,
-            ThumbnailRequestResult{
-                .guard = guard, .status = status, .message = message, .key = cache_key});
+      // If we have a valid display buffer, deliver it as ready.
+      // Otherwise, generate a placeholder thumbnail with error badge.
+      if (guard && guard->thumbnail_buffer_) {
+        const auto status = ThumbnailRequestStatus::kReady;
+        for (const auto& pending_cb : callbacks) {
+          DispatchThumbnailResultCallback(
+              pending_cb.callback_, pending_cb.dispatcher_,
+              ThumbnailRequestResult{
+                  .guard = guard, .status = status, .message = {}, .key = cache_key});
+        }
+      } else {
+        // Render produced no usable buffer — generate placeholder
+        std::string filename;
+        try {
+          auto element = st->sleeve_service_->ResolveElement(
+              std::filesystem::path(L"/") / std::to_wstring(id));
+          if (element) {
+            filename = conv::ToBytes(element->element_name_);
+          }
+        } catch (...) {
+        }
+        if (filename.empty()) {
+          filename = std::format("image_{}", id);
+        }
+        const std::string fail_msg = std::format(
+            "Thumbnail render produced no buffer for element {}", id);
+        auto placeholder_guard = ThumbnailService::GeneratePlaceholderThumbnail(
+            filename, fail_msg, cache_key.resolution);
+
+        for (const auto& pending_cb : callbacks) {
+          DispatchThumbnailResultCallback(
+              pending_cb.callback_, pending_cb.dispatcher_,
+              ThumbnailRequestResult{.guard   = placeholder_guard,
+                                     .status  = ThumbnailRequestStatus::kFailed,
+                                     .message = fail_msg,
+                                     .key     = cache_key});
+        }
+
+        qCWarning(diag::thumbnailLog).noquote()
+            << QStringLiteral("ThumbnailService: %1").arg(QString::fromStdString(fail_msg));
       }
     };
 
@@ -1248,5 +1388,47 @@ auto ThumbnailService::GetDiskCacheStats() const -> DiskCacheStats {
     s.cache_root_path  = raw.cache_root_path;
   }
   return s;
+}
+
+void ThumbnailService::RetryThumbnail(sl_element_id_t id, image_id_t image_id,
+                                      ThumbnailCallback callback,
+                                      CallbackDispatcher dispatcher,
+                                      ThumbnailResolution resolution) {
+  RetryThumbnailDetailed(
+      id, image_id,
+      [callback = std::move(callback)](ThumbnailRequestResult result) {
+        if (callback) {
+          callback(std::move(result.guard));
+        }
+      },
+      std::move(dispatcher), resolution);
+}
+
+void ThumbnailService::RetryThumbnailDetailed(sl_element_id_t id, image_id_t image_id,
+                                              ThumbnailResultCallback callback,
+                                              CallbackDispatcher dispatcher,
+                                              ThumbnailResolution resolution) {
+  // Invalidate any existing placeholder / failed thumbnail
+  InvalidateThumbnail(id);
+
+  // Re-request the thumbnail
+  GetThumbnailDetailed(id, image_id, std::move(callback), true,
+                       std::move(dispatcher), resolution);
+}
+
+auto ThumbnailService::GeneratePlaceholderThumbnail(
+    const std::string& filename,
+    const std::string& error_reason,
+    ThumbnailResolution resolution) -> std::shared_ptr<ThumbnailGuard> {
+  const auto size = static_cast<uint32_t>(resolution);
+  auto buffer = MakePlaceholderThumbnailBuffer(filename, error_reason, size);
+
+  auto guard                = std::make_shared<ThumbnailGuard>();
+  guard->thumbnail_buffer_  = std::move(buffer);
+  guard->is_placeholder_    = true;
+  guard->error_message_     = error_reason;
+  guard->pin_count_         = 1;
+
+  return guard;
 }
 };  // namespace alcedo

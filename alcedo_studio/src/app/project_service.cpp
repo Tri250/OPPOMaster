@@ -22,6 +22,7 @@
 #include <stdexcept>
 
 #include "app/model_asset_catalog.hpp"
+#include "app/project_migrator.hpp"
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
 #include "sidecar_client/dto/semantic_embedding.hpp"
@@ -524,14 +525,29 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   nlohmann::json metadata;
   file >> metadata;
 
-  if (!metadata.contains("project_file_version") ||
-      !metadata.at("project_file_version").is_string()) {
-    throw std::runtime_error("Project metadata version is missing");
+  // Detect project file version — old projects may not have this field.
+  std::string detected_version;
+  if (metadata.contains("project_file_version") &&
+      metadata.at("project_file_version").is_string()) {
+    detected_version = metadata.at("project_file_version").get<std::string>();
+  } else {
+    // Pre-version projects are treated as 0.2.0 (the oldest supported).
+    detected_version = "0.2.0";
+    qCInfo(diag::projectLog).noquote()
+        << QStringLiteral("ProjectService: No project_file_version found, "
+                          "assuming legacy version %1")
+               .arg(QString::fromStdString(detected_version));
   }
-  if (!project_pack::ProjectVersionIsSupported(
-          metadata.at("project_file_version").get<std::string>())) {
-    throw std::runtime_error("Project metadata version is not supported");
+
+  if (!project_pack::ProjectVersionIsSupported(detected_version)) {
+    throw std::runtime_error(
+        "Project file version " + detected_version +
+        " is not supported. Minimum supported: " +
+        std::string(project_pack::kMinSupportedProjectFileVersion));
   }
+
+  ProjectMigrator migrator;
+  const bool needs_migration = migrator.NeedsMigration(detected_version);
 
   if (metadata.contains("project_uuid") && metadata.at("project_uuid").is_string()) {
     project_uuid_ = metadata.at("project_uuid").get<std::string>();
@@ -578,6 +594,50 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
           : 0;
 
   storage_service_ = std::make_shared<StorageService>(db_path_);
+
+  // Run database migration if the project file version is older than current.
+  if (needs_migration) {
+    qCInfo(diag::projectLog).noquote()
+        << QStringLiteral("ProjectService: Project version %1 needs migration to %2")
+               .arg(QString::fromStdString(detected_version),
+                    QString::fromStdString(std::string(project_pack::kProjectFileVersion)));
+
+    // Create backup before migration.
+    auto backup_path = migrator.CreateBackup(db_path_);
+    if (!backup_path.has_value()) {
+      qCWarning(diag::projectLog).noquote()
+          << QStringLiteral("ProjectService: Failed to create database backup before migration. "
+                            "Proceeding without backup.");
+    }
+
+    // Run migration steps on the existing database connection.
+    auto guard   = storage_service_->GetDBController().GetConnectionGuard();
+    auto db_lock = guard.Lock();
+
+    auto result = migrator.Migrate(guard.conn_, detected_version,
+        [](int step, int total, const std::string& desc) {
+          qCInfo(diag::projectLog).noquote()
+              << QStringLiteral("ProjectService: Migration step %1/%2: %3")
+                     .arg(step + 1, total,
+                          QString::fromStdString(desc));
+        });
+
+    if (!result.success) {
+      std::string backup_info;
+      if (backup_path.has_value()) {
+        backup_info = ". A backup is available at: " + backup_path->string();
+      }
+      throw std::runtime_error(
+          "Project migration failed: " + result.error_message + backup_info);
+    }
+
+    qCInfo(diag::projectLog).noquote()
+        << QStringLiteral("ProjectService: Migration completed (%1 steps)")
+               .arg(result.steps_completed);
+
+    // Refresh the detected version after successful migration.
+    detected_version = std::string(project_pack::kProjectFileVersion);
+  }
 
   // Best-effort: load the DuckDB vss extension when the project DB already has
   // HNSW indexes (semantic embedding tables). Without this, every semantic-

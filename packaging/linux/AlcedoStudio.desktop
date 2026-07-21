@@ -1,0 +1,18 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AlcedoStudio
+GenericName=Image Editor
+GenericName[zh_CN]=图像编辑器
+Comment=Professional RAW image editor with AI-powered tools
+Comment[zh_CN]=专业 RAW 图像编辑器，集成 AI 工具
+Icon=alcedo-studio
+Exec=alcedo-studio %f
+MimeType=image/x-dcraw;image/jpeg;image/png;image/tiff;image/x-adobe-dng;image/x-canon-cr2;image/x-canon-cr3;image/x-nikon-nef;image/x-sony-arw;image/x-fuji-raf;image/x-panasonic-rw2;image/x-olympus-orf;image/x-pentax-pef;
+Categories=Graphics;Photography;2DGraphics;RasterGraphics;
+Keywords=photo;editor;raw;image;photography;
+Keywords[zh_CN]=照片;编辑;RAW;图像;摄影;
+StartupNotify=true
+StartupWMClass=alcedo-studio
+Terminal=false
+Type=Application

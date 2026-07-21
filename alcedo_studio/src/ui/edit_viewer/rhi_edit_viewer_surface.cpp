@@ -5,6 +5,7 @@
 #include "ui/edit_viewer/rhi_edit_viewer_surface.hpp"
 
 #include "ui/edit_viewer/color_manager.hpp"
+#include "ui/edit_viewer/hdr_manager.hpp"
 #ifdef HAVE_CUDA
 #include "ui/edit_viewer/d3d_cuda_interop_utils.hpp"
 #endif
@@ -2280,9 +2281,59 @@ void RhiEditViewerSurface::applyDisplayConfig() {
     return;
   }
 
+  // Apply color management (ICC profile detection on Windows, colorspace on macOS)
   if (ColorManager::ApplyWindowColorSpace(native_handle, display_config_)) {
     display_config_dirty_ = false;
   }
+
+  // ---- P0-2: Windows HDR preview support ----
+  // Detect HDR display capabilities and update the swap chain metadata
+  const bool is_hdr_content =
+      display_config_.encoding_eotf == ColorUtils::EOTF::ST2084 ||
+      display_config_.encoding_eotf == ColorUtils::EOTF::HLG;
+
+  if (is_hdr_content || HDRManager::IsHDRPreviewEnabled()) {
+    auto hdr_info = HDRManager::DetectHDRDisplay(native_handle);
+    if (hdr_info.is_hdr_capable) {
+      // Set up HDR metadata on the swap chain when the surface is initialized
+      // The actual swap chain is accessed via QRhi's native resource
+#if defined(Q_OS_WIN)
+      auto* rhi = this->rhi();
+      if (rhi) {
+        // Query the DXGI swap chain from QRhi's D3D11 or D3D12 backend
+        IDXGISwapChain* dxgi_swap = nullptr;
+
+        if (rhi->backend() == QRhi::D3D11) {
+          const auto* handles = static_cast<const QRhiD3D11NativeHandles*>(rhi->nativeHandles());
+          if (handles && handles->swapChain) {
+            dxgi_swap = handles->swapChain;
+          }
+        }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+        else if (rhi->backend() == QRhi::D3D12) {
+          const auto* handles = static_cast<const QRhiD3D12NativeHandles*>(rhi->nativeHandles());
+          if (handles && handles->swapChain) {
+            dxgi_swap = handles->swapChain;
+          }
+        }
+#endif
+
+        if (dxgi_swap) {
+          HDRToneMappingParams hdr_params;
+          hdr_params.hdr_preview_enabled = HDRManager::IsHDRPreviewEnabled();
+          hdr_params.scene_max_nits = 1000.0f;
+          hdr_params.display_max_nits = hdr_info.max_luminance;
+
+          HDRManager::SetSwapChainHDRMetadata(
+              static_cast<void*>(dxgi_swap), hdr_info, hdr_params);
+        }
+      }
+#endif
+    }
+  }
+
+  // ---- P0-1: Check for display profile changes ----
+  ColorManager::CheckAndInvalidateDisplayProfile(native_handle);
 }
 
 void RhiEditViewerSurface::releasePlatformTargets() {

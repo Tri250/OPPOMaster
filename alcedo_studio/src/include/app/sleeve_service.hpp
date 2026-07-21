@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "app/relink_service.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 #include "sleeve/sleeve_filesystem.hpp"
@@ -129,5 +130,34 @@ class SleeveServiceImpl final : public SleeveService {
   auto GetStorageService() -> std::shared_ptr<StorageService> {
     return storage_service_;
   }
+
+  /// Detect missing files (referenced in DB but not on disk).
+  auto DetectMissingFiles() -> std::vector<MissingFileInfo>;
+
+  /// Relink a single file to a new on-disk path, preserving all edit history.
+  auto RelinkFile(sl_element_id_t file_id,
+                  const std::filesystem::path& new_path) -> RelinkResult;
+
+  /// Batch-relink multiple files at once.
+  auto RelinkFiles(const std::unordered_map<sl_element_id_t, std::filesystem::path>& remappings,
+                   RelinkProgressCallback progress_cb = nullptr)
+      -> std::vector<RelinkResult>;
+
+  /// Search a directory for candidate files matching missing file names.
+  auto SearchDirectoryForMatches(
+      const std::filesystem::path& search_dir,
+      const std::vector<MissingFileInfo>& missing_files,
+      int max_depth = 3)
+      -> std::unordered_map<sl_element_id_t, std::vector<RelinkCandidate>>;
+
+  /// Auto-search nearby directories for moved files.
+  auto AutoSearchNearby(const std::vector<MissingFileInfo>& missing_files)
+      -> std::unordered_map<sl_element_id_t, std::vector<RelinkCandidate>>;
+
+  /// Fuzzy-match a single missing file in a search directory.
+  auto FindFuzzyCandidates(const MissingFileInfo& missing,
+                           const std::filesystem::path& search_dir,
+                           int max_depth = 3)
+      -> std::vector<RelinkCandidate>;
 };
 };  // namespace alcedo

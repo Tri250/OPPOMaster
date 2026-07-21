@@ -33,6 +33,11 @@ set(ALCEDO_OPENCV_IMAGE_DEPS
 )
 
 def_library(ThreadPool SOURCES concurrency/thread_pool.cpp)
+
+def_library(DeadlockDetector
+    SOURCES concurrency/deadlock_detector.cpp
+    PUBLIC_DEPS Qt6::Core AppDiagnostics
+)
 if(ALCEDO_METAL_ENABLED)
     target_link_libraries(ThreadPool PUBLIC alcedo::metal_cpp)
 endif()
@@ -63,6 +68,9 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
     set(OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/geometry/opencl_shader/lens_calib.cl")
     set(OPENCL_SCOPE_ANALYZER_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/scope/opencl_shader/scope_analyzer.cl")
+    set(OPENCL_NN_ELEMENTWISE_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/nn/opencl_shader/nn_elementwise.cl")
+    set(OPENCL_NN_LAYOUT_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/nn/opencl_shader/nn_layout.cl")
+    set(OPENCL_NN_FUSED_POST_OUTPUT_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/nn/opencl_shader/nn_fused_post_output.cl")
     def_library(OpenClContext
         SOURCES
             opencl/opencl_context.cpp
@@ -79,6 +87,7 @@ if(ALCEDO_OPENCL_ENABLED)
             edit/pipeline/opencl_pipeline_programs.cpp
             edit/scope/opencl_scope_programs.cpp
             opencl/opencl_geometry_programs.cpp
+            opencl/nn/elementwise.cpp
         PUBLIC_DEPS
             OpenClContext
             OpenCL::OpenCL
@@ -110,6 +119,9 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
         ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
         ALCEDO_OPENCL_SCOPE_ANALYZER_CL="${OPENCL_SCOPE_ANALYZER_CL}"
+        ALCEDO_OPENCL_NN_ELEMENTWISE_CL="${OPENCL_NN_ELEMENTWISE_CL}"
+        ALCEDO_OPENCL_NN_LAYOUT_CL="${OPENCL_NN_LAYOUT_CL}"
+        ALCEDO_OPENCL_NN_FUSED_POST_OUTPUT_CL="${OPENCL_NN_FUSED_POST_OUTPUT_CL}"
         ALCEDO_OPENCL_SHADER_SOURCE_ROOT="${ALCEDO_OPENCL_SHADER_SOURCE_ROOT}"
     )
 endif()
@@ -120,12 +132,33 @@ def_library(AppDiagnostics
     SOURCES
         utils/diagnostics/app_logging.cpp
         include/utils/diagnostics/app_logging.hpp
-    PUBLIC_DEPS Qt6::Core
+    PUBLIC_DEPS Qt6::Core Qt6::Gui
+)
+
+def_library(AppConfig
+    SOURCES utils/config/app_config.cpp
+    PUBLIC_DEPS NlohmannJson AppDiagnostics
 )
 
 def_library(CudaDriverRequirements
     SOURCES utils/cuda/cuda_driver_requirements.cpp
 )
+
+def_library(GpuCapabilityDetector
+    SOURCES utils/gpu/gpu_capability_detector.cpp
+    PUBLIC_DEPS Qt6::Core
+)
+if(ALCEDO_CUDA_ENABLED)
+    target_link_libraries(GpuCapabilityDetector PRIVATE CudaDriverRequirements ${ALCEDO_OPENCV_CORE_DEPS})
+    target_compile_definitions(GpuCapabilityDetector PRIVATE HAVE_CUDA)
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(GpuCapabilityDetector PRIVATE OpenClContext)
+    target_compile_definitions(GpuCapabilityDetector PRIVATE HAVE_OPENCL)
+endif()
+if(ALCEDO_METAL_ENABLED)
+    target_compile_definitions(GpuCapabilityDetector PRIVATE HAVE_METAL)
+endif()
 
 # Backend-neutral host safetensors parser (no CUDA / OpenCL).
 def_library(NnSafetensors
@@ -818,6 +851,7 @@ set(PIPELINE_SRCS
     edit/pipeline/pipeline_cpu.cpp
     edit/pipeline/pipeline_stage.cpp
     edit/pipeline/pipeline_gpu_wrapper.cpp
+    edit/pipeline/large_image_manager.cpp
     include/edit/pipeline/highlight_shadow_local_tone.hpp
     include/edit/pipeline/local_tone_mapping.hpp
     include/edit/pipeline/metal_kernel_dispatch.hpp
@@ -850,7 +884,7 @@ endif()
 def_library(EditPipeline
     SOURCES ${PIPELINE_SRCS} ${GPU_PIPELINE_SRCS}
     PUBLIC_DEPS Operators
-    PRIVATE_DEPS ThreadPool opencv_imgproc CudaDriverRequirements AcceleratorBackend
+    PRIVATE_DEPS ThreadPool DeadlockDetector opencv_imgproc CudaDriverRequirements AcceleratorBackend
 )
 
 if(ALCEDO_CUDA_ENABLED)
@@ -859,6 +893,9 @@ if(ALCEDO_CUDA_ENABLED)
     target_compile_definitions(EditPipeline PUBLIC HAVE_CUDA)
     target_include_directories(EditPipeline PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
     target_link_libraries(EditPipeline PRIVATE CUDA::cudart)
+endif()
+if(WIN32)
+    target_link_libraries(EditPipeline PRIVATE dxgi)
 endif()
 if(ALCEDO_METAL_ENABLED)
     add_dependencies(EditPipeline EditPipelineMetalShaders ScopeAnalyzerMetalShaders)
@@ -874,10 +911,14 @@ if(ALCEDO_OPENCL_ENABLED)
     target_link_libraries(EditPipeline PRIVATE OpenClProgramLibrary)
 endif()
 
-set(RENDERER_SRCS renderer/pipeline_scheduler.cpp)
+set(RENDERER_SRCS
+    renderer/pipeline_scheduler.cpp
+    renderer/memory_budget_manager.cpp
+)
 def_library(PipelineScheduler
     SOURCES ${RENDERER_SRCS}
-    PUBLIC_DEPS EditPipeline ThreadPool ImageLoader)
+    PUBLIC_DEPS EditPipeline ThreadPool ImageLoader AppLogging NlohmannJson
+)
 
 # --- Raw Processor Wrapper ---
 set(RAW_PROCESSOR_BACKEND_SRCS)
@@ -1128,8 +1169,8 @@ endif()
 # 9. Services
 # ==============================================================================
 def_library(FSService
-    SOURCES app/sleeve_service.cpp
-    PUBLIC_DEPS SleeveFS EditHistory
+    SOURCES app/sleeve_service.cpp app/relink_service.cpp
+    PUBLIC_DEPS SleeveFS EditHistory StorageService StrConv
 )
 
 def_library(SleeveFilterService
@@ -1312,9 +1353,25 @@ def_library(AiSidecarRuntimeService
     SOURCES
         app/ai_sidecar_runtime_service.cpp
         include/app/ai_sidecar_runtime_service.hpp
-    PUBLIC_DEPS Qt6::Core Qt6::Network SidecarClient
+    PUBLIC_DEPS Qt6::Core Qt6::Network SidecarClient OfflineAiService
     PRIVATE_DEPS AppDiagnostics
 )
+
+def_library(OfflineAiService
+    SOURCES
+        app/offline_ai_service.cpp
+        include/app/offline_ai_service.hpp
+    PUBLIC_DEPS Qt6::Core SidecarClient
+    PRIVATE_DEPS AppDiagnostics
+)
+if(ALCEDO_ONNXRUNTIME_ENABLED)
+    find_package(onnxruntime CONFIG REQUIRED)
+    target_link_libraries(OfflineAiService PRIVATE onnxruntime)
+    target_compile_definitions(OfflineAiService PRIVATE HAVE_ONNXRUNTIME)
+endif()
+if(WIN32)
+    target_link_libraries(OfflineAiService PRIVATE Advapi32)
+endif()
 
 def_library(AiCredentialStore
     SOURCES
@@ -1326,6 +1383,51 @@ if(WIN32)
 elseif(APPLE)
     target_link_libraries(AiCredentialStore PRIVATE "-framework Security" "-framework CoreFoundation")
 endif()
+
+# P2-3: AI credential import/export with AES-256 encryption
+def_library(CredentialPortability
+    SOURCES
+        app/credential_portability.cpp
+        include/app/credential_portability.hpp
+    PUBLIC_DEPS AiCredentialStore AiProviderProfile Qt6::Core
+    PRIVATE_DEPS AppDiagnostics
+)
+target_compile_definitions(CredentialPortability PRIVATE ALCEDO_APP_VERSION="${PROJECT_VERSION}")
+
+# P2-10: Export preset manager (social media presets)
+def_library(ExportPresetManager
+    SOURCES
+        app/export_preset.cpp
+        include/app/export_preset.hpp
+    PUBLIC_DEPS Qt6::Core
+)
+
+# P2-8: Auto-update checker
+def_library(UpdateChecker
+    SOURCES
+        app/update_checker.cpp
+        include/app/update_checker.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network
+)
+target_compile_definitions(UpdateChecker PRIVATE ALCEDO_APP_VERSION="${PROJECT_VERSION}")
+
+# P2-9: Crash reporter
+def_library(CrashReporter
+    SOURCES
+        app/crash_reporter.cpp
+        include/app/crash_reporter.hpp
+    PUBLIC_DEPS Qt6::Core
+    PRIVATE_DEPS AppDiagnostics
+)
+target_compile_definitions(CrashReporter PRIVATE ALCEDO_APP_VERSION="${PROJECT_VERSION}")
+
+# P2-15: AI label history integration
+def_library(AiLabelHistory
+    SOURCES
+        app/ai_label_history.cpp
+        include/app/ai_label_history.hpp
+    PUBLIC_DEPS JSON
+)
 
 # Frontend 1b: multi-profile provider settings controller. Profiles persist in
 # ai_providers.json and generated sidecar ProviderConfig JSON; raw API keys stay
@@ -1348,6 +1450,7 @@ def_library(ModelDownloadService
 def_library(ProjectService
     SOURCES
         app/project_service.cpp
+        app/project_migrator.cpp
         app/project_package_backend.cpp
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
@@ -1434,6 +1537,11 @@ def_library(ExportService
     PUBLIC_DEPS ImageWriter ImageLoader ImagePoolService PipelineMgmtService PipelineScheduler ThreadPool
 )
 
+def_library(PanoramaService
+    SOURCES app/panorama_service.cpp
+    PUBLIC_DEPS SleeveService ImagePoolService PipelineMgmtService ThreadPool opencv_stitching opencv_imgcodecs opencv_features2d
+)
+
 # ==============================================================================
 # 9. UI Components
 # ==============================================================================
@@ -1449,6 +1557,7 @@ if(ALCEDO_REAL_WIDGET_EDITOR)
         include/ui/edit_viewer/edit_viewer_overlay_geometry.hpp
         include/ui/edit_viewer/edit_viewer_surface.hpp
         include/ui/edit_viewer/color_manager.hpp
+        include/ui/edit_viewer/hdr_manager.hpp
         include/ui/edit_viewer/viewer_state.hpp
         include/ui/edit_viewer/viewport_mapper.hpp
         include/ui/edit_viewer/crop_geometry.hpp
@@ -1473,6 +1582,7 @@ if(ALCEDO_REAL_WIDGET_EDITOR)
     if(ALCEDO_RHI_WIDGET_EDITOR)
         list(APPEND EDIT_VIEWER_BACKEND_SRCS
             ui/edit_viewer/color_manager.cpp
+            ui/edit_viewer/hdr_manager.cpp
             ui/edit_viewer/rhi_edit_viewer_surface.cpp
             include/ui/edit_viewer/rhi_edit_viewer_surface.hpp
         )
@@ -1506,7 +1616,7 @@ if(ALCEDO_REAL_WIDGET_EDITOR)
         )
     endif()
     if(ALCEDO_RHI_WIDGET_EDITOR AND WIN32)
-        target_link_libraries(EditViewer PRIVATE d3d11 d3d12 dxgi)
+        target_link_libraries(EditViewer PRIVATE d3d11 d3d12 dxgi icmui dwmapi)
     endif()
 
     if(ALCEDO_RHI_WIDGET_EDITOR)
@@ -1727,11 +1837,15 @@ set(ALCEDO_MAIN_SOURCES
     ui/alcedo_main/main.cpp
     ui/alcedo_main/app_theme.cpp
     ui/alcedo_main/shortcut_registry.cpp
+    ui/alcedo_main/shortcut_definitions.cpp
+    ui/alcedo_main/user_notification.cpp
     config/resource.qrc
     include/ui/alcedo_main/app_theme.hpp
     include/ui/alcedo_main/i18n.hpp
     include/ui/alcedo_main/language_manager.hpp
     include/ui/alcedo_main/shortcut_registry.hpp
+    include/ui/alcedo_main/shortcut_definitions.hpp
+    include/ui/alcedo_main/user_notification.hpp
     include/utils/cuda/cuda_driver_requirements.hpp
     ${ALCEDO_EDITOR_DIALOG_SRCS}
 )
@@ -1797,6 +1911,11 @@ target_link_libraries(alcedo_main
         AlbumBackendLib
         AppDiagnostics
         UiLocalization
+        CredentialPortability
+        ExportPresetManager
+        UpdateChecker
+        CrashReporter
+        AiLabelHistory
         Qt6::Quick
         Qt6::Qml
         Qt6::QuickControls2

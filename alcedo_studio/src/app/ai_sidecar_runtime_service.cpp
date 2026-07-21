@@ -260,7 +260,8 @@ auto ToString(AiSidecarRuntimeIssue issue) -> const char* {
 
 AiSidecarRuntimeService::AiSidecarRuntimeService(AiSidecarClientFactory client_factory,
                                                  QObject*               parent)
-    : QObject(parent), client_factory_(std::move(client_factory)) {
+    : QObject(parent), client_factory_(std::move(client_factory)),
+      offline_service_(std::make_unique<OfflineAiService>(this)) {
   if (!client_factory_) {
     client_factory_ = [](const std::string& endpoint) {
       return sidecar_client::MakeGrpcClient(endpoint);
@@ -349,6 +350,8 @@ auto AiSidecarRuntimeService::StartAndWaitBody(const AiSidecarRuntimeOptions& op
   if (!std::filesystem::exists(options_.runtime_binary, ec) || ec) {
     SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kBinaryMissing,
               "Semantic runtime binary was not found: " + options_.runtime_binary.string());
+    // Attempt to initialize offline AI service as fallback
+    TryInitializeOfflineService();
     return false;
   }
   qCInfo(diag::semanticLog).noquote()
@@ -375,6 +378,7 @@ auto AiSidecarRuntimeService::StartAndWaitBody(const AiSidecarRuntimeOptions& op
   if (!process_.waitForStarted(static_cast<int>(options_.startup_timeout.count()))) {
     SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kStartFailed,
               process_.errorString().toStdString());
+    TryInitializeOfflineService();
     return false;
   }
   status_.process_id = static_cast<int64_t>(process_.processId());
@@ -738,6 +742,36 @@ void AiSidecarRuntimeService::ReleaseChildTreeCleanup() {
     job_object_ = nullptr;
   }
 #endif
+}
+
+void AiSidecarRuntimeService::TryInitializeOfflineService() {
+  if (offline_mode_ && offline_service_->IsAvailable()) {
+    return;  // Already in offline mode
+  }
+
+  qCInfo(diag::semanticLog).noquote()
+      << QStringLiteral("semantic.runtime.offline_fallback "
+                        "Attempting to initialize offline AI service");
+
+  const auto model_root = options_.model_root.empty()
+                              ? DefaultRuntimeModelRoot()
+                              : options_.model_root;
+  const auto model_id = options_.model_id;
+  const auto revision = options_.revision;
+  const auto device   = options_.device;
+
+  if (offline_service_->Initialize(model_root, model_id, revision, device)) {
+    offline_mode_ = true;
+    qCInfo(diag::semanticLog).noquote()
+        << QStringLiteral("semantic.runtime.offline_fallback "
+                          "Offline AI service initialized successfully. "
+                          "AI features will be available in limited mode.");
+  } else {
+    qCWarning(diag::semanticLog).noquote()
+        << QStringLiteral("semantic.runtime.offline_fallback "
+                          "Failed to initialize offline AI service. "
+                          "AI features will be unavailable.");
+  }
 }
 
 }  // namespace alcedo

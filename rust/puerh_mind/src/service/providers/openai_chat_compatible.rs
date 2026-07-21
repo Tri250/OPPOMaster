@@ -45,6 +45,7 @@
 
 use serde_json::{Value, json};
 use std::sync::Mutex;
+use std::time::Instant;
 use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
@@ -71,6 +72,92 @@ const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
 const ANALYSIS_FLAT_SCHEMA_NAME: &str = "alcedo_image_analysis_flat";
 const ANALYSIS_BATCH_SCHEMA_NAME: &str = "alcedo_image_analysis_batch";
 const SCHEMA_REPAIR_RETRIES: u32 = 1;
+
+/// P1-11: Maximum allowed requests per minute per provider instance.
+const RATE_LIMIT_RPM: u64 = 60;
+
+/// P1-11: Simple token-bucket rate limiter to prevent API abuse.
+struct RateLimiter {
+    /// Timestamp of the last request.
+    last_request: Instant,
+    /// Number of requests made in the current minute window.
+    request_count: u64,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        Self {
+            last_request: Instant::now(),
+            request_count: 0,
+        }
+    }
+
+    /// Check if a request is allowed under the rate limit. Returns Ok(()) if
+    /// allowed, or an error if the rate limit has been exceeded.
+    fn check(&mut self) -> Result<(), ProviderError> {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_request);
+        // Reset the counter if more than 60 seconds have passed
+        if elapsed.as_secs() >= 60 {
+            self.request_count = 0;
+            self.last_request = now;
+        }
+        if self.request_count >= RATE_LIMIT_RPM {
+            return Err(ProviderError::Provider(format!(
+                "rate limit exceeded: max {RATE_LIMIT_RPM} requests per minute"
+            )));
+        }
+        self.request_count += 1;
+        Ok(())
+    }
+}
+
+/// P1-11: Validate a provider URL. Ensures the URL uses HTTPS for remote hosts,
+/// allows HTTP only for localhost testing. Rejects malformed URLs.
+fn validate_provider_url(url: &str) -> Result<(), ProviderError> {
+    let parsed = url::Url::parse(url).map_err(|err| {
+        ProviderError::Provider(format!("invalid provider URL '{url}': {err}"))
+    })?;
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            // Allow HTTP only for localhost (testing)
+            let host = parsed.host_str().unwrap_or("");
+            if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+                Ok(())
+            } else {
+                Err(ProviderError::Provider(format!(
+                    "insecure HTTP URL for non-localhost host '{host}'; use HTTPS"
+                )))
+            }
+        }
+        scheme => Err(ProviderError::Provider(format!(
+            "unsupported URL scheme '{scheme}' for provider; use HTTPS"
+        ))),
+    }
+}
+
+/// P1-11: Validate model ID format. Rejects empty or excessively long IDs,
+/// and IDs containing control characters.
+fn validate_model_id(model_id: &str) -> Result<(), ProviderError> {
+    if model_id.trim().is_empty() {
+        return Err(ProviderError::Provider(
+            "model_id must not be empty".to_string(),
+        ));
+    }
+    if model_id.len() > 256 {
+        return Err(ProviderError::Provider(format!(
+            "model_id too long ({} chars, max 256)",
+            model_id.len()
+        )));
+    }
+    if model_id.chars().any(|c| c.is_control()) {
+        return Err(ProviderError::Provider(
+            "model_id must not contain control characters".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 struct BatchItemRepair {
@@ -116,17 +203,23 @@ pub struct OpenAiChatCompatibleProvider {
     /// per-item error). Idempotent: a slug already in `config.models` or already
     /// committed is not duplicated.
     discovered_models: Mutex<Vec<ModelConfig>>,
+    /// P1-11: Per-provider rate limiter to prevent API abuse.
+    rate_limiter: Mutex<RateLimiter>,
 }
 
 impl OpenAiChatCompatibleProvider {
     /// Construct from a validated provider config, building a rustls-backed
     /// `reqwest::Client`. Used by `main.rs` for the shipped sidecar.
     pub fn new(config: ProviderConfig) -> Result<Self, ProviderError> {
+        // P1-11: Validate provider URL at construction time
+        let full_url = format!("{}{}", config.base_url, config.endpoint);
+        validate_provider_url(&full_url)?;
         let http = build_rustls_client()?;
         Ok(Self {
             config,
             http,
             discovered_models: Mutex::new(Vec::new()),
+            rate_limiter: Mutex::new(RateLimiter::new()),
         })
     }
 
@@ -139,6 +232,7 @@ impl OpenAiChatCompatibleProvider {
             config,
             http,
             discovered_models: Mutex::new(Vec::new()),
+            rate_limiter: Mutex::new(RateLimiter::new()),
         }
     }
 
@@ -411,6 +505,13 @@ impl OpenAiChatCompatibleProvider {
         body: &Value,
         bearer: Option<&str>,
     ) -> Result<reqwest::Response, ProviderError> {
+        // P1-11: Validate model ID before sending
+        validate_model_id(slug)?;
+        // P1-11: Check rate limit before sending
+        self.rate_limiter
+            .lock()
+            .expect("rate_limiter mutex poisoned")
+            .check()?;
         send_with_retry(
             &self.http,
             &self.url(),
@@ -1346,6 +1447,17 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
+        // P1-11: Validate input image size
+        if image_bytes.is_empty() {
+            return Err(ProviderError::Provider("image_bytes must not be empty".to_string()));
+        }
+        if image_bytes.len() > self.max_payload_bytes() {
+            return Err(ProviderError::Provider(format!(
+                "image size ({} bytes) exceeds max payload ({} bytes)",
+                image_bytes.len(),
+                self.max_payload_bytes()
+            )));
+        }
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;

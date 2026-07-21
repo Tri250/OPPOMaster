@@ -16,8 +16,12 @@ namespace alcedo::ui {
 
 EditorFrameManager::~EditorFrameManager() {
   if (auto exec = attached_executor_.lock()) {
-    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
-    exec->DetachFrameSink();
+    auto lock = exec->TryAcquireRenderLock(std::chrono::milliseconds(5000));
+    if (lock.owns_lock()) {
+      exec->DetachFrameSink();
+    }
+    // If we can't acquire the lock, the executor is being destroyed or is
+    // in a render. The sink will be cleaned up by the executor's own destructor.
   }
 }
 
@@ -29,8 +33,10 @@ void EditorFrameManager::SetViewer(QtEditViewer* viewer) {
   // This prevents a race where the old viewer/scope-tap is destroyed while a render
   // is still referencing it through the execution stages.
   if (auto exec = attached_executor_.lock()) {
-    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
-    exec->DetachFrameSink();
+    auto lock = exec->TryAcquireRenderLock(std::chrono::milliseconds(5000));
+    if (lock.owns_lock()) {
+      exec->DetachFrameSink();
+    }
   }
   viewer_ = viewer;
   final_display_frame_tap_.reset();
@@ -41,8 +47,10 @@ void EditorFrameManager::SetScopePanel(ScopePanel* scope_panel) {
     return;
   }
   if (auto exec = attached_executor_.lock()) {
-    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
-    exec->DetachFrameSink();
+    auto lock = exec->TryAcquireRenderLock(std::chrono::milliseconds(5000));
+    if (lock.owns_lock()) {
+      exec->DetachFrameSink();
+    }
   }
   scope_panel_ = scope_panel;
   final_display_frame_tap_.reset();
@@ -83,14 +91,20 @@ void EditorFrameManager::AttachExecutionStages(
   // partially-updated frame sink or execution-stage configuration.
   if (auto prev_exec = attached_executor_.lock()) {
     if (prev_exec != exec) {
-      std::unique_lock<std::mutex> lock(prev_exec->GetRenderLock());
-      prev_exec->DetachFrameSink();
+      auto lock = prev_exec->TryAcquireRenderLock(std::chrono::milliseconds(5000));
+      if (lock.owns_lock()) {
+        prev_exec->DetachFrameSink();
+      }
     }
   }
 
   {
-    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
-    controllers::AttachExecutionStages(exec, CurrentFrameSink());
+    auto lock = exec->TryAcquireRenderLock(std::chrono::milliseconds(10000));
+    if (lock.owns_lock()) {
+      controllers::AttachExecutionStages(exec, CurrentFrameSink());
+    }
+    // If we couldn't acquire the lock, the attachment will happen on the next
+    // render cycle when the executor is available.
   }
 
   attached_executor_ = exec;

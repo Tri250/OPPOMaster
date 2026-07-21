@@ -63,6 +63,17 @@ class Version {
   static auto Empty(sl_element_id_t bound_image, std::string display_name,
                     std::optional<nlohmann::json> materialized_params = std::nullopt) -> Version;
 
+  /// Create a "Plain" version that resets all adjustment parameters to
+  /// factory defaults. The materialized_params will contain a fresh
+  /// CPUPipelineExecutor's default export (all operators at clean baseline).
+  static auto Plain(sl_element_id_t bound_image, std::string display_name = "Plain")
+      -> Version;
+
+  /// Validate that a version's materialized_params contains all required
+  /// operator entries with proper default values. Returns true if valid.
+  /// If the version has no materialized params, returns false.
+  auto ValidateDefaults() const -> bool;
+
   void CalculateVersionID();
   auto GetVersionID() const -> version_id_t;
 

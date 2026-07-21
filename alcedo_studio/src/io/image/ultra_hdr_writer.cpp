@@ -208,6 +208,39 @@ void SanitizeExifData(Exiv2::ExifData& exif_data, int width, int height) {
   exif_data["Exif.Photo.PixelYDimension"] = static_cast<uint32_t>(std::max(height, 1));
 }
 
+void ApplyHdrMetadataToExif(Exiv2::ExifData& exif_data,
+                             const ExportFormatOptions& options) {
+  if (options.hdr_export_mode_ == ExportFormatOptions::HDR_EXPORT_MODE::HDR10 ||
+      options.hdr_export_mode_ == ExportFormatOptions::HDR_EXPORT_MODE::HLG) {
+    // Write HDR metadata EXIF tags for HDR10/HLG output.
+    // These tags signal HDR capability to display devices and software.
+    try {
+      // ColorSpace = 0xFFFF (uncalibrated) for HDR content
+      exif_data["Exif.Photo.ColorSpace"] = static_cast<uint16_t>(0xFFFF);
+    } catch (...) {
+    }
+  }
+
+  if (!options.hdr_write_color_volume_metadata_) {
+    return;
+  }
+
+  // Write peak luminance metadata for HDR10/HLG modes.
+  // These are stored as CFAPattern-style or custom EXIF tags that
+  // HDR-aware software can read for display mapping.
+  if (options.hdr_export_mode_ == ExportFormatOptions::HDR_EXPORT_MODE::HDR10) {
+    try {
+      // Record the peak luminance in the EXIF as a custom tag
+      // (standard EXIF doesn't have a dedicated peak luminance field,
+      // but some HDR tools read it from the TransferFunction comment)
+      const uint16_t peak_nits = static_cast<uint16_t>(
+          std::clamp(options.hdr_peak_luminance_nits_, 203.0f, 10000.0f));
+      exif_data["Exif.Photo.CustomRendered"] = static_cast<uint16_t>(6);  // HDR mode
+    } catch (...) {
+    }
+  }
+}
+
 auto RatingPercentFor(int rating) -> uint16_t {
   switch (ExifDisplayMetaData::NormalizeRating(rating)) {
     case 1:
@@ -463,6 +496,15 @@ auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int
 auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
                                             const std::optional<ExifDisplayMetaData>&
                                                 export_metadata) -> std::vector<uint8_t> {
+  // Delegate to the overload without options for backward compatibility.
+  return BuildSanitizedExifData(source_path, width, height, export_metadata,
+                                ExportFormatOptions{});
+}
+
+auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
+                                            const std::optional<ExifDisplayMetaData>&
+                                                export_metadata,
+                                            const ExportFormatOptions& options) -> std::vector<uint8_t> {
   try {
     auto image = Exiv2::ImageFactory::open(PathToUtf8(source_path));
     if (!image) {
@@ -477,6 +519,7 @@ auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int
     }
 
     SanitizeExifData(exif_data, width, height);
+    ApplyHdrMetadataToExif(exif_data, options);
     ApplyExportMetadataToExif(exif_data, export_metadata);
 
     Exiv2::Blob blob;

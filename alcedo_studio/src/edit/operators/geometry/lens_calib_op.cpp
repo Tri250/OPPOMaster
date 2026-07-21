@@ -435,6 +435,30 @@ auto FindBestLens(const lfDatabase* db, const lfCamera* camera, const InputMeta&
   const lfLens** lenses =
       lf_db_find_lenses(db, camera, lens_maker, input.lens_model_.c_str(), flags);
   if (!lenses) {
+    // Canon RF lens fallback: try searching without the "RF " / "RF-S " prefix.
+    // lensfun's database often stores Canon RF lenses under their base model name
+    // without the RF prefix, while camera metadata includes it.
+    if (input.lens_model_.find("RF") != std::string::npos) {
+      std::string stripped = input.lens_model_;
+      // Remove common Canon RF prefixes
+      for (const auto& prefix : {"RF-S ", "RF ", "RF"}) {
+        if (stripped.find(prefix) == 0) {
+          stripped = stripped.substr(std::char_traits<char>::length(prefix));
+          break;
+        }
+      }
+      if (!stripped.empty()) {
+        lenses = lf_db_find_lenses(db, camera, lens_maker, stripped.c_str(), flags);
+      }
+    }
+  }
+  if (!lenses) {
+    // Additional fallback: try with "Canon" maker explicitly for RF lenses
+    if (input.lens_maker_.empty() && input.lens_model_.find("RF") != std::string::npos) {
+      lenses = lf_db_find_lenses(db, camera, "Canon", input.lens_model_.c_str(), flags);
+    }
+  }
+  if (!lenses) {
     return nullptr;
   }
 

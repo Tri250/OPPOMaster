@@ -285,13 +285,20 @@ class ImageAnalysisJob final {
   ImageAnalysisProgress                      progress_{};
   std::vector<ImageAnalysisItemResult>       results_;
   std::atomic<bool>                          canceled_{false};
-  std::atomic<bool>                          am_in_flight_{false};
+  std::atomic<bool>                          am_in_flight{false};
+  // P1-9: Cancellation barrier — once set, no new RPC can start.
+  std::atomic<bool>                          cancel_barrier_{false};
   std::thread                                worker_;
   std::thread                                producer_;  // Phase 5e prefill producer
   bool                                       finished_ = false;
 
   std::shared_ptr<ImageAnalysisInFlightGate> gate_;
   std::shared_ptr<IImageAnalysisClient>      client_;
+
+  // P1-9: Pointer to the PrefillQueue used by RunJob, so Cancel() can notify it.
+  // Forward-declared; actual type is defined in the .cpp.
+  class PrefillQueue;
+  PrefillQueue*                              prefill_queue_ = nullptr;
 };
 
 class ImageAnalysisService final {

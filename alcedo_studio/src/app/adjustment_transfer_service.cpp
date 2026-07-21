@@ -253,6 +253,91 @@ auto SanitizeParams(OperatorType op_type, nlohmann::json params,
   }
 }
 
+/// Validate that ODT/DRT parameters have the required structure.
+/// Ensures the `odt.open_drt` sub-object exists with expected keys.
+auto ValidateDRTParams(nlohmann::json& params) -> bool {
+  if (!params.is_object()) {
+    return false;
+  }
+  if (!params.contains("odt") || !params["odt"].is_object()) {
+    return true;  // No ODT section yet - valid (will be filled by defaults)
+  }
+  auto& odt = params["odt"];
+  if (!odt.contains("open_drt") || !odt["open_drt"].is_object()) {
+    return true;  // No open_drt section yet - valid
+  }
+  auto& drt = odt["open_drt"];
+  // Validate required DRT fields have correct types
+  const std::vector<std::pair<std::string, nlohmann::json::value_t>> required_fields = {
+      {"look_preset",          nlohmann::json::value_t::string},
+      {"tonescale_preset",     nlohmann::json::value_t::string},
+      {"creative_white",       nlohmann::json::value_t::string},
+      {"creative_white_limit", nlohmann::json::value_t::number_float},
+      {"display_grey_luminance", nlohmann::json::value_t::number_float},
+      {"hdr_grey_boost",      nlohmann::json::value_t::number_float},
+      {"hdr_purity",          nlohmann::json::value_t::number_float},
+  };
+  bool valid = true;
+  for (const auto& [key, expected_type] : required_fields) {
+    if (drt.contains(key) && drt[key].type() != expected_type &&
+        drt[key].type() != nlohmann::json::value_t::number_integer &&
+        drt[key].type() != nlohmann::json::value_t::number_unsigned) {
+      valid = false;
+      break;
+    }
+  }
+  return valid;
+}
+
+/// Preserve DRT sub-parameters when merging ODT adjustments.
+/// When overwrite/merge happens, the `open_drt` nested settings must be
+/// carried forward unless explicitly replaced.
+auto PreserveDRTParams(nlohmann::json& target_params,
+                       const nlohmann::json& source_params) -> void {
+  if (!target_params.is_object() || !source_params.is_object()) {
+    return;
+  }
+  if (!target_params.contains("odt") || !target_params["odt"].is_object()) {
+    return;
+  }
+  if (!source_params.contains("odt") || !source_params["odt"].is_object()) {
+    return;
+  }
+
+  auto& target_odt = target_params["odt"];
+  const auto& source_odt = source_params["odt"];
+
+  // If source has open_drt but target doesn't, copy it over
+  if (source_odt.contains("open_drt") && source_odt["open_drt"].is_object()) {
+    if (!target_odt.contains("open_drt") || !target_odt["open_drt"].is_object()) {
+      target_odt["open_drt"] = source_odt["open_drt"];
+    } else {
+      // Merge: carry forward any open_drt keys that the target doesn't have
+      const auto& source_drt = source_odt["open_drt"];
+      auto& target_drt = target_odt["open_drt"];
+      for (const auto& [key, value] : source_drt.items()) {
+        if (!target_drt.contains(key)) {
+          target_drt[key] = value;
+        }
+      }
+      // Also preserve the detailed parameters sub-object if present
+      if (source_drt.contains("parameters") && source_drt["parameters"].is_object()) {
+        if (!target_drt.contains("parameters") || !target_drt["parameters"].is_object()) {
+          target_drt["parameters"] = source_drt["parameters"];
+        } else {
+          const auto& src_params = source_drt["parameters"];
+          auto& tgt_params = target_drt["parameters"];
+          for (const auto& [key, value] : src_params.items()) {
+            if (!tgt_params.contains(key)) {
+              tgt_params[key] = value;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 auto RebuildExecutionStagesIfPossible(PipelineExecutor& pipeline) -> void {
   auto* cpu_pipeline = dynamic_cast<CPUPipelineExecutor*>(&pipeline);
   if (cpu_pipeline == nullptr) {
@@ -301,6 +386,13 @@ auto BuildTransferEdit(PipelineExecutor& target, const AdjustmentTransferEntry& 
     if (op.merge_params_) {
       effective_params = before_params;
       MergeJsonObject(effective_params, op.params_);
+    }
+    // P2-14: Preserve DRT sub-parameters when overwriting ODT adjustments.
+    // The merge above may have overwritten the nested open_drt sub-object
+    // with incomplete data. Restore missing DRT fields from the before state.
+    if (op.operator_type_ == OperatorType::ODT) {
+      PreserveDRTParams(effective_params, before_params);
+      ValidateDRTParams(effective_params);
     }
     entry_changed = before_enabled != op.enabled_ || before_params != effective_params;
   }
@@ -497,6 +589,12 @@ auto AdjustmentTransferService::Apply(PipelineExecutor&                target,
         effective_params = current.value()->op_->GetParams();
         MergeJsonObject(effective_params, op.params_);
       }
+      // P2-14: Preserve DRT sub-parameters when overwriting ODT adjustments.
+      if (op.operator_type_ == OperatorType::ODT) {
+        const nlohmann::json before_params = current.value()->op_->GetParams();
+        PreserveDRTParams(effective_params, before_params);
+        ValidateDRTParams(effective_params);
+      }
       entry_changed = current.value()->enable_ != op.enabled_ ||
                       current.value()->op_->GetParams() != effective_params;
     }
@@ -541,7 +639,11 @@ auto AdjustmentTransferService::Apply(PipelineMgmtService&             pipeline_
 
       bool changed = false;
       {
-        std::unique_lock<std::mutex> render_guard(guard->pipeline_->GetRenderLock());
+        auto render_guard = guard->pipeline_->TryAcquireRenderLock(std::chrono::milliseconds(10000));
+        if (!render_guard.owns_lock()) {
+          result.failures_.push_back({target_id, "Pipeline is busy, could not acquire lock."});
+          continue;
+        }
         changed = Apply(*guard->pipeline_, package);
       }
 
@@ -603,7 +705,14 @@ auto AdjustmentTransferService::Apply(PipelineMgmtService&             pipeline_
 
       bool changed = false;
       {
-        std::unique_lock<std::mutex> render_guard(pipeline_guard->pipeline_->GetRenderLock());
+        auto render_guard = pipeline_guard->pipeline_->TryAcquireRenderLock(
+            std::chrono::milliseconds(10000));
+        if (!render_guard.owns_lock()) {
+          result.failures_.push_back({target_id, "Pipeline is busy, could not acquire lock."});
+          pipeline_service.SavePipeline(pipeline_guard);
+          history_service.SaveHistory(history_guard);
+          continue;
+        }
         const auto        base_params  = pipeline_guard->pipeline_->ExportPipelineParams();
         const std::string display_name = UniqueVersionDisplayName(
             *history_guard->history_, version_display_name,

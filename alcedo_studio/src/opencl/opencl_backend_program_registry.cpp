@@ -33,6 +33,34 @@ void RegisterBuiltinOpenClProgramManifests() {
     RegisterOpenClGeometryPrograms();
     RegisterOpenClScopePrograms();
     RegisterOpenClDemosaicNetPrograms();
+
+    // NN elementwise and layout operators (relu, mul, concat, crop, slice,
+    // fused_post_output, conv_transpose2d). These bridge the gap between
+    // the CUDA NN backend and the OpenCL NN backend for DemosaicNet inference.
+    OpenClBackendProgramRegistry::Instance().RegisterManifest(OpenClProgramManifest{
+        .name = "opencl_nn_elementwise",
+        .programs =
+            {
+                OpenClProgramDescriptor{
+                    .name                = "opencl_nn_elementwise",
+                    .source_paths        = {ALCEDO_OPENCL_NN_ELEMENTWISE_CL},
+                    .build_options       = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
+                OpenClProgramDescriptor{
+                    .name                = "opencl_nn_layout",
+                    .source_paths        = {ALCEDO_OPENCL_NN_LAYOUT_CL},
+                    .build_options       = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
+                OpenClProgramDescriptor{
+                    .name                = "opencl_nn_fused_post_output",
+                    .source_paths        = {ALCEDO_OPENCL_NN_FUSED_POST_OUTPUT_CL},
+                    .build_options       = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
+            },
+    });
   });
 }
 

@@ -181,7 +181,8 @@ class PrefillQueue {
   auto Push(EncodedAnalysisItem item, std::function<bool()> is_canceled) -> bool {
     std::unique_lock lk(mutex_);
     while (items_.size() >= capacity_ && !is_canceled()) {
-      not_full_cv_.wait_for(lk, std::chrono::milliseconds(25));
+      // P1-9: Reduced poll interval from 25ms to 5ms for faster cancel detection
+      not_full_cv_.wait_for(lk, std::chrono::milliseconds(5));
     }
     if (is_canceled()) {
       return false;  // item NOT pushed; caller should stop producing
@@ -194,7 +195,8 @@ class PrefillQueue {
   auto Pop(std::function<bool()> is_canceled) -> std::optional<EncodedAnalysisItem> {
     std::unique_lock lk(mutex_);
     while (items_.empty() && !producer_done_ && !is_canceled()) {
-      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(25));
+      // P1-9: Reduced poll interval from 25ms to 5ms for faster cancel detection
+      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(5));
     }
     if (is_canceled()) {
       return std::nullopt;
@@ -216,10 +218,12 @@ class PrefillQueue {
     }
     std::unique_lock lk(mutex_);
     while (items_.empty() && !producer_done_ && !is_canceled()) {
-      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(25));
+      // P1-9: Reduced poll interval from 25ms to 5ms for faster cancel detection
+      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(5));
     }
     while (items_.size() < max_items && !producer_done_ && !is_canceled()) {
-      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(25));
+      // P1-9: Reduced poll interval from 25ms to 5ms for faster cancel detection
+      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(5));
     }
     if (is_canceled() || items_.empty()) {
       return batch;
@@ -232,6 +236,12 @@ class PrefillQueue {
     }
     not_full_cv_.notify_all();
     return batch;
+  }
+
+  // P1-9: Notify all waiters to unblock immediately (called on cancel)
+  void NotifyCancel() {
+    not_full_cv_.notify_all();
+    not_empty_cv_.notify_all();
   }
 
   void MarkProducerDone() {
@@ -556,10 +566,24 @@ ImageAnalysisJob::~ImageAnalysisJob() {
 }
 
 void ImageAnalysisJob::Cancel() {
-  canceled_.store(true);
+  // P1-9: Use release store so all preceding writes are visible to readers
+  // who observe the canceled flag via acquire load.
+  canceled_.store(true, std::memory_order_release);
+
+  // P1-9: Cancellation barrier — set a flag that prevents any new RPC from starting.
+  // After this point, AcquireAndPublish will return false, and the consumer loop
+  // will skip any remaining items.
+  cancel_barrier_.store(true, std::memory_order_release);
+
   if (gate_) {
     gate_->NotifyAll();
   }
+
+  // P1-9: Notify prefill queue waiters so they unblock immediately
+  if (prefill_queue_) {
+    prefill_queue_->NotifyCancel();
+  }
+
   // Best-effort server-side cancel of THIS job's in-flight RPC. am_in_flight_ is true
   // only while this job occupies the gate slot, and AcquireAndPublish publishes this
   // job's request_id atomically with the slot, so while am_in_flight_ is true the gate's
@@ -567,7 +591,7 @@ void ImageAnalysisJob::Cancel() {
   // (already finished / unknown) is harmless; the pre-RPC re-check + post-RPC
   // IsCanceled() discard in RunJob are the guarantees that no paid RPC is honored after
   // cancel.
-  if (am_in_flight_.load() && client_ && gate_) {
+  if (am_in_flight_.load(std::memory_order_acquire) && client_ && gate_) {
     const auto id = gate_->CurrentRequestId();
     if (!id.empty()) {
       bool cancelled = false;
@@ -576,7 +600,11 @@ void ImageAnalysisJob::Cancel() {
   }
 }
 
-auto ImageAnalysisJob::IsCanceled() const -> bool { return canceled_.load(); }
+auto ImageAnalysisJob::IsCanceled() const -> bool {
+  // P1-9: Use acquire load to pair with the release store in Cancel()
+  return canceled_.load(std::memory_order_acquire) ||
+         cancel_barrier_.load(std::memory_order_acquire);
+}
 
 void ImageAnalysisJob::Wait() {
   {
@@ -615,6 +643,8 @@ void ImageAnalysisJob::Finish() {
   {
     std::unique_lock lk(lock_);
     finished_ = true;
+    // P1-9: Clear prefill queue pointer since the shared_ptr is about to go out of scope
+    prefill_queue_ = nullptr;
   }
   finished_cv_.notify_all();
 }
@@ -846,6 +876,9 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
   auto       queue      = std::make_shared<PrefillQueue>(
       static_cast<size_t>(effective_prefetch));
 
+  // P1-9: Store raw pointer so Cancel() can notify the queue directly.
+  job->prefill_queue_ = queue.get();
+
   // --- Producer thread (Phase 5e): overlaps local thumbnail/encode prep with the single
   // in-flight remote call. It prepares items in order, releases each ThumbnailGuard
   // immediately after encoding, and pushes a self-contained encoded item (bytes +
@@ -996,7 +1029,7 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
         consumed += requests.size();
         continue;
       }
-      job->am_in_flight_.store(true);
+      job->am_in_flight_.store(true, std::memory_order_release);
       if (job->IsCanceled()) {
         in_flight_gate->ClearRequestId();
         job->am_in_flight_.store(false);
@@ -1191,7 +1224,8 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     // before the RPC) is what prevents the paid provider call from going out after a
     // cancel that sent no CancelTask. The seq_cst atomics + the gate mutex make the store
     // happen-after the atomic publish and the re-check observe a cancel that preceded it.
-    job->am_in_flight_.store(true);
+    // P1-9: Use release store so Cancel() can safely read this flag via acquire.
+    job->am_in_flight_.store(true, std::memory_order_release);
     if (job->IsCanceled()) {
       in_flight_gate->ClearRequestId();
       job->am_in_flight_.store(false);

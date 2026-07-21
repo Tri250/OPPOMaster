@@ -18,6 +18,10 @@
 #include "type/type.hpp"
 #include "ui/edit_viewer/frame_sink.hpp"
 
+namespace alcedo::concurrency {
+class DeadlockDetector;
+}  // namespace alcedo::concurrency
+
 namespace alcedo {
 class CPUPipelineExecutor : public PipelineExecutor {
  private:
@@ -27,7 +31,34 @@ class CPUPipelineExecutor : public PipelineExecutor {
 
   // The executor state (render params, stage cache, decode mode) is mutable and not thread-safe.
   // Serialize concurrent scheduler tasks that target the same executor instance.
-  std::mutex                                                                  render_lock_;
+  // Uses std::timed_mutex instead of std::mutex to support timeout-based lock acquisition,
+  // which is critical for deadlock prevention in the render pipeline.
+  std::timed_mutex                                                             render_lock_;
+
+  /// RAII lock guard that integrates with DeadlockDetector for tracking.
+  /// Automatically tracks lock acquisition and release for deadlock detection.
+  class RenderLockGuard {
+   public:
+    explicit RenderLockGuard(std::timed_mutex& mtx, std::chrono::milliseconds timeout);
+    ~RenderLockGuard();
+
+    RenderLockGuard(RenderLockGuard&& other) noexcept;
+    RenderLockGuard& operator=(RenderLockGuard&& other) noexcept;
+    RenderLockGuard(const RenderLockGuard&) = delete;
+    RenderLockGuard& operator=(const RenderLockGuard&) = delete;
+
+    [[nodiscard]] bool owns_lock() const noexcept { return lock_.owns_lock(); }
+
+   private:
+    std::unique_lock<std::timed_mutex> lock_;
+    bool tracked_ = false;
+  };
+
+  /// Try to acquire the render lock with a timeout. Returns a guard that
+  /// tracks lock acquisition for deadlock detection.
+  /// Default timeout is 30 seconds (sufficient for any normal render operation).
+  auto TryAcquireRenderLock(std::chrono::milliseconds timeout =
+                                std::chrono::milliseconds(30000)) -> RenderLockGuard;
 
   OperatorParams                                                              global_params_;
 
@@ -80,7 +111,7 @@ class CPUPipelineExecutor : public PipelineExecutor {
     return resolved_accelerator_backend_;
   }
 
-  auto GetRenderLock() -> std::mutex& { return render_lock_; }
+  auto GetRenderLock() -> std::timed_mutex& { return render_lock_; }
 
   auto GetStage(PipelineStageName stage) -> PipelineStage& override;
   auto Apply(std::shared_ptr<ImageBuffer> input) -> std::shared_ptr<ImageBuffer> override;

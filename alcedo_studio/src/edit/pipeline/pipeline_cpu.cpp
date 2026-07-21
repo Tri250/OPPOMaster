@@ -25,6 +25,8 @@
 #include "edit/pipeline/default_pipeline_params.hpp"
 #include "edit/pipeline/pipeline_stage.hpp"
 #include "image/image_buffer.hpp"
+#include "utils/diagnostics/app_logging.hpp"
+#include "concurrency/deadlock_detector.hpp"
 
 namespace alcedo {
 
@@ -436,6 +438,18 @@ void CPUPipelineExecutor::ResetExecutionStages() {
 
 auto CPUPipelineExecutor::ExportPipelineParams() const -> nlohmann::json {
   nlohmann::json j;
+  // P1-14: Include pipeline metadata for validation on import
+  j["__pipeline_meta__"] = {
+      {"version", 1},
+      {"format", "alcedo_pipeline_v1"},
+      {"export_time", std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count()},
+  };
+
+  // P1-14: Export render parameters (ROI, resize) alongside operator params
+  j["__render_params__"] = render_params_;
+
   for (const auto& stage : stages_) {
     nlohmann::json stage_json     = stage.ExportStageParams();
     j[stage.GetStageNameString()] = std::move(stage_json);
@@ -444,6 +458,18 @@ auto CPUPipelineExecutor::ExportPipelineParams() const -> nlohmann::json {
 }
 
 void CPUPipelineExecutor::ImportPipelineParams(const nlohmann::json& j) {
+  // P1-14: Validate pipeline JSON format before importing
+  if (!j.is_object()) {
+    return;
+  }
+  if (j.contains("__pipeline_meta__")) {
+    const auto& meta = j["__pipeline_meta__"];
+    if (meta.contains("format") && meta["format"].get<std::string>() != "alcedo_pipeline_v1") {
+      // Unsupported format version — abort import
+      return;
+    }
+  }
+
   ResetExecutionStages();
   ResetStages();
   SetTemplateParams();
@@ -452,10 +478,33 @@ void CPUPipelineExecutor::ImportPipelineParams(const nlohmann::json& j) {
     std::string stage_name = stage.GetStageNameString();
     if (j.contains(stage_name)) {
       nlohmann::json stage_json = j[stage_name];
+      // P1-14: Validate stage JSON is an object before merging
+      if (!stage_json.is_object()) {
+        continue;
+      }
       stage.MergeStageParams(stage_json, global_params_);
     }
   }
   SetExecutionStages();
+
+  // P1-14: Restore render parameters (ROI, resize)
+  if (j.contains("__render_params__") && j["__render_params__"].is_object()) {
+    render_params_ = j["__render_params__"];
+    // Restore ROI state from render params
+    const auto& resize_params = render_params_.contains("resize")
+                                    ? render_params_["resize"]
+                                    : nlohmann::json::object();
+    if (resize_params.contains("roi")) {
+      const auto& roi = resize_params["roi"];
+      global_params_.render_roi_enabled_ = resize_params.value("enable_roi", false);
+      global_params_.render_roi_x_       = roi.value("x", 0);
+      global_params_.render_roi_y_       = roi.value("y", 0);
+      global_params_.render_roi_scale_x_ = roi.value("resize_factor_x", 1.0f);
+      global_params_.render_roi_scale_y_ = roi.value("resize_factor_y", 1.0f);
+      global_params_.render_roi_reference_width_  = roi.value("reference_width", 0);
+      global_params_.render_roi_reference_height_ = roi.value("reference_height", 0);
+    }
+  }
 }
 
 void CPUPipelineExecutor::SetRenderRegion(int x, int y, float scale_factor_x,
@@ -668,6 +717,101 @@ void CPUPipelineExecutor::ReleaseAllGPUResources() {
 
 auto CPUPipelineExecutor::DebugGetMergedStageScratchBytes() const -> size_t {
   return merged_stages_ ? merged_stages_->DebugGetAllocatedGpuScratchBytes() : 0;
+}
+
+CPUPipelineExecutor::RenderLockGuard::RenderLockGuard(std::timed_mutex& mtx,
+                                                       std::chrono::milliseconds timeout)
+    : tracked_(false) {
+  if (timeout.count() <= 0) {
+    // Immediate try_lock only
+    lock_ = std::unique_lock<std::timed_mutex>(mtx, std::defer_lock);
+    if (lock_.try_lock()) {
+      tracked_ = true;
+      concurrency::DeadlockDetector::TrackAcquire("render_lock");
+    }
+    return;
+  }
+
+  lock_ = std::unique_lock<std::timed_mutex>(mtx, std::defer_lock);
+
+  if (lock_.try_lock()) {
+    tracked_ = true;
+    concurrency::DeadlockDetector::TrackAcquire("render_lock");
+    return;
+  }
+
+  // Lock is contended. Log the contention and wait with timeout.
+  const auto start = std::chrono::steady_clock::now();
+
+  concurrency::DeadlockDetector::TrackContention("render_lock", timeout);
+
+  qCWarning(diag::pipelineLog).noquote()
+      << QStringLiteral("pipeline.render_lock.contention "
+                        "Render lock is contended, waiting up to %1 ms")
+             .arg(static_cast<qint64>(timeout.count()));
+
+  if (!lock_.try_lock_for(timeout)) {
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start)
+            .count();
+
+    qCCritical(diag::pipelineLog).noquote()
+        << QStringLiteral("pipeline.render_lock.deadlock_warning "
+                          "Failed to acquire render lock within %1 ms. "
+                          "Possible deadlock detected. Thread may be stuck waiting "
+                          "for a render operation that will never complete.")
+               .arg(static_cast<qint64>(elapsed_ms));
+
+    // Dump deadlock detector state for diagnostics
+    concurrency::DeadlockDetector::DumpState();
+    return;
+  }
+
+  tracked_ = true;
+  concurrency::DeadlockDetector::TrackAcquire("render_lock");
+
+  const auto elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - start)
+          .count();
+
+  if (elapsed_ms > 1000) {
+    qCWarning(diag::pipelineLog).noquote()
+        << QStringLiteral("pipeline.render_lock.slow_acquire "
+                          "Render lock acquired after %1 ms wait. "
+                          "This may indicate contention or a near-deadlock.")
+               .arg(static_cast<qint64>(elapsed_ms));
+  }
+}
+
+CPUPipelineExecutor::RenderLockGuard::~RenderLockGuard() {
+  if (tracked_ && lock_.owns_lock()) {
+    concurrency::DeadlockDetector::TrackRelease("render_lock");
+  }
+}
+
+CPUPipelineExecutor::RenderLockGuard::RenderLockGuard(RenderLockGuard&& other) noexcept
+    : lock_(std::move(other.lock_)), tracked_(other.tracked_) {
+  other.tracked_ = false;
+}
+
+CPUPipelineExecutor::RenderLockGuard& CPUPipelineExecutor::RenderLockGuard::operator=(
+    RenderLockGuard&& other) noexcept {
+  if (this != &other) {
+    if (tracked_ && lock_.owns_lock()) {
+      concurrency::DeadlockDetector::TrackRelease("render_lock");
+    }
+    lock_ = std::move(other.lock_);
+    tracked_ = other.tracked_;
+    other.tracked_ = false;
+  }
+  return *this;
+}
+
+auto CPUPipelineExecutor::TryAcquireRenderLock(std::chrono::milliseconds timeout)
+    -> RenderLockGuard {
+  return RenderLockGuard(render_lock_, timeout);
 }
 
 };  // namespace alcedo

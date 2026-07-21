@@ -146,6 +146,7 @@ class ThumbnailDiskCacheService {
   void                   RebuildFromDirectoryScan();
   void                   ReopenWithCacheRoot(const std::filesystem::path& cache_root);
   void                   BumpClearGenerationLocked();
+  void                   CleanupStaleTempFiles();
   int64_t                CurrentTimeSeconds() const;
 };
 

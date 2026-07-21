@@ -28,7 +28,7 @@ constexpr std::array<char, 8> kPackedProjectMagic{
 constexpr uint32_t kPackedProjectVersion = 3;
 constexpr uint64_t kMaxPackedComponentBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::string_view kProjectFileVersion = "0.2.5";
-constexpr std::string_view kMinSupportedProjectFileVersion = "0.2.5";
+constexpr std::string_view kMinSupportedProjectFileVersion = "0.2.0";
 constexpr std::string_view kMaxSupportedProjectFileVersion = "0.2.5";
 
 auto IsMetadataJsonPath(const std::filesystem::path& path) -> bool;

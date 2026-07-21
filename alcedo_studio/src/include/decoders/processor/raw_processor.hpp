@@ -44,6 +44,17 @@ struct RawParams {
       CPU::LightSourceType::UNKNOWN;  // If user wants to use a preset light source as the wb
 
   DecodeRes decode_res_ = DecodeRes::FULL;
+
+  // P1-1: Chromatic aberration correction in RAW decode pipeline.
+  // When true, applies lateral CA correction after debayering.
+  bool              ca_correction_enabled_  = true;
+  // TCA model coefficients: radial correction for R and B channels vs G.
+  // For LINEAR model: tca_r = tca_r_terms[0] * r, tca_b = tca_b_terms[0] * r
+  // For POLY3 model:  tca_r = tca_r_terms[0]*r + tca_r_terms[1]*r^2 + tca_r_terms[2]*r^3
+  // If empty, auto-detection will be attempted when ca_correction_enabled_ is true.
+  float             tca_r_terms_[3]         = {0.0f, 0.0f, 0.0f};
+  float             tca_b_terms_[3]         = {0.0f, 0.0f, 0.0f};
+  int               tca_model_              = 0;  // 0=NONE, 1=LINEAR, 2=POLY3
 };
 
 class RawProcessor {
@@ -99,6 +110,16 @@ class RawProcessor {
    *
    */
   void ApplyDebayer();
+
+  /**
+   * @brief P1-1: Apply lateral chromatic aberration correction after debayering.
+   *
+   * Corrects the lateral (transverse) chromatic aberration by radially shifting
+   * the R and B channels relative to G. If TCA coefficients are provided via
+   * RawParams, those are used directly. Otherwise, auto-detection is attempted
+   * by analyzing channel edge misalignment.
+   */
+  void ApplyChromaticAberration();
 
   void ApplyGeometricCorrections();
 

@@ -31,7 +31,7 @@ namespace alcedo {
 namespace {
 OIIO_NAMESPACE_USING
 
-constexpr int         kDefaultJpegQuality     = 85;
+constexpr int         kDefaultJpegQuality     = 85;  // Fallback; AppConfig::ThumbnailCacheJpegQuality() preferred
 constexpr int         kDefaultWebPQuality     = 80;
 constexpr size_t      kDefaultMaxEntries      = 10000;
 constexpr uint32_t    kCacheSchemaVersion     = 1;
@@ -289,6 +289,9 @@ void ThumbnailDiskCacheService::Initialize(const std::string& project_uuid) {
   LoadGlobalMetadata();
   LoadMetadata();
 
+  // P1-10: Clean up stale temp files from previous crashed writes
+  CleanupStaleTempFiles();
+
   state_->writer_running_ = true;
   state_->writer_thread_  = std::thread(&ThumbnailDiskCacheService::WriterThreadLoop, this);
 
@@ -388,9 +391,16 @@ std::unique_ptr<ImageBuffer> ThumbnailDiskCacheService::Read(const ThumbnailDisk
 
   cv::Mat decoded = ReadWithOpenImageIO(file_path);
   if (!decoded.empty()) {
+    // P1-10: Validate decoded image dimensions to detect corruption
+    if (decoded.cols <= 0 || decoded.rows <= 0) {
+      std::unique_lock lock(state_->metadata_mutex_);
+      RemoveEntryFromIndexLocked(key_hash);
+      return nullptr;
+    }
     return std::make_unique<ImageBuffer>(std::move(decoded));
   }
 
+  // P1-10: Corrupted cache entry detected — remove from index and delete file
   std::unique_lock lock(state_->metadata_mutex_);
   RemoveEntryFromIndexLocked(key_hash);
   return nullptr;
@@ -586,6 +596,12 @@ void ThumbnailDiskCacheService::ClearProject(const std::string& project_uuid) {
 }
 
 void ThumbnailDiskCacheService::WriterThreadLoop() {
+  // P1-10: Cleanup helper for partial temp files
+  auto cleanup_temp = [](const std::filesystem::path& tmp) {
+    std::error_code ec;
+    std::filesystem::remove(tmp, ec);
+  };
+
   while (true) {
     auto task = state_->write_queue_.pop_r();
 
@@ -617,6 +633,19 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
       continue;
     }
 
+    // P1-10: Check available disk space before writing
+    {
+      std::error_code ec;
+      const auto cache_dir = state_->project_cache_dir_;
+      auto space_info = std::filesystem::space(cache_dir, ec);
+      if (!ec && space_info.available < static_cast<std::uintmax_t>(mat.total() * mat.elemSize() * 2)) {
+        // Insufficient disk space — skip this write and try to evict
+        std::unique_lock lock(state_->metadata_mutex_);
+        EvictLruLocked(state_->index_.size() > 0 ? state_->index_.size() / 2 : 0);
+        continue;
+      }
+    }
+
     std::vector<uint8_t> encoded;
     std::vector<int>     params;
     ThumbnailCacheFormat effective_format = task.format;
@@ -635,16 +664,31 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
       continue;
     }
 
-    bool   write_ok        = false;
-    size_t file_size_bytes = 0;
+    // P1-10: Use temp file + atomic rename for all image data writes
+    const auto     tmp_path  = file_path.string() + ".tmp";
+    bool           write_ok  = false;
+    size_t         file_size_bytes = 0;
+
     if (effective_format == ThumbnailCacheFormat::kJpeg ||
         effective_format == ThumbnailCacheFormat::kWebP) {
       const int quality = effective_format == ThumbnailCacheFormat::kJpeg ? jpeg_q : webp_q;
-      write_ok          = WriteWithOpenImageIO(file_path, mat, effective_format, quality);
+      write_ok          = WriteWithOpenImageIO(tmp_path, mat, effective_format, quality);
       if (write_ok) {
-        file_size_bytes = static_cast<size_t>(std::filesystem::file_size(file_path, ec));
+        file_size_bytes = static_cast<size_t>(std::filesystem::file_size(tmp_path, ec));
         if (ec || file_size_bytes == 0) {
-          std::filesystem::remove(file_path, ec);
+          cleanup_temp(tmp_path);
+          write_ok = false;
+        }
+      } else {
+        cleanup_temp(tmp_path);
+      }
+
+      // P1-10: Atomic rename to final path
+      if (write_ok) {
+        std::error_code rename_ec;
+        std::filesystem::rename(tmp_path, file_path, rename_ec);
+        if (rename_ec) {
+          cleanup_temp(tmp_path);
           write_ok = false;
         }
       }
@@ -653,6 +697,7 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
     if (!write_ok && effective_format != ThumbnailCacheFormat::kBmp) {
       effective_format = ThumbnailCacheFormat::kBmp;
       file_path        = DeriveFilePath(task.key_hash, effective_format);
+      const auto tmp_path_bmp = file_path.string() + ".tmp";
       std::filesystem::create_directories(file_path.parent_path(), ec);
       if (ec) {
         continue;
@@ -673,14 +718,30 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
 
       if (write_ok) {
         {
-          std::ofstream file(file_path, std::ios::binary | std::ios::trunc);
+          std::ofstream file(tmp_path_bmp, std::ios::binary | std::ios::trunc);
           if (!file) {
+            cleanup_temp(tmp_path_bmp);
             continue;
           }
           file.write(reinterpret_cast<const char*>(encoded.data()),
                      static_cast<std::streamsize>(encoded.size()));
+          if (file.fail()) {
+            cleanup_temp(tmp_path_bmp);
+            write_ok = false;
+          }
         }
-        file_size_bytes = encoded.size();
+        if (write_ok) {
+          file_size_bytes = encoded.size();
+          // P1-10: Atomic rename to final path
+          std::error_code rename_ec;
+          std::filesystem::rename(tmp_path_bmp, file_path, rename_ec);
+          if (rename_ec) {
+            cleanup_temp(tmp_path_bmp);
+            write_ok = false;
+          }
+        }
+      } else {
+        cleanup_temp(tmp_path_bmp);
       }
     }
 
@@ -1085,5 +1146,22 @@ void ThumbnailDiskCacheService::ReopenWithCacheRoot(const std::filesystem::path&
 }
 
 void ThumbnailDiskCacheService::BumpClearGenerationLocked() { ++state_->clear_generation_; }
+
+void ThumbnailDiskCacheService::CleanupStaleTempFiles() {
+  // P1-10: Remove leftover .tmp files from previously interrupted writes
+  std::error_code ec;
+  if (!std::filesystem::exists(state_->project_cache_dir_, ec)) {
+    return;
+  }
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(state_->project_cache_dir_, ec)) {
+    if (ec) break;
+    if (!entry.is_regular_file()) continue;
+    const auto& path = entry.path();
+    const auto  ext  = path.extension();
+    if (ext == ".tmp") {
+      std::filesystem::remove(path, ec);
+    }
+  }
+}
 
 }  // namespace alcedo

@@ -19,6 +19,7 @@
 
 #include "sidecar_client/client.hpp"
 #include "sidecar_client/dto/runtime.hpp"
+#include "app/offline_ai_service.hpp"
 
 namespace alcedo {
 
@@ -116,6 +117,12 @@ class AiSidecarRuntimeService final : public QObject {
   auto               Endpoint() const -> std::string { return endpoint_; }
   auto ClientSession() const -> std::shared_ptr<sidecar_client::Client> { return client_; }
 
+  /// Returns the offline AI service for use when the sidecar is unavailable.
+  auto GetOfflineService() const -> OfflineAiService* { return offline_service_.get(); }
+
+  /// Whether the service is operating in offline (degraded) mode.
+  auto IsOfflineMode() const -> bool { return offline_mode_; }
+
   auto StateName() const -> QString;
   auto IssueName() const -> QString;
   auto StatusMessage() const -> QString { return QString::fromStdString(status_.message); }
@@ -141,6 +148,7 @@ class AiSidecarRuntimeService final : public QObject {
   void AttachChildTreeCleanup();
   void ReleaseChildTreeCleanup();
   void ReleaseLease();
+  void TryInitializeOfflineService();
 
   AiSidecarClientFactory                  client_factory_;
   std::shared_ptr<sidecar_client::Client> client_;
@@ -149,6 +157,8 @@ class AiSidecarRuntimeService final : public QObject {
   AiSidecarRuntimeStatusSnapshot          status_;
   std::string                             endpoint_;
   int                                     active_leases_ = 0;
+  std::unique_ptr<OfflineAiService>       offline_service_;
+  bool                                    offline_mode_ = false;
   // Interactive-boot state. `interactive_starting_` is set for the duration of
   // a StartAndWaitInteractive boot so IsStartingInteractive() can report it;
   // `cancel_start_requested_` is the cancel flag checkpointed each poll.

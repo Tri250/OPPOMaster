@@ -346,7 +346,10 @@ auto AdjustmentTransferController::PrepareCopy(uint elementId) -> QVariantMap {
     QVariantList rows;
     rows.reserve(static_cast<qsizetype>(kItems.size()));
     {
-      std::unique_lock<std::mutex> render_guard(guard->pipeline_->GetRenderLock());
+      auto render_guard = guard->pipeline_->TryAcquireRenderLock(std::chrono::milliseconds(10000));
+      if (!render_guard.owns_lock()) {
+        return ErrorResult(Tr("Pipeline is busy, please try again."));
+      }
       for (const auto& spec : kItems) {
         rows.push_back(RowFor(*guard->pipeline_, spec, spec.checked_by_default));
       }
@@ -405,7 +408,10 @@ auto AdjustmentTransferController::Copy(uint elementId, const QVariantList& sele
     AdjustmentTransferPackage package;
     QVariantList              summary;
     {
-      std::unique_lock<std::mutex> render_guard(guard->pipeline_->GetRenderLock());
+      auto render_guard = guard->pipeline_->TryAcquireRenderLock(std::chrono::milliseconds(10000));
+      if (!render_guard.owns_lock()) {
+        return ErrorResult(Tr("Pipeline is busy, please try again."));
+      }
       for (const auto* spec : specs) {
         const bool enabled = OperatorEnabledFor(*guard->pipeline_, *spec);
         const auto params  = TransferParamsFor(*guard->pipeline_, *spec);

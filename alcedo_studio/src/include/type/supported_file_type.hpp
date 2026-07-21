@@ -39,6 +39,8 @@ struct ExportFormatOptions {
   enum class HDR_EXPORT_MODE : uint8_t {
     ULTRA_HDR,
     EMBEDDED_PROFILE_ONLY,
+    HDR10,       // PQ / ST.2084 transfer, BT.2020 color space, 10-bit output
+    HLG,         // HLG transfer, BT.2020 color space, 10-bit output
   };
 
   std::filesystem::path export_path_;
@@ -54,6 +56,8 @@ struct ExportFormatOptions {
   HDR_EXPORT_MODE       hdr_export_mode_   = HDR_EXPORT_MODE::ULTRA_HDR;
   int                   ultra_hdr_quality_ = 95;  // Gain map quality for Ultra HDR
   bool                  ultra_hdr_dither_enabled_ = true;
+  float                 hdr_peak_luminance_nits_ = 1000.0f;  // Peak luminance for HDR10/HLG output
+  bool                  hdr_write_color_volume_metadata_ = true;  // Write ColorVolume/MaxCLL/MaxFALL
 };
 
 static const std::unordered_set<std::wstring> supported_extensions = {

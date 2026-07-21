@@ -67,6 +67,12 @@ auto BuildVersionCard(const Version& version, bool active, const VersionUiCallba
   title_font.setWeight(QFont::DemiBold);
   title->setFont(title_font);
   title->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  // Enable word wrap for long version names so they don't get completely elided.
+  // ElidedLabel handles eliding, but setting word wrap as a fallback ensures
+  // that very long names remain at least partially readable in narrow panels.
+  title->setWordWrap(true);
+  title->setMinimumHeight(QFontMetrics(title_font).lineSpacing() + 2);
+  // Full name tooltip is already set by ElidedLabel::UpdateElidedText().
   body->addWidget(title);
 
   const QString when =

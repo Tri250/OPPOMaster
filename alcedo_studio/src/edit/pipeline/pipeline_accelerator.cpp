@@ -17,6 +17,8 @@
 #include "opencl/opencl_runtime.hpp"
 #endif
 
+#include "utils/gpu/gpu_capability_detector.hpp"
+
 namespace alcedo {
 namespace {
 
@@ -97,17 +99,29 @@ auto ResolveAcceleratorBackend(AcceleratorBackendPreference preference) -> GpuBa
       return GpuBackendKind::None;
 #endif
 #else
-      if (TryOpenClRuntime()) {
-        return GpuBackendKind::OpenCL;
-      }
-      if (IsCudaRuntimeAvailable()) {
-        return GpuBackendKind::CUDA;
-      }
+      {
+        // Use GpuCapabilityDetector to determine the best backend,
+        // respecting driver version requirements (e.g. Windows NVIDIA < 570.xx).
+        auto gpu_info = gpu::GpuCapabilityDetector::Detect();
+        if (gpu_info.IsFull() && gpu_info.recommended_backend != GpuBackendKind::None) {
+          return gpu_info.recommended_backend;
+        }
+        if (gpu_info.IsLimited() && gpu_info.recommended_backend != GpuBackendKind::None) {
+          return gpu_info.recommended_backend;
+        }
+        // Legacy fallback path
+        if (IsCudaRuntimeAvailable()) {
+          return GpuBackendKind::CUDA;
+        }
+        if (TryOpenClRuntime()) {
+          return GpuBackendKind::OpenCL;
+        }
 #ifdef HAVE_METAL
-      return GpuBackendKind::Metal;
+        return GpuBackendKind::Metal;
 #else
-      return GpuBackendKind::None;
+        return GpuBackendKind::None;
 #endif
+      }
 #endif
   }
 

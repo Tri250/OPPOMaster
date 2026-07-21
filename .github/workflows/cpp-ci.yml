@@ -77,3 +77,101 @@ jobs:
 
       - name: Test
         run: ctest --preset macos_arm_metal_ci --output-on-failure
+
+  macos-package-notarize:
+    name: macOS Package & Notarize
+    runs-on: macos-15
+    needs: macos-arm-metal
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 60
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Prepare third-party source trees
+        run: bash scripts/ci_prepare_third_party.sh
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
+
+      - name: Pre-install DuckDB extensions
+        run: |
+          set -euo pipefail
+          duckdb_ext_dir="$(mktemp -d)"
+          duckdb -c "SET extension_directory='${duckdb_ext_dir}'; INSTALL vss; INSTALL fts;"
+          vss_path="$(find "${duckdb_ext_dir}" -name 'vss.duckdb_extension' -type f | head -n1)"
+          fts_path="$(find "${duckdb_ext_dir}" -name 'fts.duckdb_extension' -type f | head -n1)"
+          echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
+          echo "ALCEDO_DUCKDB_FTS_EXTENSION=${fts_path}" >> "$GITHUB_ENV"
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERT_BASE64: ${{ secrets.MACOS_CERT_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MACOS_CERT_BASE64}" ]]; then
+            echo "WARNING: MACOS_CERT_BASE64 secret not set; skipping certificate import"
+            exit 0
+          fi
+          cert_path="$RUNNER_TEMP/build_cert.p12"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 16)"
+          echo "${MACOS_CERT_BASE64}" | base64 --decode > "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" \
+            "$keychain_path" 2>/dev/null || true
+          security list-keychain -d user -s "$keychain_path"
+          rm -f "$cert_path"
+
+      - name: Build & Package
+        run: |
+          set -euo pipefail
+          qt_prefix="$(brew --prefix qt)"
+          codesign_identity="${MACOS_CODESIGN_IDENTITY:--}"
+          bash scripts/package_macos.sh \
+            --qt-prefix "$qt_prefix" \
+            --codesign-identity "$codesign_identity" \
+            --codesign-options "--options;runtime" \
+            --codesign-timestamp
+
+      - name: Notarize
+        if: env.MACOS_NOTARIZE_APPLE_ID != ''
+        env:
+          MACOS_NOTARIZE_APPLE_ID: ${{ secrets.MACOS_NOTARIZE_APPLE_ID }}
+          MACOS_NOTARIZE_TEAM_ID: ${{ secrets.MACOS_NOTARIZE_TEAM_ID }}
+          MACOS_NOTARIZE_PASSWORD: ${{ secrets.MACOS_NOTARIZE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          app_path="$(find build/install -name 'AlcedoStudio.app' -type d | head -n1)"
+          if [[ -z "${app_path}" ]]; then
+            echo "ERROR: AlcedoStudio.app not found in build/install" >&2
+            exit 1
+          fi
+          bash scripts/notarize_macos.sh \
+            --app-path "$app_path" \
+            --identity "${MACOS_CODESIGN_IDENTITY:-Developer ID Application}" \
+            --apple-id "$MACOS_NOTARIZE_APPLE_ID" \
+            --team-id "$MACOS_NOTARIZE_TEAM_ID" \
+            --password "$MACOS_NOTARIZE_PASSWORD" \
+            --dmg-output "build/AlcedoStudio.dmg"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-package
+          path: |
+            build/macos-release/package/*.dmg
+            build/macos-release/package/*.zip
+          if-no-files-found: warn

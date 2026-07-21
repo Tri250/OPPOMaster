@@ -577,8 +577,80 @@ void CropRotateOp::SetParams(const nlohmann::json& params) {
   crop_rect_ = ClampCropRect(crop_rect_);
 }
 
-void CropRotateOp::SetGlobalParams(OperatorParams&) const {
-  // Geometry operators are executed directly and do not populate stream global params.
+void CropRotateOp::SetGlobalParams(OperatorParams& params) const {
+  // P1-13: After crop/rotate, the ROI coordinates in OperatorParams refer to
+  // the pre-transform image and become stale. Transform the ROI to the
+  // post-crop/rotate coordinate space so downstream operators (e.g., highlight
+  // reconstruction, local tone mapping) render the correct region.
+  if (!enabled_ || !enable_crop_ || !params.render_roi_enabled_) {
+    return;
+  }
+
+  const int src_w = params.render_roi_reference_width_;
+  const int src_h = params.render_roi_reference_height_;
+  if (src_w <= 0 || src_h <= 0) {
+    return;
+  }
+
+  const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
+  const auto  resolved_rect = ResolveRuntimeCropRect(crop_rect_, src_w, src_h, aspect_ratio_preset_,
+                                                     aspect_ratio_width_, aspect_ratio_height_);
+  const auto  crop_rect     = ClampCropRectForRotation(resolved_rect, angle_degrees);
+  const bool  has_rotation  = std::abs(angle_degrees) > kAngleEpsilon;
+
+  // Compute the crop ROI in pixel coordinates
+  const cv::Rect crop_roi = ComputeCropRoi(src_w, src_h, crop_rect);
+
+  // Compute output dimensions after crop/rotate
+  int out_w = crop_roi.width;
+  int out_h = crop_roi.height;
+  if (has_rotation) {
+    cv::Size out_size;
+    BuildRotatedCropMatrix(src_w, src_h, crop_rect, angle_degrees, out_size);
+    out_w = out_size.width;
+    out_h = out_size.height;
+  }
+
+  // Transform ROI origin from source to cropped/rotated coordinates.
+  // For pure crop: subtract the crop offset
+  // For rotation: the affine warp maps from source to destination
+  int new_roi_x = params.render_roi_x_;
+  int new_roi_y = params.render_roi_y_;
+
+  if (has_rotation) {
+    // With rotation, the ROI in the source image maps to a different region
+    // in the output. Use the warp matrix to transform the ROI center.
+    cv::Size  out_size;
+    cv::Mat   matrix = BuildRotatedCropMatrix(src_w, src_h, crop_rect, angle_degrees, out_size);
+    // Transform ROI center from source to destination coordinates
+    double src_rx = static_cast<double>(params.render_roi_x_);
+    double src_ry = static_cast<double>(params.render_roi_y_);
+    double dst_x  = matrix.at<double>(0, 0) * src_rx + matrix.at<double>(0, 1) * src_ry +
+                    matrix.at<double>(0, 2);
+    double dst_y  = matrix.at<double>(1, 0) * src_rx + matrix.at<double>(1, 1) * src_ry +
+                    matrix.at<double>(1, 2);
+    new_roi_x = static_cast<int>(std::round(dst_x));
+    new_roi_y = static_cast<int>(std::round(dst_y));
+  } else {
+    // Pure crop: offset the ROI origin by the crop top-left
+    new_roi_x -= crop_roi.x;
+    new_roi_y -= crop_roi.y;
+  }
+
+  // Clamp ROI to output dimensions
+  new_roi_x = std::clamp(new_roi_x, 0, std::max(0, out_w - 1));
+  new_roi_y = std::clamp(new_roi_y, 0, std::max(0, out_h - 1));
+
+  // Update ROI scale to reflect the change in image dimensions
+  const float scale_x = static_cast<float>(out_w) / static_cast<float>(src_w);
+  const float scale_y = static_cast<float>(out_h) / static_cast<float>(src_h);
+
+  params.render_roi_x_                = new_roi_x;
+  params.render_roi_y_                = new_roi_y;
+  params.render_roi_scale_x_         *= scale_x;
+  params.render_roi_scale_y_         *= scale_y;
+  params.render_roi_reference_width_  = out_w;
+  params.render_roi_reference_height_ = out_h;
 }
 
 void CropRotateOp::EnableGlobalParams(OperatorParams&, bool) {

@@ -27,6 +27,8 @@ namespace alcedo {
 struct ThumbnailGuard {
   std::unique_ptr<ImageBuffer> thumbnail_buffer_   = nullptr;
   int                          pin_count_          = 0;
+  bool                         is_placeholder_     = false;  // True if this is a fallback thumbnail
+  std::string                  error_message_;               // Non-empty if generation failed
 
   ThumbnailGuard()                                 = default;
   ~ThumbnailGuard()                                = default;
@@ -44,6 +46,7 @@ enum class ThumbnailRequestStatus {
   kReady,
   kCanceled,
   kError,
+  kFailed,  // Thumbnail generation failed; placeholder was generated
 };
 
 struct ThumbnailRequestResult {
@@ -109,6 +112,28 @@ class ThumbnailService {
   // Force the cached thumbnail for this sleeve element to be discarded.
   // Next GetThumbnail() will re-render via pipeline.
   void InvalidateThumbnail(sl_element_id_t sleeve_element_id);
+
+  /// Retry thumbnail generation for a previously failed element.
+  /// Invalidates any cached placeholder and re-requests the thumbnail.
+  void RetryThumbnail(sl_element_id_t id, image_id_t image_id,
+                      ThumbnailCallback callback,
+                      CallbackDispatcher dispatcher = nullptr,
+                      ThumbnailResolution resolution = ThumbnailResolution::k1024);
+
+  /// Retry with detailed callback.
+  void RetryThumbnailDetailed(sl_element_id_t id, image_id_t image_id,
+                              ThumbnailResultCallback callback,
+                              CallbackDispatcher dispatcher = nullptr,
+                              ThumbnailResolution resolution = ThumbnailResolution::k1024);
+
+  /// Generate a placeholder thumbnail for an unsupported/failed image.
+  /// Returns a guard containing a rendered placeholder with a file-type
+  /// icon and filename, marked as is_placeholder_ = true.
+  static auto GeneratePlaceholderThumbnail(
+      const std::string& filename,
+      const std::string& error_reason,
+      ThumbnailResolution resolution = ThumbnailResolution::k1024)
+      -> std::shared_ptr<ThumbnailGuard>;
 
   // Release a cached/pending thumbnail for one element/resolution key.
   void ReleaseThumbnail(const ThumbnailCacheKey& key);

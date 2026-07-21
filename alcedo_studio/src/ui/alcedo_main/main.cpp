@@ -11,10 +11,12 @@
 #include <QIcon>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QScreen>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QString>
+#include <QSurfaceFormat>
 #include <QtGlobal>
 
 #include <exiv2/error.hpp>
@@ -26,6 +28,7 @@
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 #include "ui/alcedo_main/app_theme.hpp"
 #include "ui/alcedo_main/language_manager.hpp"
+#include "ui/edit_viewer/color_manager.hpp"
 #include "edit/operators/operator_registeration.hpp"
 #include "utils/diagnostics/app_logging.hpp"
 #ifdef HAVE_OPENCL
@@ -126,6 +129,45 @@ class OpenClGlSharingBootstrap {
 
 }  // namespace
 
+// P1-8: Configure Qt application-level color space support.
+// Sets the default QSurfaceFormat to request sRGB-capable framebuffer,
+// and registers display profile change callbacks so the color management
+// pipeline can react when the user changes monitor ICC profiles.
+static void ApplyUiColorManagement(QApplication& app) {
+  // P1-8: Request sRGB-capable default framebuffer for correct gamma rendering.
+  // Without this, Qt may create linear framebuffer on some platforms,
+  // causing UI elements to appear washed out or over-saturated.
+  QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+  format.setColorSpace(QSurfaceFormat::sRGBColorSpace);
+  QSurfaceFormat::setDefaultFormat(format);
+
+  // P1-8: Register for display profile changes so the rendering pipeline
+  // can invalidate cached color transforms when the monitor ICC changes.
+  QObject::connect(&app, &QGuiApplication::screenAdded, &app, [](QScreen* screen) {
+    if (!screen) return;
+    QObject::connect(screen, &QScreen::logicalDotsPerInchChanged, &app, [](qreal) {
+      // Screen properties changed — may indicate profile or DPI change.
+      // Invalidate any cached display color transforms.
+      alcedo::ColorManager::ClearCache();
+    });
+    QObject::connect(screen, &QScreen::geometryChanged, &app, [](const QRect&) {
+      // Geometry change may indicate monitor reconfiguration.
+      alcedo::ColorManager::ClearCache();
+    });
+  });
+
+  // P1-8: Set rendering intent for UI color management to perceptual
+  // (best for photographic content displayed in the UI).
+  // This is a hint for the OS-level color management; actual rendering
+  // intent is controlled by the OCIO/pipeline color manager.
+  alcedo::ColorManager::SetDisplayProfileChangeCallback(
+      [](const std::wstring& new_profile_path) {
+        qCInfo(alcedo::diag::appLog).noquote()
+            << QStringLiteral("app.display_profile_changed path=%1")
+                   .arg(QString::fromWCharArray(new_profile_path.c_str()));
+      });
+}
+
 int main(int argc, char* argv[]) {
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
@@ -146,6 +188,10 @@ int main(int argc, char* argv[]) {
   QCoreApplication::setOrganizationName(QStringLiteral("Alcedo"));
   QCoreApplication::setOrganizationDomain(QStringLiteral("alcedo.app"));
   QCoreApplication::setApplicationName(QStringLiteral("Alcedo"));
+
+  // P1-8: Apply UI color management before any windows are created.
+  ApplyUiColorManagement(app);
+
   const QString log_path = alcedo::diag::InitializeApplicationLogging();
   qCInfo(alcedo::diag::appLog).noquote()
       << QStringLiteral("app.start log_path=%1").arg(log_path);

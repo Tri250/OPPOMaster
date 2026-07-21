@@ -194,7 +194,10 @@ auto EditHistory::CreateVersion(std::string display_name) -> history_id_t {
   if (display_name.empty()) {
     display_name = "Version " + std::to_string(version_order_.size());
   }
-  Version version = Version::Empty(bound_image_, std::move(display_name), import_pipeline_params_);
+  // A Plain version must reset all adjustment parameters to their factory
+  // defaults — it should NOT carry over the import-time baseline params
+  // (which include camera white balance, exposure bias, etc.).
+  Version version = Version::Plain(bound_image_, std::move(display_name));
   const auto ver_id = CommitVersion(std::move(version));
   SetActiveVersionID(ver_id);
   return ver_id;

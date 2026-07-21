@@ -4136,4 +4136,631 @@ Original source files on disk will be kept.</source>
         <translation>↓ %1</translation>
     </message>
 </context>
+<context>
+    <name>UserNotificationManager</name>
+    <message>
+        <source>Info</source>
+        <translation>信息</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation>警告</translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation>错误</translation>
+    </message>
+    <message>
+        <source>Critical</source>
+        <translation>严重</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>未知</translation>
+    </message>
+</context>
+<context>
+    <name>CredentialPortability</name>
+    <message>
+        <source>Export Credentials</source>
+        <translation>导出凭证</translation>
+    </message>
+    <message>
+        <source>Import Credentials</source>
+        <translation>导入凭证</translation>
+    </message>
+    <message>
+        <source>Enter encryption password</source>
+        <translation>输入加密密码</translation>
+    </message>
+    <message>
+        <source>Confirm encryption password</source>
+        <translation>确认加密密码</translation>
+    </message>
+    <message>
+        <source>Passwords do not match</source>
+        <translation>密码不匹配</translation>
+    </message>
+    <message>
+        <source>Password cannot be empty</source>
+        <translation>密码不能为空</translation>
+    </message>
+    <message>
+        <source>Export successful</source>
+        <translation>导出成功</translation>
+    </message>
+    <message>
+        <source>Import successful</source>
+        <translation>导入成功</translation>
+    </message>
+    <message>
+        <source>Decryption failed. Wrong password?</source>
+        <translation>解密失败。密码是否正确？</translation>
+    </message>
+    <message>
+        <source>Invalid credential bundle format</source>
+        <translation>无效的凭证包格式</translation>
+    </message>
+    <message>
+        <source>Could not open file for writing</source>
+        <translation>无法打开文件进行写入</translation>
+    </message>
+    <message>
+        <source>Could not open import file</source>
+        <translation>无法打开导入文件</translation>
+    </message>
+    <message>
+        <source>%1 credential(s) imported, %2 skipped</source>
+        <translation>%1 个凭证已导入，%2 个已跳过</translation>
+    </message>
+    <message>
+        <source>Select Export File</source>
+        <translation>选择导出文件</translation>
+    </message>
+    <message>
+        <source>Alcedo Credential Bundle (*.alcedo_cred)</source>
+        <translation>Alcedo 凭证包 (*.alcedo_cred)</translation>
+    </message>
+    <message>
+        <source>Select Import File</source>
+        <translation>选择导入文件</translation>
+    </message>
+    <message>
+        <source>Overwrite existing credentials?</source>
+        <translation>覆盖已有凭证？</translation>
+    </message>
+    <message>
+        <source>Some credentials already exist. Overwrite?</source>
+        <translation>部分凭证已存在。是否覆盖？</translation>
+    </message>
+</context>
+<context>
+    <name>UpdateChecker</name>
+    <message>
+        <source>Failed to parse update information</source>
+        <translation>解析更新信息失败</translation>
+    </message>
+    <message>
+        <source>Never</source>
+        <translation>从未</translation>
+    </message>
+    <message>
+        <source>Update Available</source>
+        <translation>更新可用</translation>
+    </message>
+    <message>
+        <source>A new version %1 is available. Would you like to download it?</source>
+        <translation>新版本 %1 已可用。是否下载？</translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation>下载</translation>
+    </message>
+    <message>
+        <source>Skip This Version</source>
+        <translation>跳过此版本</translation>
+    </message>
+    <message>
+        <source>Remind Me Later</source>
+        <translation>稍后提醒</translation>
+    </message>
+    <message>
+        <source>You are up to date</source>
+        <translation>已是最新版本</translation>
+    </message>
+    <message>
+        <source>Check for updates on startup</source>
+        <translation>启动时检查更新</translation>
+    </message>
+    <message>
+        <source>Check interval (hours)</source>
+        <translation>检查间隔（小时）</translation>
+    </message>
+</context>
+<context>
+    <name>CrashReporter</name>
+    <message>
+        <source>Crash detected: %1 at %2</source>
+        <translation>检测到崩溃：%1 于 %2</translation>
+    </message>
+    <message>
+        <source>Unexpected Crash</source>
+        <translation>意外崩溃</translation>
+    </message>
+    <message>
+        <source>AlcedoStudio crashed unexpectedly. Would you like to submit a crash report?</source>
+        <translation>AlcedoStudio 发生了意外崩溃。是否提交崩溃报告？</translation>
+    </message>
+    <message>
+        <source>Submit Report</source>
+        <translation>提交报告</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>忽略</translation>
+    </message>
+    <message>
+        <source>Save Report</source>
+        <translation>保存报告</translation>
+    </message>
+</context>
+<context>
+    <name>ExportPresetManager</name>
+    <message>
+        <source>Social Media</source>
+        <translation>社交媒体</translation>
+    </message>
+    <message>
+        <source>Print</source>
+        <translation>打印输出</translation>
+    </message>
+    <message>
+        <source>Web</source>
+        <translation>网页</translation>
+    </message>
+    <message>
+        <source>Custom</source>
+        <translation>自定义</translation>
+    </message>
+    <message>
+        <source>Export Preset</source>
+        <translation>导出预设</translation>
+    </message>
+    <message>
+        <source>Select Preset</source>
+        <translation>选择预设</translation>
+    </message>
+    <message>
+        <source>Manage Presets</source>
+        <translation>管理预设</translation>
+    </message>
+    <message>
+        <source>Add Custom Preset</source>
+        <translation>添加自定义预设</translation>
+    </message>
+    <message>
+        <source>Delete Preset</source>
+        <translation>删除预设</translation>
+    </message>
+    <message>
+        <source>Cannot delete built-in presets</source>
+        <translation>无法删除内置预设</translation>
+    </message>
+    <message>
+        <source>Preset Name</source>
+        <translation>预设名称</translation>
+    </message>
+    <message>
+        <source>Width</source>
+        <translation>宽度</translation>
+    </message>
+    <message>
+        <source>Height</source>
+        <translation>高度</translation>
+    </message>
+    <message>
+        <source>Quality</source>
+        <translation>质量</translation>
+    </message>
+    <message>
+        <source>Format</source>
+        <translation>格式</translation>
+    </message>
+    <message>
+        <source>Color Space</source>
+        <translation>色彩空间</translation>
+    </message>
+    <message>
+        <source>Embed ICC Profile</source>
+        <translation>嵌入 ICC 配置文件</translation>
+    </message>
+</context>
+<context>
+    <name>ShortcutDefinitions</name>
+    <message>
+        <source>File</source>
+        <translation>文件</translation>
+    </message>
+    <message>
+        <source>Edit</source>
+        <translation>编辑</translation>
+    </message>
+    <message>
+        <source>View</source>
+        <translation>视图</translation>
+    </message>
+    <message>
+        <source>Image</source>
+        <translation>图像</translation>
+    </message>
+    <message>
+        <source>Panel</source>
+        <translation>面板</translation>
+    </message>
+    <message>
+        <source>Adjustment</source>
+        <translation>调整</translation>
+    </message>
+    <message>
+        <source>Open Project</source>
+        <translation>打开项目</translation>
+    </message>
+    <message>
+        <source>Save Project</source>
+        <translation>保存项目</translation>
+    </message>
+    <message>
+        <source>Export Image</source>
+        <translation>导出图像</translation>
+    </message>
+    <message>
+        <source>Close Editor</source>
+        <translation>关闭编辑器</translation>
+    </message>
+    <message>
+        <source>Quit Application</source>
+        <translation>退出应用</translation>
+    </message>
+    <message>
+        <source>Undo</source>
+        <translation>撤销</translation>
+    </message>
+    <message>
+        <source>Redo</source>
+        <translation>重做</translation>
+    </message>
+    <message>
+        <source>Copy Adjustments</source>
+        <translation>复制调整</translation>
+    </message>
+    <message>
+        <source>Paste Adjustments</source>
+        <translation>粘贴调整</translation>
+    </message>
+    <message>
+        <source>Select All</source>
+        <translation>全选</translation>
+    </message>
+    <message>
+        <source>Deselect All</source>
+        <translation>取消全选</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <source>Rate Image</source>
+        <translation>评分</translation>
+    </message>
+    <message>
+        <source>Zoom In</source>
+        <translation>放大</translation>
+    </message>
+    <message>
+        <source>Zoom Out</source>
+        <translation>缩小</translation>
+    </message>
+    <message>
+        <source>Fit to Window</source>
+        <translation>适应窗口</translation>
+    </message>
+    <message>
+        <source>Actual Size 100%</source>
+        <translation>实际大小 100%</translation>
+    </message>
+    <message>
+        <source>Toggle Info Panel</source>
+        <translation>切换信息面板</translation>
+    </message>
+    <message>
+        <source>Toggle Before/After</source>
+        <translation>切换前后对比</translation>
+    </message>
+    <message>
+        <source>Rotate Clockwise</source>
+        <translation>顺时针旋转</translation>
+    </message>
+    <message>
+        <source>Rotate Counter-Clockwise</source>
+        <translation>逆时针旋转</translation>
+    </message>
+    <message>
+        <source>Flip Horizontal</source>
+        <translation>水平翻转</translation>
+    </message>
+    <message>
+        <source>Flip Vertical</source>
+        <translation>垂直翻转</translation>
+    </message>
+    <message>
+        <source>Tone Panel</source>
+        <translation>色调面板</translation>
+    </message>
+    <message>
+        <source>Look Panel</source>
+        <translation>风格面板</translation>
+    </message>
+    <message>
+        <source>DRT Panel</source>
+        <translation>DRT 面板</translation>
+    </message>
+    <message>
+        <source>Geometry Panel</source>
+        <translation>几何面板</translation>
+    </message>
+    <message>
+        <source>Raw Decode Panel</source>
+        <translation>RAW 解码面板</translation>
+    </message>
+    <message>
+        <source>Focus Exposure</source>
+        <translation>聚焦曝光</translation>
+    </message>
+    <message>
+        <source>Focus Contrast</source>
+        <translation>聚焦对比度</translation>
+    </message>
+    <message>
+        <source>Focus Highlights</source>
+        <translation>聚焦高光</translation>
+    </message>
+    <message>
+        <source>Focus Shadows</source>
+        <translation>聚焦阴影</translation>
+    </message>
+    <message>
+        <source>Focus White Point</source>
+        <translation>聚焦白点</translation>
+    </message>
+    <message>
+        <source>Focus Black Point</source>
+        <translation>聚焦黑点</translation>
+    </message>
+    <message>
+        <source>Focus Saturation</source>
+        <translation>聚焦饱和度</translation>
+    </message>
+    <message>
+        <source>Focus Vibrance</source>
+        <translation>聚焦自然饱和度</translation>
+    </message>
+    <message>
+        <source>Focus Clarity</source>
+        <translation>聚焦清晰度</translation>
+    </message>
+    <message>
+        <source>Focus Sharpen</source>
+        <translation>聚焦锐度</translation>
+    </message>
+    <message>
+        <source>Keyboard Shortcuts</source>
+        <translation>键盘快捷键</translation>
+    </message>
+    <message>
+        <source>Reset to Defaults</source>
+        <translation>恢复默认</translation>
+    </message>
+    <message>
+        <source>Customize Shortcuts</source>
+        <translation>自定义快捷键</translation>
+    </message>
+    <message>
+        <source>Conflict: %1</source>
+        <translation>冲突：%1</translation>
+    </message>
+</context>
+<context>
+    <name>ExportQueue</name>
+    <message>
+        <source>Export Queue</source>
+        <translation>导出队列</translation>
+    </message>
+    <message>
+        <source>Pause</source>
+        <translation>暂停</translation>
+    </message>
+    <message>
+        <source>Resume</source>
+        <translation>继续</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Remove from Queue</source>
+        <translation>从队列中移除</translation>
+    </message>
+    <message>
+        <source>Move Up</source>
+        <translation>上移</translation>
+    </message>
+    <message>
+        <source>Move Down</source>
+        <translation>下移</translation>
+    </message>
+    <message>
+        <source>Estimated time remaining</source>
+        <translation>预计剩余时间</translation>
+    </message>
+    <message>
+        <source>%1 of %2 completed</source>
+        <translation>已完成 %1 / %2</translation>
+    </message>
+    <message>
+        <source>Export Summary</source>
+        <translation>导出汇总</translation>
+    </message>
+    <message>
+        <source>Total files: %1</source>
+        <translation>总文件数：%1</translation>
+    </message>
+    <message>
+        <source>Total size: %1</source>
+        <translation>总大小：%1</translation>
+    </message>
+    <message>
+        <source>Elapsed time: %1</source>
+        <translation>耗时：%1</translation>
+    </message>
+    <message>
+        <source>Failed: %1</source>
+        <translation>失败：%1</translation>
+    </message>
+    <message>
+        <source>Completed</source>
+        <translation>已完成</translation>
+    </message>
+    <message>
+        <source>In Progress</source>
+        <translation>进行中</translation>
+    </message>
+    <message>
+        <source>Queued</source>
+        <translation>排队中</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>失败</translation>
+    </message>
+    <message>
+        <source>Cancelled</source>
+        <translation>已取消</translation>
+    </message>
+    <message>
+        <source>Paused</source>
+        <translation>已暂停</translation>
+    </message>
+</context>
+<context>
+    <name>ErrorNotifications</name>
+    <message>
+        <source>File Import Failed</source>
+        <translation>文件导入失败</translation>
+    </message>
+    <message>
+        <source>Failed to import file: %1</source>
+        <translation>导入文件失败：%1</translation>
+    </message>
+    <message>
+        <source>Unsupported file format: %1</source>
+        <translation>不支持的文件格式：%1</translation>
+    </message>
+    <message>
+        <source>File not found: %1</source>
+        <translation>文件未找到：%1</translation>
+    </message>
+    <message>
+        <source>Export Error</source>
+        <translation>导出错误</translation>
+    </message>
+    <message>
+        <source>Failed to export image: %1</source>
+        <translation>导出图像失败：%1</translation>
+    </message>
+    <message>
+        <source>Disk space may be insufficient</source>
+        <translation>磁盘空间可能不足</translation>
+    </message>
+    <message>
+        <source>GPU Initialization Failed</source>
+        <translation>GPU 初始化失败</translation>
+    </message>
+    <message>
+        <source>GPU acceleration is unavailable. Falling back to CPU mode.</source>
+        <translation>GPU 加速不可用，已回退到 CPU 模式。</translation>
+    </message>
+    <message>
+        <source>AI Service Error</source>
+        <translation>AI 服务错误</translation>
+    </message>
+    <message>
+        <source>AI service request failed: %1</source>
+        <translation>AI 服务请求失败：%1</translation>
+    </message>
+    <message>
+        <source>AI service is not configured. Please set up your API key in Settings.</source>
+        <translation>AI 服务未配置。请在设置中配置 API 密钥。</translation>
+    </message>
+    <message>
+        <source>Project Save Error</source>
+        <translation>项目保存错误</translation>
+    </message>
+    <message>
+        <source>Failed to save project: %1</source>
+        <translation>保存项目失败：%1</translation>
+    </message>
+    <message>
+        <source>Project Load Error</source>
+        <translation>项目加载错误</translation>
+    </message>
+    <message>
+        <source>Failed to load project: %1</source>
+        <translation>加载项目失败：%1</translation>
+    </message>
+    <message>
+        <source>Project file is corrupted</source>
+        <translation>项目文件已损坏</translation>
+    </message>
+    <message>
+        <source>Version mismatch: project was saved with %1</source>
+        <translation>版本不匹配：项目使用 %1 保存</translation>
+    </message>
+</context>
+<context>
+    <name>AiLabelHistory</name>
+    <message>
+        <source>AI Label</source>
+        <translation>AI 标注</translation>
+    </message>
+    <message>
+        <source>AI Labels</source>
+        <translation>AI 标注</translation>
+    </message>
+    <message>
+        <source>Apply AI Labels</source>
+        <translation>应用 AI 标注</translation>
+    </message>
+    <message>
+        <source>Undo AI Labels</source>
+        <translation>撤销 AI 标注</translation>
+    </message>
+    <message>
+        <source>AI labeling recorded in edit history</source>
+        <translation>AI 标注已记录到编辑历史</translation>
+    </message>
+    <message>
+        <source>AI annotation from %1</source>
+        <translation>来自 %1 的 AI 标注</translation>
+    </message>
+    <message>
+        <source>Confidence: %1%</source>
+        <translation>置信度：%1%</translation>
+    </message>
+    <message>
+        <source>Provider: %1</source>
+        <translation>提供者：%1</translation>
+    </message>
+</context>
 </TS>

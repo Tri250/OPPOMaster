@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#include "app/relink_service.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
@@ -294,5 +296,46 @@ auto SleeveServiceImpl::DeletePath(const std::filesystem::path& target_path) -> 
 
 auto SleeveServiceImpl::DeleteElement(sl_element_id_t target_id) -> SyncResult {
   return Write<void>([target_id](FileSystem& fs) { fs.Delete(target_id); });
+}
+
+auto SleeveServiceImpl::DetectMissingFiles() -> std::vector<MissingFileInfo> {
+  RelinkService relink(*storage_service_);
+  return relink.DetectMissingFiles();
+}
+
+auto SleeveServiceImpl::RelinkFile(sl_element_id_t file_id,
+                                   const std::filesystem::path& new_path) -> RelinkResult {
+  RelinkService relink(*storage_service_);
+  return relink.RelinkFile(file_id, new_path);
+}
+
+auto SleeveServiceImpl::RelinkFiles(
+    const std::unordered_map<sl_element_id_t, std::filesystem::path>& remappings,
+    RelinkProgressCallback progress_cb) -> std::vector<RelinkResult> {
+  RelinkService relink(*storage_service_);
+  return relink.RelinkFiles(remappings, progress_cb);
+}
+
+auto SleeveServiceImpl::SearchDirectoryForMatches(
+    const std::filesystem::path& search_dir,
+    const std::vector<MissingFileInfo>& missing_files,
+    int max_depth) -> std::unordered_map<sl_element_id_t, std::vector<RelinkCandidate>> {
+  RelinkService relink(*storage_service_);
+  return relink.SearchDirectoryForMatches(search_dir, missing_files, max_depth);
+}
+
+auto SleeveServiceImpl::AutoSearchNearby(
+    const std::vector<MissingFileInfo>& missing_files)
+    -> std::unordered_map<sl_element_id_t, std::vector<RelinkCandidate>> {
+  RelinkService relink(*storage_service_);
+  return relink.AutoSearchNearby(missing_files);
+}
+
+auto SleeveServiceImpl::FindFuzzyCandidates(
+    const MissingFileInfo& missing,
+    const std::filesystem::path& search_dir,
+    int max_depth) -> std::vector<RelinkCandidate> {
+  RelinkService relink(*storage_service_);
+  return relink.FindFuzzyCandidates(missing, search_dir, max_depth);
 }
 };  // namespace alcedo

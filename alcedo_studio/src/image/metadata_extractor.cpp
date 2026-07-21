@@ -87,6 +87,69 @@ auto IsNikonCamera(const std::string& make, const std::string& model) -> bool {
   return ContainsCaseInsensitive(make, "nikon") || ContainsCaseInsensitive(model, "nikon");
 }
 
+auto IsMobileDeviceCamera(const std::string& make, const std::string& model,
+                          const std::string& software) -> bool {
+  // Common mobile device manufacturer signatures in EXIF Make/Model/Software fields
+  const auto is_mobile_make = ContainsCaseInsensitive(make, "apple") ||
+                              ContainsCaseInsensitive(make, "samsung") ||
+                              ContainsCaseInsensitive(make, "huawei") ||
+                              ContainsCaseInsensitive(make, "xiaomi") ||
+                              ContainsCaseInsensitive(make, "oppo") ||
+                              ContainsCaseInsensitive(make, "vivo") ||
+                              ContainsCaseInsensitive(make, "oneplus") ||
+                              ContainsCaseInsensitive(make, "google") ||
+                              ContainsCaseInsensitive(make, "sony") ||
+                              ContainsCaseInsensitive(make, "lg") ||
+                              ContainsCaseInsensitive(make, "motorola") ||
+                              ContainsCaseInsensitive(make, "hmd global") ||
+                              ContainsCaseInsensitive(make, "nokia") ||
+                              ContainsCaseInsensitive(make, "asus") ||
+                              ContainsCaseInsensitive(make, "realme");
+  // Some Android devices put model info in Software field
+  const auto is_mobile_software =
+      ContainsCaseInsensitive(software, "android") ||
+      ContainsCaseInsensitive(software, "ios") ||
+      ContainsCaseInsensitive(software, "iphone");
+  // iPhone models often show as "iPhone" in the Model field
+  const auto is_iphone = ContainsCaseInsensitive(model, "iphone");
+
+  return is_mobile_make || is_mobile_software || is_iphone;
+}
+
+auto ResolveMobileCameraModel(const std::string& make, const std::string& model,
+                              const std::string& software) -> std::string {
+  // iPhone: Normalize "iPhone X,Y" to the corresponding model name
+  if (ContainsCaseInsensitive(make, "apple") || ContainsCaseInsensitive(model, "iphone")) {
+    // iPhone EXIF Model is typically "iPhone X,Y" where X,Y map to device generation
+    // Keep the original model string for color matrix lookup - Adobe DNG profiles use
+    // "Apple iPhone X" format
+    if (!model.empty()) { return model; }
+    if (!software.empty()) { return "Apple " + software; }
+    return "Apple iPhone";
+  }
+
+  // Samsung: "SM-G9XX" style model codes
+  if (ContainsCaseInsensitive(make, "samsung")) {
+    if (!model.empty()) { return "Samsung " + model; }
+  }
+
+  // Google Pixel
+  if (ContainsCaseInsensitive(make, "google")) {
+    if (!model.empty()) { return "Google " + model; }
+  }
+
+  // Generic: prepend make if model doesn't already contain it
+  if (!make.empty() && !model.empty()) {
+    if (model.find(make) == std::string::npos) {
+      return make + " " + model;
+    }
+    return model;
+  }
+  if (!model.empty()) { return model; }
+  if (!make.empty()) { return make; }
+  return {};
+}
+
 auto IsDngExtension(const std::filesystem::path& path) -> bool {
   std::string ext = path.extension().string();
   std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -1302,10 +1365,72 @@ void PopulateMetadataRuntimeContext(LibRaw& raw_processor, RawRuntimeColorContex
     }
   }
 
+  // Canon mirrorless lens model resolution: Canon EOS R series cameras sometimes
+  // leave the LensModel field empty or generic. Use Canon MakerNote data and
+  // RF lens pattern matching to provide a meaningful lens model for lensfun lookup.
+  if (ContainsCaseInsensitive(ctx.camera_make_, "canon")) {
+    if (ctx.lens_make_.empty()) {
+      ctx.lens_make_ = "Canon";
+    }
+    if (ctx.lens_model_.empty()) {
+      // Try Canon MakerNote lens info first
+      std::string canon_lens = TrimTrailingZeroPadded(raw_processor.imgdata.lens.makernotes.Lens);
+      if (!canon_lens.empty()) {
+        ctx.lens_model_ = canon_lens;
+      }
+    }
+    // Special handling for Canon RF lenses: lensfun may not have the "RF" prefix
+    // variant in its database, so also add a fallback without the prefix.
+    if (!ctx.lens_model_.empty() && ctx.lens_model_.find("RF") != std::string::npos) {
+      // Ensure the lens maker is set to Canon for RF lenses
+      if (ctx.lens_make_.empty()) {
+        ctx.lens_make_ = "Canon";
+      }
+    }
+  }
+
+  // Canon mirrorless focal length extraction: try multiple sources in priority order.
+  // Canon RF/RF-S lenses on EOS R series may not populate focal_len correctly
+  // through the standard LibRaw path, so we fall back through several alternatives.
   ctx.focal_length_mm_ = raw_processor.imgdata.other.focal_len;
   if (!IsFinitePositive(ctx.focal_length_mm_)) {
     ctx.focal_length_mm_ = raw_processor.imgdata.lens.makernotes.CurFocal;
   }
+  if (!IsFinitePositive(ctx.focal_length_mm_)) {
+    // Canon MakerNote: FocalLength tag (0x920A in Canon MakerNote)
+    ctx.focal_length_mm_ = raw_processor.imgdata.lens.makernotes.FocalLength;
+  }
+  if (!IsFinitePositive(ctx.focal_length_mm_)) {
+    // Canon MakerNote: FocalType + FocalPlaneXResolution/YResolution inference
+    // Some Canon mirrorless bodies report focal length via the EXIF sub-IFD
+    // FocalLengthIn35mmFormat combined with crop factor.
+    const float focal_35 = static_cast<float>(
+        raw_processor.imgdata.lens.FocalLengthIn35mmFormat > 0
+            ? raw_processor.imgdata.lens.FocalLengthIn35mmFormat
+            : raw_processor.imgdata.lens.makernotes.FocalLengthIn35mmFormat);
+    if (IsFinitePositive(focal_35)) {
+      // Derive from 35mm-equivalent if we know (or can estimate) the crop factor.
+      float crop = raw_processor.imgdata.lens.makernotes.CropFactor;
+      if (!IsFinitePositive(crop)) {
+        // Estimate crop factor from sensor dimensions if available
+        const float sensor_w = static_cast<float>(raw_processor.imgdata.sizes.raw_width);
+        const float sensor_h = static_cast<float>(raw_processor.imgdata.sizes.raw_height);
+        if (sensor_w > 0 && sensor_h > 0) {
+          // Full-frame diagonal ~43.27mm; estimate crop from pixel count heuristics
+          const float diag_pixels = std::sqrt(sensor_w * sensor_w + sensor_h * sensor_h);
+          if (diag_pixels > 5000.0f) {
+            // Approximate: full-frame is ~8200px diagonal at typical resolution
+            crop = diag_pixels / 8200.0f;
+            if (crop < 0.5f) { crop = 0.0f; }
+          }
+        }
+      }
+      if (IsFinitePositive(crop) && crop >= 0.5f) {
+        ctx.focal_length_mm_ = focal_35 / crop;
+      }
+    }
+  }
+
   ctx.aperture_f_number_ = raw_processor.imgdata.other.aperture;
   if (!IsFinitePositive(ctx.aperture_f_number_)) {
     ctx.aperture_f_number_ = raw_processor.imgdata.lens.makernotes.CurAp;
@@ -1504,6 +1629,26 @@ static void GetDisplayMetadataFromExif(Exiv2::ExifData&     exif_data,
     display_metadata.date_time_str_ = exif_data["Exif.Photo.DateTimeOriginal"].toString();
   } else if (exif_data.findKey(Exiv2::ExifKey("Exif.Image.DateTime")) != exif_data.end()) {
     display_metadata.date_time_str_ = exif_data["Exif.Image.DateTime"].toString();
+  }
+
+  // Read Software tag for mobile device camera model detection.
+  // Many mobile devices (especially Android) embed device identifiers in Software.
+  std::string software_tag;
+  if (find_key("Exif.Photo.Software") != exif_data.end()) {
+    software_tag = exif_data["Exif.Photo.Software"].toString();
+  } else if (find_key("Exif.Image.Software") != exif_data.end()) {
+    software_tag = exif_data["Exif.Image.Software"].toString();
+  }
+
+  // Mobile device camera model resolution: many mobile devices don't properly
+  // populate camera make/model in standard EXIF tags. Try to resolve a more
+  // useful camera model string for color matrix lookup.
+  if (IsMobileDeviceCamera(display_metadata.make_, display_metadata.model_, software_tag)) {
+    auto resolved = ResolveMobileCameraModel(display_metadata.make_, display_metadata.model_,
+                                             software_tag);
+    if (!resolved.empty()) {
+      display_metadata.model_ = resolved;
+    }
   }
   if (display_metadata.date_time_str_.size() >= 10) {
     display_metadata.date_time_str_[4] =

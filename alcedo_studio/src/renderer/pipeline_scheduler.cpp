@@ -10,21 +10,26 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
+#include "edit/pipeline/large_image_manager.hpp"
 #include "utils/profiler/profiler.hpp"
 #include "image/image_buffer.hpp"
 #include "io/image/image_loader.hpp"
 #include "renderer/pipeline_task.hpp"
+#include "utils/config/app_config.hpp"
 
 namespace alcedo {
 namespace {
 constexpr float kRotationPreviewEpsilon = 1e-4f;
 constexpr float kFullFrameRegionEpsilon = 1e-4f;
-constexpr int   kFastPreviewMaxLongEdge = 2560;
-constexpr int   kQualityBasePreviewMaxLongEdge = 4096;
-constexpr int   kHsReferenceMaskMaxLongEdge = 2048;
-constexpr int   kFullResPreviewMaxLongEdge = 8192;
+// Preview size limits are now configurable via AppConfig. These constants
+// serve as compile-time fallbacks only.
+constexpr int   AppConfig::Instance().FastPreviewMaxLongEdge()Fallback = 2560;
+constexpr int   AppConfig::Instance().QualityBasePreviewMaxLongEdge()Fallback = 4096;
+constexpr int   kHsReferenceMaskMaxLongEdgeFallback = 2048;
+constexpr int   AppConfig::Instance().FullResPreviewMaxLongEdge()Fallback = 8192;
 
 auto HasActiveGeometryRotation(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor)
     -> bool {
@@ -200,7 +205,7 @@ void PipelineTask::SetExecutorRenderParams() {
   pipeline_executor_->GetGlobalParams().render_hs_preserve_source_detail_ = false;
   pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = false;
   pipeline_executor_->GetGlobalParams().render_hs_reference_max_long_edge_ =
-      kHsReferenceMaskMaxLongEdge;
+      AppConfig::Instance().HsReferenceMaskMaxLongEdge();
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
@@ -250,7 +255,7 @@ void PipelineTask::SetExecutorRenderParams() {
       pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
       pipeline_executor_->SetRenderRegion(0, 0, 1.0f, 1.0f);
       pipeline_executor_->SetForceCPUOutput(false);
-      pipeline_executor_->SetRenderRes(false, kFastPreviewMaxLongEdge);
+      pipeline_executor_->SetRenderRes(false, AppConfig::Instance().FastPreviewMaxLongEdge());
       pipeline_executor_->SetEnableCache(true);
       pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
       return;
@@ -265,7 +270,7 @@ void PipelineTask::SetExecutorRenderParams() {
     pipeline_executor_->SetRenderRegion(region_x, region_y, region_scale_x, region_scale_y,
                                         region_reference_width, region_reference_height);
     pipeline_executor_->SetForceCPUOutput(false);
-    pipeline_executor_->SetRenderRes(false, kFastPreviewMaxLongEdge);
+    pipeline_executor_->SetRenderRes(false, AppConfig::Instance().FastPreviewMaxLongEdge());
     pipeline_executor_->SetEnableCache(true);
     // The default decode res is full, this call will be effective only when changed before
     pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
@@ -279,7 +284,7 @@ void PipelineTask::SetExecutorRenderParams() {
     SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f, 1.0f);
-    pipeline_executor_->SetRenderRes(false, kQualityBasePreviewMaxLongEdge);
+    pipeline_executor_->SetRenderRes(false, AppConfig::Instance().QualityBasePreviewMaxLongEdge());
     pipeline_executor_->SetForceCPUOutput(false);
     pipeline_executor_->SetEnableCache(true);
     pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
@@ -326,7 +331,7 @@ void PipelineTask::SetExecutorRenderParams() {
     SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
-    pipeline_executor_->SetRenderRes(false, kFullResPreviewMaxLongEdge);
+    pipeline_executor_->SetRenderRes(false, AppConfig::Instance().FullResPreviewMaxLongEdge());
     pipeline_executor_->SetForceCPUOutput(false);
     pipeline_executor_->SetEnableCache(true);
     pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
@@ -355,7 +360,7 @@ void PipelineTask::ResetPreviewRenderParams() {
   }
   // Transition back to fast-preview baseline state.
   pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
-  pipeline_executor_->SetRenderRes(false, kFastPreviewMaxLongEdge);
+  pipeline_executor_->SetRenderRes(false, AppConfig::Instance().FastPreviewMaxLongEdge());
   pipeline_executor_->SetForceCPUOutput(false);
   pipeline_executor_->SetEnableCache(true);
   pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
@@ -369,7 +374,7 @@ void PipelineTask::ResetThumbnailRenderParams() {
   }
   // Transition to full-res preview baseline state.
   pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
-  pipeline_executor_->SetRenderRes(true, kFastPreviewMaxLongEdge);
+  pipeline_executor_->SetRenderRes(true, AppConfig::Instance().FastPreviewMaxLongEdge());
   pipeline_executor_->SetForceCPUOutput(false);
   pipeline_executor_->SetEnableCache(true);
   pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
@@ -382,8 +387,13 @@ PipelineScheduler::PipelineScheduler() : thread_pool_(1) {}
 PipelineScheduler::PipelineScheduler(size_t thread_count) : thread_pool_(thread_count) {}
 
 void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
-  std::lock_guard<std::mutex> lock(scheduler_lock_);
-  task.task_id_ = id_generator_.GenerateID();
+  // Generate the task ID before releasing the lock to maintain ordering.
+  uint32_t task_id;
+  {
+    std::lock_guard<std::mutex> lock(scheduler_lock_);
+    task_id = id_generator_.GenerateID();
+  }
+  task.task_id_ = task_id;
   thread_pool_.Submit([task = std::move(task)]() mutable {
     const auto set_blocking_value = [&task](std::shared_ptr<ImageBuffer> value) {
       if (!task.options_.is_blocking_ || !task.result_) {
@@ -491,12 +501,27 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
           return;
         }
         if (task.input_) {
-          std::unique_lock<std::mutex> render_lock;
+          std::optional<CPUPipelineExecutor::RenderLockGuard> render_lock_guard;
           auto& render_desc = task.options_.render_desc_;
           IFrameSink* saved_frame_sink = nullptr;
 
           if (task.pipeline_executor_) {
-            render_lock = std::unique_lock<std::mutex>(task.pipeline_executor_->GetRenderLock());
+            // Use timeout-based lock acquisition to prevent deadlocks.
+            // If the render lock cannot be acquired within the timeout,
+            // the task is aborted with an error rather than blocking indefinitely.
+            render_lock_guard.emplace(task.pipeline_executor_->TryAcquireRenderLock());
+            if (!render_lock_guard->owns_lock()) {
+              qCCritical(diag::pipelineLog).noquote()
+                  << QStringLiteral("pipeline.scheduler.deadlock_abort "
+                                    "Could not acquire render lock for task. "
+                                    "Aborting render to prevent UI freeze. "
+                                    "render_type=%1")
+                         .arg(static_cast<int>(render_desc.render_type_));
+              apply_state_transition_after_render();
+              notify_thumbnail_failure_callbacks();
+              set_blocking_value(nullptr);
+              return;
+            }
 
             // Thumbnail and export tasks must not interact with any editor-owned
             // frame sink that may still be attached to a cached pipeline.
@@ -537,7 +562,43 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
             return;
           }
 
+          // ---- P0-7: VRAM-aware adaptive quality for large images ----
+          // Before rendering, check memory pressure and adjust pipeline parameters.
+          // If GPU OOM occurs, fall back to the CPU pipeline.
+          const GpuBackendKind gpu_backend =
+              task.pipeline_executor_->GetResolvedAcceleratorBackend();
+          const auto quality_level =
+              LargeImageManager::CheckMemoryPressure(gpu_backend);
+
+          if (quality_level == AdaptiveQualityLevel::CPUFallback) {
+            qInfo("PipelineScheduler: GPU OOM detected, falling back to CPU pipeline.");
+            task.pipeline_executor_->SetAcceleratorBackendPreference(
+                AcceleratorBackendPreference::CPU);
+            task.pipeline_executor_->SetForceCPUOutput(true);
+          } else if (quality_level == AdaptiveQualityLevel::Reduced ||
+                     quality_level == AdaptiveQualityLevel::Minimal) {
+            // Reduce preview resolution under memory pressure
+            if (render_desc.render_type_ == RenderType::FAST_PREVIEW) {
+              task.pipeline_executor_->SetRenderRes(false, 1280);
+            } else if (render_desc.render_type_ == RenderType::QUALITY_BASE_PREVIEW) {
+              task.pipeline_executor_->SetRenderRes(false, 2048);
+            }
+          }
+
           auto result = task.pipeline_executor_->Apply(task.input_);
+
+          // ---- P0-7: Post-render GPU OOM detection and recovery ----
+          if (!result && LargeImageManager::DetectGPUOOM(gpu_backend)) {
+            qWarning("PipelineScheduler: GPU OOM during render, attempting recovery.");
+            if (LargeImageManager::RecoverFromGPUOOM(gpu_backend)) {
+              // Retry with CPU pipeline
+              task.pipeline_executor_->SetAcceleratorBackendPreference(
+                  AcceleratorBackendPreference::CPU);
+              task.pipeline_executor_->SetForceCPUOutput(true);
+              result = task.pipeline_executor_->Apply(task.input_);
+            }
+          }
+
           bool result_has_cpu = false;
           if (result && result->cpu_data_valid_) {
             try {

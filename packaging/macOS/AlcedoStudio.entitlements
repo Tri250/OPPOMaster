@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow JIT compilation for onnxruntime / V8 / scripting engines -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Allow unsigned executable memory for ORT shared libraries and
+         dynamically-loaded plugin code that cannot be signed individually -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Disable library validation so the app can load third-party frameworks
+         and plugins (e.g. OpenColorIO, OpenImageIO, DuckDB extensions) that
+         are not signed by the same team -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Camera access for photo import workflows -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+</dict>
+</plist>

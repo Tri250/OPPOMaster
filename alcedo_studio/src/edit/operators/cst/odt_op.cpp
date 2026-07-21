@@ -266,8 +266,18 @@ void ODT_Op::RebuildRuntime() {
         odt_cpu::ResolveACESODTRuntime(limiting_space_, peak_luminance_);
     to_output_params_.limit_to_display_matx_ =
         ColorUtils::RGB_TO_XYZ_f33(limiting_space_) * ColorUtils::XYZ_TO_RGB_f33(encoding_space_);
-    to_output_params_.display_linear_scale_ =
-        (encoding_eotf_ == ColorUtils::EOTF::ST2084) ? ColorUtils::ref_lum : 1.0f;
+    // P1-4: Fix peak luminance handling for HDR output.
+    // For ST2084 (PQ): display_linear_scale must map normalized scene-referred
+    // linear to absolute luminance (nits). Use peak_luminance_ not ref_lum.
+    // For HLG: scale similarly using peak_luminance_ to account for HDR range.
+    // For SDR EOTFs: scale by 1.0f (scene-referred = display-referred).
+    if (encoding_eotf_ == ColorUtils::EOTF::ST2084) {
+      to_output_params_.display_linear_scale_ = peak_luminance_;
+    } else if (encoding_eotf_ == ColorUtils::EOTF::HLG) {
+      to_output_params_.display_linear_scale_ = peak_luminance_ / ColorUtils::ref_lum;
+    } else {
+      to_output_params_.display_linear_scale_ = 1.0f;
+    }
     return;
   }
 

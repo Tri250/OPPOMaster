@@ -307,6 +307,7 @@ void ScopePanel::SetActiveScopeView(ScopeView view) {
   }
 
   active_scope_view_ = view;
+  last_generation_   = 0;  // P1-5: Force RefreshOutputs to accept new data after scope switch
   if (scope_stack_) {
     scope_stack_->setCurrentIndex(active_scope_view_ == ScopeView::Histogram ? 0 : 1);
   }

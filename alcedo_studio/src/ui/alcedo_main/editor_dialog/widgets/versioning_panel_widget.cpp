@@ -15,6 +15,7 @@
 #include <QIcon>
 #include <QIODevice>
 #include <QListWidgetItem>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -39,11 +40,12 @@ namespace {
 
 constexpr int kRailButtonSize       = 46;
 constexpr int kExpandedMinWidth     = 320;
-constexpr int kExpandedMaxWidth     = 420;
+constexpr int kExpandedMaxWidth     = 600;
 constexpr int kExpandedMinHeight    = 300;
 constexpr int kExpandedMaxHeight    = 460;
 constexpr int kAnimationMs          = 250;
 constexpr int kEditorOuterMargin    = 14;
+constexpr int kResizeHandleWidth    = 6;
 const QSize   kRailIconSize(18, 18);
 
 constexpr char kLocalizedTextProperty[]      = "puerhlabI18nText";
@@ -120,6 +122,50 @@ auto RenderRailToggleIcon(const QString& resource_path, const QColor& color, con
 }
 
 }  // namespace
+
+FlyoutResizeHandle::FlyoutResizeHandle(QWidget* flyout, QWidget* parent)
+    : QWidget(parent), flyout_(flyout) {
+  setFixedWidth(kResizeHandleWidth);
+  setCursor(Qt::SplitHCursor);
+  setAttribute(Qt::WA_TransparentForMouseEvents, false);
+  setAttribute(Qt::WA_Hover, true);
+  setStyleSheet("background: transparent;");
+}
+
+void FlyoutResizeHandle::mousePressEvent(QMouseEvent* event) {
+  if (event->button() == Qt::LeftButton) {
+    dragging_ = true;
+    start_x_ = event->globalX();
+    start_w_ = flyout_ ? flyout_->width() : 0;
+    event->accept();
+  }
+}
+
+void FlyoutResizeHandle::mouseMoveEvent(QMouseEvent* event) {
+  if (!dragging_ || !flyout_) {
+    return;
+  }
+  // Dragging left increases the flyout width.
+  const int delta = start_x_ - event->globalX();
+  const int new_w = std::clamp(start_w_ + delta, kExpandedMinWidth, kExpandedMaxWidth);
+  flyout_->setFixedWidth(new_w);
+  event->accept();
+}
+
+void FlyoutResizeHandle::mouseReleaseEvent(QMouseEvent* event) {
+  if (dragging_) {
+    dragging_ = false;
+    event->accept();
+    // Notify the parent panel of the user's preferred width.
+    if (flyout_) {
+      if (auto* panel = flyout_->parentWidget()) {
+        if (auto* versioning = dynamic_cast<VersioningPanelWidget*>(panel)) {
+          versioning->ResetUserWidth();
+        }
+      }
+    }
+  }
+}
 
 VersioningPanelWidget::VersioningPanelWidget(QWidget* parent) : QWidget(parent) {}
 
@@ -576,6 +622,11 @@ void VersioningPanelWidget::BuildFlyout() {
   }
 
   pages_stack_->setCurrentIndex(static_cast<int>(active_page_));
+
+  // Add resize handle to the left edge of the flyout for user-resizable width.
+  // It's a child widget positioned as an overlay on the flyout's left edge.
+  resize_handle_ = new FlyoutResizeHandle(flyout_, flyout_);
+  // Will be repositioned in RepositionFlyout().
 }
 
 void VersioningPanelWidget::HandleHistoryButtonClicked() {
@@ -743,9 +794,15 @@ void VersioningPanelWidget::RepositionFlyout() {
   flyout_x                = std::max(flyout_x, kEditorOuterMargin + 4);
 
   const int available_width = std::max(0, viewer_rect.right() - flyout_x - 12);
-  const int desired_width =
-      std::clamp(static_cast<int>(std::lround(static_cast<double>(viewer_rect.width()) * 0.30)),
-                 kExpandedMinWidth, kExpandedMaxWidth);
+  int desired_width = 0;
+  if (user_width_ > 0) {
+    // User has explicitly resized the flyout; honor their preferred width.
+    desired_width = std::clamp(user_width_, kExpandedMinWidth, kExpandedMaxWidth);
+  } else {
+    desired_width =
+        std::clamp(static_cast<int>(std::lround(static_cast<double>(viewer_rect.width()) * 0.30)),
+                   kExpandedMinWidth, kExpandedMaxWidth);
+  }
   const int flyout_y = viewer_rect.top() + 2;
   const int flyout_w =
       std::clamp(desired_width, std::min(kExpandedMinWidth, std::max(220, available_width)),
@@ -769,6 +826,13 @@ void VersioningPanelWidget::RepositionFlyout() {
   if (auto* layout = flyout_->layout()) {
     layout->activate();
   }
+
+  // Position the resize handle on the left edge of the flyout.
+  if (resize_handle_) {
+    resize_handle_->setGeometry(0, 0, kResizeHandleWidth, flyout_h);
+    resize_handle_->raise();
+  }
+
   if (flyout_root_) {
     if (auto* layout = flyout_root_->layout()) {
       layout->activate();
@@ -781,6 +845,12 @@ void VersioningPanelWidget::RepositionFlyout() {
     } else {
       flyout_root_->clearMask();
     }
+  }
+}
+
+void VersioningPanelWidget::ResetUserWidth() {
+  if (flyout_) {
+    user_width_ = flyout_->width();
   }
 }
 

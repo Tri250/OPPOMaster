@@ -29,6 +29,9 @@ class UltraHdrWriter {
   static auto BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
                                      const std::optional<ExifDisplayMetaData>& export_metadata)
       -> std::vector<uint8_t>;
+  static auto BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
+                                     const std::optional<ExifDisplayMetaData>& export_metadata,
+                                     const ExportFormatOptions& options) -> std::vector<uint8_t>;
 };
 
 }  // namespace alcedo

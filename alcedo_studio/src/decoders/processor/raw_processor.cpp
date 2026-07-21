@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <optional>
@@ -412,6 +415,181 @@ void RawProcessor::ApplyGeometricCorrections() {
   }
 }
 
+void RawProcessor::ApplyChromaticAberration() {
+  // P1-1: Lateral chromatic aberration correction after debayering.
+  if (!params_.ca_correction_enabled_) {
+    return;
+  }
+
+  auto& img = process_buffer_.GetCPUData();
+  if (img.empty() || img.channels() < 3) {
+    return;
+  }
+
+  // If DNG Warp Rectilinear was already applied, it includes per-plane TCA correction.
+  if (runtime_color_context_.dng_warp_rectilinear_applied_) {
+    return;
+  }
+
+  // Determine TCA model and coefficients.
+  int   tca_model = params_.tca_model_;
+  float tca_r[3]  = {params_.tca_r_terms_[0], params_.tca_r_terms_[1], params_.tca_r_terms_[2]};
+  float tca_b[3]  = {params_.tca_b_terms_[0], params_.tca_b_terms_[1], params_.tca_b_terms_[2]};
+
+  // P1-1: Auto-detect lateral CA if no model coefficients were provided.
+  if (tca_model == 0) {
+    // Auto-detect: Analyze edge correlation between R/G and B/G channels.
+    // Lateral CA manifests as radial misalignment of R and B channels vs G,
+    // most visible as purple/green fringing at high-contrast edges.
+    struct TCADetection {
+      int   model;
+      float r_terms[3];
+      float b_terms[3];
+    };
+
+    auto detect_lateral_ca = [](const cv::Mat& rgb_img) -> TCADetection {
+      TCADetection result{0, {0, 0, 0}, {0, 0, 0}};
+      if (rgb_img.empty() || rgb_img.channels() < 3 || rgb_img.rows < 64 ||
+          rgb_img.cols < 64) {
+        return result;
+      }
+
+      std::vector<cv::Mat> channels(3);
+      cv::split(rgb_img, channels);
+      const cv::Mat& r_ch = channels[0];
+      const cv::Mat& g_ch = channels[1];
+      const cv::Mat& b_ch = channels[2];
+
+      // Compute edge maps using Sobel
+      cv::Mat g_dx, g_dy, r_dx, r_dy, b_dx, b_dy;
+      cv::Sobel(g_ch, g_dx, CV_32F, 1, 0, 3);
+      cv::Sobel(g_ch, g_dy, CV_32F, 0, 1, 3);
+      cv::Sobel(r_ch, r_dx, CV_32F, 1, 0, 3);
+      cv::Sobel(r_ch, r_dy, CV_32F, 0, 1, 3);
+      cv::Sobel(b_ch, b_dx, CV_32F, 1, 0, 3);
+      cv::Sobel(b_ch, b_dy, CV_32F, 0, 1, 3);
+
+      // Sample edges near image center for radial displacement estimation
+      const int cx = rgb_img.cols / 2;
+      const int cy = rgb_img.rows / 2;
+      const int radius = std::min(cx, cy) / 2;
+      const int inner_r = radius / 4;
+
+      // Estimate shift between R/G and B/G at the sampling ring
+      double sum_r_shift = 0.0;
+      double sum_b_shift = 0.0;
+      int     count      = 0;
+
+      const int step = std::max(1, radius / 8);
+      for (int angle_step = 0; angle_step < 16; ++angle_step) {
+        const double angle = angle_step * M_PI / 8.0;
+        for (int r = inner_r; r < radius; r += step) {
+          const int px = cx + static_cast<int>(r * std::cos(angle));
+          const int py = cy + static_cast<int>(r * std::sin(angle));
+          if (px < 2 || px >= rgb_img.cols - 2 || py < 2 || py >= rgb_img.rows - 2) continue;
+
+          const float g_edge_x = g_dx.at<float>(py, px);
+          const float g_edge_y = g_dy.at<float>(py, px);
+          const float edge_mag  = std::sqrt(g_edge_x * g_edge_x + g_edge_y * g_edge_y);
+          if (edge_mag < 0.01f) continue;
+
+          // Measure correlation shift: if R edge is offset from G edge radially,
+          // it indicates lateral CA
+          const float r_shift = (r_dx.at<float>(py, px) - g_edge_x) +
+                                (r_dy.at<float>(py, px) - g_edge_y);
+          const float b_shift = (b_dx.at<float>(py, px) - g_edge_x) +
+                                (b_dy.at<float>(py, px) - g_edge_y);
+
+          // Weight by distance from center (lateral CA increases with r)
+          const float weight = static_cast<float>(r) / static_cast<float>(radius);
+          sum_r_shift += r_shift * weight;
+          sum_b_shift += b_shift * weight;
+          count++;
+        }
+      }
+
+      if (count < 8) {
+        return result;
+      }
+
+      const float avg_r_shift = static_cast<float>(sum_r_shift / count);
+      const float avg_b_shift = static_cast<float>(sum_b_shift / count);
+
+      // Only apply correction if shifts are significant
+      const float threshold = 0.001f;
+      if (std::abs(avg_r_shift) < threshold && std::abs(avg_b_shift) < threshold) {
+        return result;
+      }
+
+      // Model as LINEAR TCA: correction = kr * r (normalized radial distance)
+      result.model = 1;
+      result.r_terms[0] = avg_r_shift;
+      result.b_terms[0] = avg_b_shift;
+      return result;
+    };
+
+    auto detection = detect_lateral_ca(img);
+    tca_model = detection.model;
+    tca_r[0]  = detection.r_terms[0];
+    tca_r[1]  = detection.r_terms[1];
+    tca_r[2]  = detection.r_terms[2];
+    tca_b[0]  = detection.b_terms[0];
+    tca_b[1]  = detection.b_terms[1];
+    tca_b[2]  = detection.b_terms[2];
+  }
+
+  if (tca_model == 0) {
+    return;  // No correction needed or detectable
+  }
+
+  // Apply TCA correction via per-channel remap
+  const int    width  = img.cols;
+  const int    height = img.rows;
+  const float  cx     = width * 0.5f;
+  const float  cy     = height * 0.5f;
+  const float  max_r  = std::sqrt(cx * cx + cy * cy);
+  const float  inv_max_r = (max_r > 0.0f) ? 1.0f / max_r : 0.0f;
+
+  std::vector<cv::Mat> channels(img.channels());
+  cv::split(img, channels);
+
+  // Build remap for a given channel's TCA terms
+  auto build_tca_remap = [&](const float terms[3], int model,
+                             cv::Mat& map_x, cv::Mat& map_y) {
+    map_x.create(height, width, CV_32FC1);
+    map_y.create(height, width, CV_32FC1);
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        const float dx = x - cx;
+        const float dy = y - cy;
+        const float r  = std::sqrt(dx * dx + dy * dy) * inv_max_r;
+        float       correction = 1.0f;
+        if (model == 1) {       // LINEAR
+          correction = 1.0f + terms[0] * r;
+        } else if (model == 2) {  // POLY3
+          correction = 1.0f + terms[0] * r + terms[1] * r * r + terms[2] * r * r * r;
+        }
+        map_x.at<float>(y, x) = cx + dx * correction;
+        map_y.at<float>(y, x) = cy + dy * correction;
+      }
+    }
+  };
+
+  // Correct R channel
+  cv::Mat r_map_x, r_map_y;
+  build_tca_remap(tca_r, tca_model, r_map_x, r_map_y);
+  cv::remap(channels[0], channels[0], r_map_x, r_map_y, cv::INTER_CUBIC,
+            cv::BORDER_REFLECT_101);
+
+  // Correct B channel
+  cv::Mat b_map_x, b_map_y;
+  build_tca_remap(tca_b, tca_model, b_map_x, b_map_y);
+  cv::remap(channels[2], channels[2], b_map_x, b_map_y, cv::INTER_CUBIC,
+            cv::BORDER_REFLECT_101);
+
+  cv::merge(channels, img);
+}
+
 void RawProcessor::ConvertToWorkingSpace() {
   auto& img          = process_buffer_.GetCPUData();
   auto  color_coeffs = raw_data_.color.rgb_cam;
@@ -549,6 +727,7 @@ auto RawProcessor::Process() -> ImageBuffer {
   ApplyLinearization();
   ApplyHighlightReconstruct();
   ApplyDebayer();
+  ApplyChromaticAberration();
   ApplyGeometricCorrections();
   ConvertToWorkingSpace();
 

@@ -19,6 +19,25 @@
 
 namespace alcedo::ui {
 
+// A thin resize handle that allows the user to resize the versioning flyout
+// panel by dragging its left edge. Installed as an event filter on the flyout.
+class FlyoutResizeHandle : public QWidget {
+  Q_OBJECT
+ public:
+  explicit FlyoutResizeHandle(QWidget* flyout, QWidget* parent = nullptr);
+
+ protected:
+  void mousePressEvent(QMouseEvent* event) override;
+  void mouseMoveEvent(QMouseEvent* event) override;
+  void mouseReleaseEvent(QMouseEvent* event) override;
+
+ private:
+  QWidget* flyout_;
+  bool     dragging_  = false;
+  int      start_x_   = 0;
+  int      start_w_   = 0;
+};
+
 class VersioningPanelWidget final : public QWidget {
  public:
   enum class FlyoutPage : int { History = 0, Versions = 1 };
@@ -49,6 +68,9 @@ class VersioningPanelWidget final : public QWidget {
   void SetCollapsed(bool collapsed, bool animate = true);
   void OnDialogResized();
   void RefreshVersionLogSelectionStyles();
+
+  // Reset the user-resized width override when the panel collapses.
+  void ResetUserWidth();
 
  protected:
   bool eventFilter(QObject* obj, QEvent* event) override;
@@ -84,6 +106,9 @@ class VersioningPanelWidget final : public QWidget {
   QListWidget* tx_stack_         = nullptr;
   QPushButton* create_version_btn_ = nullptr;
   QListWidget* version_log_      = nullptr;
+
+  FlyoutResizeHandle* resize_handle_ = nullptr;
+  int                 user_width_    = -1;  // User override for flyout width (-1 = auto).
 
   bool       collapsed_   = true;
   qreal      progress_    = 0.0;

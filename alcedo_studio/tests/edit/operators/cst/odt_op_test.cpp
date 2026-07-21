@@ -50,7 +50,8 @@ TEST(ODTOpTests, ACES2St2084UsesReferenceLuminanceScale) {
 
   EXPECT_EQ(global_params.to_output_params_.method_, ColorUtils::ODTMethod::ACES_2_0);
   EXPECT_EQ(global_params.to_output_params_.eotf_, ColorUtils::EOTF::ST2084);
-  EXPECT_FLOAT_EQ(global_params.to_output_params_.display_linear_scale_, ColorUtils::ref_lum);
+  // P1-4: display_linear_scale_ now uses peak_luminance_ (600.0f) for ST2084
+  EXPECT_FLOAT_EQ(global_params.to_output_params_.display_linear_scale_, 600.0f);
 }
 
 TEST(ODTOpTests, ACES2GammaOutputKeepsUnitScale) {

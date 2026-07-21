@@ -99,13 +99,15 @@ void OCIO_LMT_Transform_Op::SetParams(const nlohmann::json& params) {
 }
 
 void OCIO_LMT_Transform_Op::SetGlobalParams(OperatorParams& params) const {
-  // params.cpu_lmt_processor_ = cpu_processor_;
-  // params.gpu_lmt_processor_ = gpu_processor_;
-
+  // P1-6: Propagate LMT path to OperatorParams.
+  // Do NOT unconditionally override lmt_enabled_ here — EnableGlobalParams()
+  // is responsible for setting the enabled/dirty flags based on the operator's
+  // enable state. This prevents version switching from incorrectly re-enabling
+  // a disabled LMT operator just because the path is non-empty.
   params.lmt_lut_path_  = lmt_path_;
-  params.lmt_enabled_   = !lmt_path_.empty();
-  // Only mark dirty when enabled; otherwise GPU upload would attempt to parse an empty path.
-  params.to_lmt_dirty_  = params.lmt_enabled_;
+  if (!lmt_path_.empty()) {
+    params.to_lmt_dirty_ = true;
+  }
 }
 
 void OCIO_LMT_Transform_Op::EnableGlobalParams(OperatorParams& params, bool enable) {

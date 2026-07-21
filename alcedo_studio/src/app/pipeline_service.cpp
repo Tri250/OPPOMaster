@@ -163,7 +163,12 @@ void PipelineMgmtService::HandleEviction(sl_element_id_t evicted_id) {
     auto pipeline_guard = it->second;
     if (pipeline_guard->pin_count_ == 0) {
       pipeline_guard->pinned_ = false;
-      std::unique_lock<std::mutex> render_guard(pipeline_guard->pipeline_->GetRenderLock());
+      auto render_guard = pipeline_guard->pipeline_->TryAcquireRenderLock();
+      if (!render_guard.owns_lock()) {
+        // Could not acquire lock — skip this candidate to avoid potential deadlock.
+        // It will be retried on the next eviction pass.
+        continue;
+      }
       if (pipeline_guard->dirty_) {
         storage_service_->GetElementController().UpdatePipelineByElementId(
             candidate, pipeline_guard->pipeline_);
@@ -295,9 +300,13 @@ void PipelineMgmtService::SavePipeline(std::shared_ptr<PipelineGuard> pipeline) 
   // This prevents large cached allocations (and any frame-sink related state) from leaking across
   // editor sessions and hurting interactive performance.
   {
-    std::unique_lock<std::mutex> render_guard(pipeline->pipeline_->GetRenderLock());
-    pipeline->pipeline_->ClearAllIntermediateBuffers();
-    pipeline->pipeline_->ResetExecutionStages();
+    auto render_guard = pipeline->pipeline_->TryAcquireRenderLock();
+    if (render_guard.owns_lock()) {
+      pipeline->pipeline_->ClearAllIntermediateBuffers();
+      pipeline->pipeline_->ResetExecutionStages();
+    }
+    // If we couldn't acquire the lock, the pipeline is still in use by a render.
+    // The next render completion will handle cleanup, so it's safe to skip here.
   }
 
   if (!pipeline->dirty_) {
@@ -361,7 +370,14 @@ void PipelineMgmtService::SetAcceleratorBackendPreference(
     if (!pipeline_guard || !pipeline_guard->pipeline_) {
       continue;
     }
-    std::unique_lock<std::mutex> render_guard(pipeline_guard->pipeline_->GetRenderLock());
+    auto render_guard = pipeline_guard->pipeline_->TryAcquireRenderLock(
+        std::chrono::milliseconds(5000));
+    if (!render_guard.owns_lock()) {
+      // Pipeline is currently rendering — defer the backend switch.
+      // The backend preference is stored and will be applied on next render.
+      pipeline_guard->pipeline_->SetAcceleratorBackendPreference(preference);
+      continue;
+    }
     pipeline_guard->pipeline_->SetAcceleratorBackendPreference(preference);
     pipeline_guard->pipeline_->ClearAllIntermediateBuffers();
   }
@@ -435,7 +451,14 @@ auto PipelineMgmtService::LoadPipelineSnapshot(sl_element_id_t id, image_id_t im
   // ExportPipelineParams is const and reads stages_ only.
   nlohmann::json params;
   try {
-    std::unique_lock<std::mutex> rg(live_exec->GetRenderLock());
+    auto rg = live_exec->TryAcquireRenderLock(std::chrono::milliseconds(10000));
+    if (!rg.owns_lock()) {
+      if (error) {
+        *error = std::format("LoadPipelineSnapshot: could not acquire render lock for {} "
+                             "(possible deadlock)", id);
+      }
+      return nullptr;
+    }
     params = live_exec->ExportPipelineParams();
   } catch (const std::exception& e) {
     if (error) {
@@ -482,8 +505,11 @@ void PipelineMgmtService::ReleasePipelineSnapshot(std::shared_ptr<PipelineSnapsh
     return;
   }
   try {
-    std::unique_lock<std::mutex> rg(snapshot->executor_->GetRenderLock());
-    snapshot->executor_->ClearAllIntermediateBuffers();
+    auto rg = snapshot->executor_->TryAcquireRenderLock(std::chrono::milliseconds(5000));
+    if (rg.owns_lock()) {
+      snapshot->executor_->ClearAllIntermediateBuffers();
+    }
+    // If we couldn't acquire the lock, skip cleanup — it's best-effort anyway.
   } catch (...) {
     // Best-effort cleanup; the shared_ptr drops naturally regardless.
   }

@@ -924,14 +924,53 @@ void ApplyHighlightCorrectionAndPackRGBAOriented(const cv::cuda::GpuMat& red,
 
 void HighlightReconstruct(cv::cuda::GpuMat& img, LibRaw& raw_processor,
                           HighlightWorkspace* workspace, cv::cuda::Stream* stream) {
+  // P1-12: Validate CUDA context before starting highlight reconstruction.
+  // If the CUDA device has been lost (e.g., GPU hotplug, compute mode change),
+  // all GPU pointers are invalid and we must abort before dereferencing them.
+  cudaError_t ctx_err = cudaGetLastError();
+  if (ctx_err == cudaErrorDeviceUninitialized || ctx_err == cudaErrorDeviceAlreadyInUse) {
+    throw std::runtime_error("HighlightReconstruct: CUDA context invalid, device may have been reset");
+  }
+  // P1-12: Verify the current CUDA device is accessible
+  int device = -1;
+  cudaError_t dev_err = cudaGetDevice(&device);
+  if (dev_err != cudaSuccess) {
+    throw std::runtime_error(
+        std::string("HighlightReconstruct: CUDA device unavailable: ") + cudaGetErrorString(dev_err));
+  }
+
   HighlightCorrection correction = BuildHighlightCorrection(raw_processor);
   HighlightAccumulation accumulation;
   HighlightWorkspace local_workspace;
   HighlightWorkspace& active_workspace = workspace == nullptr ? local_workspace : *workspace;
 
   AccumulateHighlightStats(img, correction, cv::Rect{}, active_workspace, accumulation, stream);
+
+  // P1-12: Add explicit device-to-host synchronization barrier between
+  // accumulation and correction. The accumulation step writes to GPU memory
+  // (anyclipped_, sums_, cnts_) and copies back to host, but the kernel may
+  // still be in-flight on the stream when FinalizeHighlightCorrection runs.
+  // WaitForStream ensures all GPU→Host transfers complete before we read the
+  // accumulation results on the host.
+  WaitForStream(stream);
+
   FinalizeHighlightCorrection(accumulation, correction);
+
+  // P1-12: Re-validate CUDA context before the correction kernel.
+  // The accumulation step may take significant time, and a context switch
+  // (e.g., GPU reset) could have occurred during that time.
+  cudaError_t recheck = cudaGetLastError();
+  if (recheck == cudaErrorDeviceUninitialized || recheck == cudaErrorDeviceAlreadyInUse) {
+    throw std::runtime_error("HighlightReconstruct: CUDA context invalidated between accumulation and correction");
+  }
+
   ApplyHighlightCorrection(img, correction, &active_workspace, stream);
+
+  // P1-12: Final synchronization barrier to ensure the correction kernel
+  // completes before the caller reads back the result. Without this, the
+  // correction kernel's output may still be in-flight on the stream when
+  // the caller accesses the GpuMat data on the host.
+  WaitForStream(stream);
 }
 
 }  // namespace CUDA

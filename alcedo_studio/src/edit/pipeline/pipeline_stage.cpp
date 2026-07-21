@@ -286,9 +286,11 @@ void PipelineStage::EnableOperator(OperatorType op_type, bool enable,
   EnableOperator(op_type, enable);
   auto it = operators_->find(op_type);
   if (it != operators_->end()) {
-    // Apply enable/disable state first so SetGlobalParams sees the correct flag.
-    it->second.op_->EnableGlobalParams(global_params, enable);
+    // P1-6: Set operator params first (path/state data), then apply enable override.
+    // This ensures EnableGlobalParams has the final say on enabled/dirty flags,
+    // preventing SetGlobalParams from overriding the enable state (e.g., LMT).
     it->second.op_->SetGlobalParams(global_params);
+    it->second.op_->EnableGlobalParams(global_params, enable);
   }
 }
 

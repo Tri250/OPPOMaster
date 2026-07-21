@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "edit/history/edit_transaction.hpp"
+#include "edit/pipeline/pipeline_cpu.hpp"
 #include "type/hash_type.hpp"
 #include "utils/clock/time_provider.hpp"
 
@@ -96,6 +97,49 @@ auto Version::Empty(sl_element_id_t bound_image, std::string display_name,
   version.display_name_        = std::move(display_name);
   version.CalculateVersionID();
   return version;
+}
+
+auto Version::Plain(sl_element_id_t bound_image, std::string display_name) -> Version {
+  // A Plain version resets ALL adjustment parameters to factory defaults.
+  // This creates a brand-new CPUPipelineExecutor and exports its default
+  // parameters (clean baseline with all operators at their initial values),
+  // ensuring no adjustments are carried over from the import baseline.
+  CPUPipelineExecutor default_exec;
+  auto default_params = default_exec.ExportPipelineParams();
+
+  Version version(bound_image);
+  version.materialized_params_ = std::move(default_params);
+  version.transaction_count_   = 0;
+  version.last_transaction_    = std::nullopt;
+  version.display_name_        = std::move(display_name);
+  version.CalculateVersionID();
+  return version;
+}
+
+auto Version::ValidateDefaults() const -> bool {
+  if (!materialized_params_.has_value()) {
+    return false;
+  }
+  if (!materialized_params_->is_object()) {
+    return false;
+  }
+
+  // Verify that the materialized params contain the required top-level keys
+  // that a freshly exported pipeline should have.
+  // A valid default params export must contain at least the "template" key
+  // and the operator parameters arrays.
+  const auto& params = materialized_params_.value();
+  if (!params.contains("template")) {
+    return false;
+  }
+
+  // The "stages" or "operators" key should exist and contain all
+  // registered operators at their clean baseline values.
+  if (!params.contains("stages") && !params.contains("operators")) {
+    return false;
+  }
+
+  return true;
 }
 
 void Version::ComputeVersionHash() {

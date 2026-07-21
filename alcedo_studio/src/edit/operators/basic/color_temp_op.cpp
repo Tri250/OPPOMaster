@@ -563,10 +563,37 @@ auto ResolveAsShotCameraNeutral(const OperatorParams& params, cv::Vec3d& out_neu
     return false;
   }
 
-  out_neutral = cv::Vec3d(g / r, 1.0, g / b);
-  return std::all_of(std::begin(out_neutral.val), std::end(out_neutral.val), [](double value) {
-    return std::isfinite(value) && value > kValueEpsilon;
-  });
+  // Check if cam_mul values are all default (1.0) which means no meaningful WB data.
+  // This commonly happens with mobile device cameras that don't provide WB multipliers.
+  const bool is_trivial_cam_mul =
+      (std::abs(r - 1.0) < kValueEpsilon && std::abs(g - 1.0) < kValueEpsilon &&
+       std::abs(b - 1.0) < kValueEpsilon);
+  if (!is_trivial_cam_mul) {
+    out_neutral = cv::Vec3d(g / r, 1.0, g / b);
+    return std::all_of(std::begin(out_neutral.val), std::end(out_neutral.val), [](double value) {
+      return std::isfinite(value) && value > kValueEpsilon;
+    });
+  }
+
+  // Fallback for mobile devices: use pre_mul as white balance estimate.
+  // Mobile device cameras (especially on Android) often don't populate cam_mul
+  // but do provide pre_mul (camera calibration multipliers from the raw processor).
+  const double pr = std::max(static_cast<double>(params.raw_pre_mul_[0]), kValueEpsilon);
+  const double pg = std::max(static_cast<double>(params.raw_pre_mul_[1]), kValueEpsilon);
+  const double pb = std::max(static_cast<double>(params.raw_pre_mul_[2]), kValueEpsilon);
+  if (std::isfinite(pr) && std::isfinite(pg) && std::isfinite(pb) &&
+      !(std::abs(pr - 1.0) < kValueEpsilon && std::abs(pg - 1.0) < kValueEpsilon &&
+        std::abs(pb - 1.0) < kValueEpsilon)) {
+    out_neutral = cv::Vec3d(pg / pr, 1.0, pg / pb);
+    return std::all_of(std::begin(out_neutral.val), std::end(out_neutral.val), [](double value) {
+      return std::isfinite(value) && value > kValueEpsilon;
+    });
+  }
+
+  // Last resort: assume D65 (6504K) white balance for mobile device images.
+  // This provides a reasonable default that preserves most colors.
+  out_neutral = cv::Vec3d(1.0, 1.0, 1.0);
+  return true;
 }
 
 auto TintAtCctForXY(double cct, const cv::Vec2d& xy, double& out_tint) -> bool {
