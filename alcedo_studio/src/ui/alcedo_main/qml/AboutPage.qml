@@ -100,6 +100,10 @@ ColumnLayout {
                     font.weight: 800
                     Material.foreground: page.textColor
                     onClicked: page.openUrl(page.docsUrl)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Open documentation")
+                    Accessible.description: qsTr("Open the Alcedo Studio documentation website")
+                    Accessible.onPressAction: page.openUrl(page.docsUrl)
                     background: Rectangle {
                         radius: 10
                         color: parent.down
@@ -189,6 +193,18 @@ ColumnLayout {
                 font.weight: 500
                 wrapMode: Text.WordWrap
                 lineHeight: 1.3
+            }
+
+            LinkRow {
+                Layout.fillWidth: true
+                labelText: qsTr("License Information")
+                subtitle: qsTr("GPL compliance, source code offering, and dependency details")
+                accent: page.primaryAccent
+                textColor: page.textColor
+                mutedTextColor: page.mutedTextColor
+                dividerColor: page.dividerColor
+                dataFontFamily: page.dataFontFamily
+                onActivated: page.openUrl(page.repoUrl + "/blob/main/docs/license_compliance.md")
             }
         }
     }
@@ -483,6 +499,7 @@ ColumnLayout {
         ListElement { name: "Little-CMS (lcms2)"; license: "MIT" }
         ListElement { name: "MurmurHash3"; license: "Public Domain" }
         ListElement { name: "nlohmann/json"; license: "MIT" }
+        ListElement { name: "ONNX Runtime"; license: "MIT" }
         ListElement { name: "OpenColorIO"; license: "BSD-3-Clause" }
         ListElement { name: "OpenCV"; license: "Apache-2.0" }
         ListElement { name: "OpenImageIO"; license: "Apache-2.0" }

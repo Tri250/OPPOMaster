@@ -18,6 +18,9 @@ Dialog {
     height: parent ? parent.height : 0
     x: 0
     y: 0
+    Accessible.role: Accessible.Dialog
+    Accessible.name: qsTr("Settings")
+    Accessible.description: qsTr("Application settings and preferences")
 
     property Item blurSource: null
     property var languageOptions: []

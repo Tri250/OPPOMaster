@@ -64,62 +64,62 @@
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="100"/>
         <source>...(%1 more)</source>
-        <translation type="unfinished"></translation>
+        <translation>……（另 %1 项）</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="121"/>
         <source>Exporting</source>
-        <translation type="unfinished"></translation>
+        <translation>正在导出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="123"/>
         <source>Done</source>
-        <translation type="unfinished"></translation>
+        <translation>完成</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="125"/>
         <source>Failed</source>
-        <translation type="unfinished"></translation>
+        <translation>失败</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="127"/>
         <source>Queued</source>
-        <translation type="unfinished"></translation>
+        <translation>排队中</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="257"/>
         <source>Configure settings for current batch</source>
-        <translation type="unfinished"></translation>
+        <translation>配置当前批次设置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="317"/>
         <source>Destination</source>
-        <translation type="unfinished"></translation>
+        <translation>目标位置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="336"/>
         <source>Browse</source>
-        <translation type="unfinished"></translation>
+        <translation>浏览</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="359"/>
         <source>Put in Subfolder</source>
-        <translation type="unfinished"></translation>
+        <translation>放入子文件夹</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="396"/>
         <source>File Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>文件设置</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="406"/>
         <source>Image Format</source>
-        <translation type="unfinished"></translation>
+        <translation>图像格式</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="430"/>
         <source>Bit Depth</source>
-        <translation type="unfinished"></translation>
+        <translation>位深</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="464"/>
@@ -144,52 +144,52 @@
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="537"/>
         <source>Limit Longest Edge (px)</source>
-        <translation type="unfinished"></translation>
+        <translation>限制最长边（像素）</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="573"/>
         <source>Metadata &amp; Output</source>
-        <translation type="unfinished"></translation>
+        <translation>元数据与输出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="591"/>
         <source>HDR Export</source>
-        <translation type="unfinished"></translation>
+        <translation>HDR 导出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="601"/>
         <source>Ultra HDR</source>
-        <translation type="unfinished"></translation>
+        <translation>Ultra HDR</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="602"/>
         <source>ICC Profile</source>
-        <translation type="unfinished"></translation>
+        <translation>ICC 配置文件</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="620"/>
         <source>SDR Export</source>
-        <translation type="unfinished"></translation>
+        <translation>SDR 导出</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="627"/>
         <source>Embed ICC Profile</source>
-        <translation type="unfinished"></translation>
+        <translation>嵌入 ICC 配置文件</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="654"/>
         <source>Export Queue</source>
-        <translation type="unfinished"></translation>
+        <translation>导出队列</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="669"/>
         <source>Items</source>
-        <translation type="unfinished"></translation>
+        <translation>项目</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="813"/>
         <source>Export Progress</source>
-        <translation type="unfinished"></translation>
+        <translation>导出进度</translation>
     </message>
     <message>
         <location filename="../qml/AlbumExportDialog.qml" line="870"/>
@@ -270,6 +270,22 @@
     <message>
         <source>Export</source>
         <translation type="vanished">导出</translation>
+    </message>
+    <message>
+        <source>Processed</source>
+        <translation>已处理</translation>
+    </message>
+    <message>
+        <source>8-bit</source>
+        <translation>8 位</translation>
+    </message>
+    <message>
+        <source>16-bit</source>
+        <translation>16 位</translation>
+    </message>
+    <message>
+        <source>32-bit</source>
+        <translation>32 位</translation>
     </message>
 </context>
 <context>
@@ -2133,7 +2149,7 @@ Alcedo 将改用 %1。</translation>
         <location filename="../qml/ExportQueueState.qml" line="29"/>
         <location filename="../qml/ExportQueueState.qml" line="115"/>
         <source>(unnamed)</source>
-        <translation type="unfinished">（未命名）</translation>
+        <translation>（未命名）</translation>
     </message>
 </context>
 <context>
@@ -2627,7 +2643,7 @@ Alcedo 将改用 %1。</translation>
     <message>
         <location filename="../qml/Main.qml" line="537"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="564"/>
@@ -2730,6 +2746,10 @@ Original source files on disk will be kept.</source>
     <message>
         <source>Select at least one image to analyze.</source>
         <translation>请至少选择一张图像进行分析。</translation>
+    </message>
+    <message>
+        <source>Stitch to Panorama</source>
+        <translation>拼接全景</translation>
     </message>
 </context>
 <context>
@@ -2938,13 +2958,61 @@ Original source files on disk will be kept.</source>
         <source>No data available</source>
         <translation>没有可用数据</translation>
     </message>
+    <message>
+        <source>January</source>
+        <translation>一月</translation>
+    </message>
+    <message>
+        <source>February</source>
+        <translation>二月</translation>
+    </message>
+    <message>
+        <source>March</source>
+        <translation>三月</translation>
+    </message>
+    <message>
+        <source>April</source>
+        <translation>四月</translation>
+    </message>
+    <message>
+        <source>May</source>
+        <translation>五月</translation>
+    </message>
+    <message>
+        <source>June</source>
+        <translation>六月</translation>
+    </message>
+    <message>
+        <source>July</source>
+        <translation>七月</translation>
+    </message>
+    <message>
+        <source>August</source>
+        <translation>八月</translation>
+    </message>
+    <message>
+        <source>September</source>
+        <translation>九月</translation>
+    </message>
+    <message>
+        <source>October</source>
+        <translation>十月</translation>
+    </message>
+    <message>
+        <source>November</source>
+        <translation>十一月</translation>
+    </message>
+    <message>
+        <source>December</source>
+        <translation>十二月</translation>
+    </message>
 </context>
 <context>
     <name>ThumbnailGridView</name>
     <message>
         <location filename="../qml/ThumbnailGridView.qml" line="62"/>
         <source>(unnamed)</source>
-        <translation type="unfinished">（未命名）</translation>
+        <translation>（未命名）</translation>
     </message>
     <message>
         <location filename="../qml/ThumbnailGridView.qml" line="247"/>
@@ -3733,6 +3801,86 @@ Original source files on disk will be kept.</source>
     <message>
         <source>Close</source>
         <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Lite</source>
+        <translation>宽容</translation>
+    </message>
+    <message>
+        <source>水</source>
+        <translation>水</translation>
+    </message>
+    <message>
+        <source>Normal</source>
+        <translation>普通</translation>
+    </message>
+    <message>
+        <source>普通</source>
+        <translation>普通</translation>
+    </message>
+    <message>
+        <source>High</source>
+        <translation>严格</translation>
+    </message>
+    <message>
+        <source>大师</source>
+        <translation>大师</translation>
+    </message>
+    <message>
+        <source>xHigh</source>
+        <translation>超严</translation>
+    </message>
+    <message>
+        <source>老法师</source>
+        <translation>老法师</translation>
+    </message>
+    <message>
+        <source>Max</source>
+        <translation>极端</translation>
+    </message>
+    <message>
+        <source>懂哥</source>
+        <translation>懂哥</translation>
+    </message>
+    <message>
+        <source>Generous scoring — ordinary photos default to 3–4 stars with mild reasons.</source>
+        <translation>宽容打分——普通照片默认 3–4 星，理由温和。</translation>
+    </message>
+    <message>
+        <source>宽容打分——普通照片默认 3–4 星，理由温和。</source>
+        <translation>宽容打分——普通照片默认 3–4 星，理由温和。</translation>
+    </message>
+    <message>
+        <source>Balanced 1–5 star rating with a short rationale.</source>
+        <translation>正常评分，平衡的 1–5 星，简短理由。</translation>
+    </message>
+    <message>
+        <source>正常评分，平衡的 1–5 星，简短理由。</source>
+        <translation>正常评分，平衡的 1–5 星，简短理由。</translation>
+    </message>
+    <message>
+        <source>Strict but guiding — reads meaning, composition, narrative, expression, and completeness before technical trivia.</source>
+        <translation>严格但引导式——先看寓意、构图、叙事、表达和完整性，不拿曝光/模糊小题大做。</translation>
+    </message>
+    <message>
+        <source>严格但引导式——先看寓意、构图、叙事、表达和完整性，不拿曝光/模糊小题大做。</source>
+        <translation>严格但引导式——先看寓意、构图、叙事、表达和完整性，不拿曝光/模糊小题大做。</translation>
+    </message>
+    <message>
+        <source>Old-school gear-and-parameter scrutiny with heavy taste policing and blunt practical advice.</source>
+        <translation>老法师标准——器材、参数、对比度、饱和度、虚化和"经验"都要拿出来说道说道。</translation>
+    </message>
+    <message>
+        <source>Maximum gatekeeping — harsh, cynical, and impossible to please.</source>
+        <translation>懂哥模式——眼光挑剔，分数从严，评语里少不了那套居高临下的行话。</translation>
+    </message>
+    <message>
+        <source>老法师标准——器材、参数、对比度、饱和度、虚化和"经验"都要拿出来说道说道。</source>
+        <translation>老法师标准——器材、参数、对比度、饱和度、虚化和"经验"都要拿出来说道说道。</translation>
+    </message>
+    <message>
+        <source>懂哥模式——眼光挑剔，分数从严，评语里少不了那套居高临下的行话。</source>
+        <translation>懂哥模式——眼光挑剔，分数从严，评语里少不了那套居高临下的行话。</translation>
     </message>
 </context>
 <context>
@@ -4761,6 +4909,100 @@ Original source files on disk will be kept.</source>
     <message>
         <source>Provider: %1</source>
         <translation>提供者：%1</translation>
+    </message>
+</context>
+<context>
+    <name>PanoramaController</name>
+    <message>
+        <source>Idle</source>
+        <translation>空闲</translation>
+    </message>
+    <message>
+        <source>Loading images…</source>
+        <translation>正在加载图像…</translation>
+    </message>
+    <message>
+        <source>Detecting features…</source>
+        <translation>正在检测特征…</translation>
+    </message>
+    <message>
+        <source>Matching features…</source>
+        <translation>正在匹配特征…</translation>
+    </message>
+    <message>
+        <source>Estimating homography…</source>
+        <translation>正在估计单应性矩阵…</translation>
+    </message>
+    <message>
+        <source>Warping images…</source>
+        <translation>正在变换图像…</translation>
+    </message>
+    <message>
+        <source>Finding seams…</source>
+        <translation>正在寻找接缝…</translation>
+    </message>
+    <message>
+        <source>Blending…</source>
+        <translation>正在融合…</translation>
+    </message>
+    <message>
+        <source>Saving result…</source>
+        <translation>正在保存结果…</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>完成</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>失败</translation>
+    </message>
+    <message>
+        <source>No project is open.</source>
+        <translation>没有打开的项目。</translation>
+    </message>
+</context>
+<context>
+    <name>PanoramaDialog</name>
+    <message>
+        <source>Stitching Panorama…</source>
+        <translation>正在拼接全景…</translation>
+    </message>
+    <message>
+        <source>Panorama Result</source>
+        <translation>全景结果</translation>
+    </message>
+    <message>
+        <source>Stitch to Panorama</source>
+        <translation>拼接全景</translation>
+    </message>
+    <message>
+        <source>%1% complete</source>
+        <translation>已完成 %1%</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Panorama created successfully!</source>
+        <translation>全景图创建成功！</translation>
+    </message>
+    <message>
+        <source>Dimensions:</source>
+        <translation>尺寸：</translation>
+    </message>
+    <message>
+        <source>File:</source>
+        <translation>文件：</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <source>Stitching failed</source>
+        <translation>拼接失败</translation>
     </message>
 </context>
 </TS>

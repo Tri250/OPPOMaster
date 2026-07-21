@@ -13,6 +13,8 @@ jobs="8"
 qt_prefix=""
 require_metal_assets=1
 codesign_identity="-"
+onnxruntime_dir="${ALCEDO_ORT_DIR:-}"
+entitlements_file="${ALCEDO_ENTITLEMENTS:-}"
 codesign_options=""
 codesign_options_set=0
 codesign_timestamp="OFF"
@@ -31,6 +33,8 @@ Options:
   --package-out-dir PATH     CPack output directory (default: build/macos-release/package)
   --bundle-name NAME         App bundle/executable name (default: AlcedoStudio)
   --qt-prefix PATH           Qt prefix containing bin/, lib/cmake/Qt6, plugins/, qml/
+  --onnxruntime-dir PATH     ONNX Runtime root directory (containing lib/libonnxruntime*.dylib)
+  --entitlements PATH        Entitlements plist for codesign (required for ORT JIT)
   --codesign-identity ID     macOS signing identity (default: '-' for ad-hoc; empty disables signing)
   --codesign-options VALUE   Semicolon-separated codesign options (default: empty for ad-hoc)
   --codesign-timestamp       Request a trusted timestamp when signing
@@ -65,6 +69,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --qt-prefix)
       qt_prefix="$2"
+      shift 2
+      ;;
+    --onnxruntime-dir)
+      onnxruntime_dir="$2"
+      shift 2
+      ;;
+    --entitlements)
+      entitlements_file="$2"
       shift 2
       ;;
     --codesign-identity)
@@ -204,6 +216,71 @@ if [[ "$require_metal_assets" -eq 0 ]]; then
   verify_args+=(--skip-metal-asset-check)
 fi
 "${script_dir}/verify_macos_install_tree.sh" "${verify_args[@]}"
+
+# --- Deploy ONNX Runtime dylib into the framework bundle ---
+app_bundle="${install_dir}/${bundle_name}.app"
+frameworks_dir="${app_bundle}/Contents/Frameworks"
+macos_dir="${app_bundle}/Contents/MacOS"
+
+if [[ -n "$onnxruntime_dir" && -d "$onnxruntime_dir" && -d "$app_bundle" ]]; then
+  echo
+  echo "Deploying ONNX Runtime into framework bundle ..."
+  mkdir -p "$frameworks_dir"
+
+  # Copy ORT dylibs
+  for ort_dylib in "${onnxruntime_dir}/lib/"libonnxruntime*.dylib; do
+    [[ -f "$ort_dylib" ]] || continue
+    ort_basename="$(basename "$ort_dylib")"
+    cp -fL "$ort_dylib" "${frameworks_dir}/${ort_basename}"
+    chmod u+w "${frameworks_dir}/${ort_basename}"
+
+    # Update install_name to use @rpath for bundling
+    /usr/bin/install_name_tool -id "@rpath/${ort_basename}" "${frameworks_dir}/${ort_basename}" 2>/dev/null || true
+
+    echo "  Deployed and patched: ${ort_basename}"
+  done
+
+  # Sign the ORT dylibs (ad-hoc or with configured identity)
+  if [[ -n "$codesign_identity" ]]; then
+    echo "Signing ONNX Runtime dylibs ..."
+    for ort_dylib in "${frameworks_dir}/"libonnxruntime*.dylib; do
+      [[ -f "$ort_dylib" ]] || continue
+      sign_args=(--force --sign "$codesign_identity")
+      if [[ -n "$entitlements_file" && -f "$entitlements_file" ]]; then
+        sign_args+=(--entitlements "$entitlements_file")
+      fi
+      if [[ "$codesign_timestamp" == "ON" ]]; then
+        sign_args+=(--timestamp)
+      else
+        sign_args+=(--timestamp=none)
+      fi
+      /usr/bin/codesign "${sign_args[@]}" "$ort_dylib" || {
+        echo "WARNING: codesign failed for $(basename "$ort_dylib")" >&2
+      }
+    done
+  fi
+fi
+
+# --- Deploy model files into the framework bundle ---
+models_src="${repo_root}/alcedo_studio/src/config/models"
+models_dest="${macos_dir}/models"
+if [[ -d "$models_src" && -d "$macos_dir" ]]; then
+  echo "Deploying model files into framework bundle ..."
+  rm -rf "$models_dest"
+  cp -r "$models_src" "$models_dest"
+  echo "  Model files deployed to ${models_dest}"
+fi
+
+# --- Ensure entitlements cover ONNX Runtime JIT ---
+if [[ -n "$entitlements_file" && -f "$entitlements_file" ]]; then
+  echo "Using entitlements from: ${entitlements_file}"
+elif [[ -n "$codesign_identity" && "$codesign_identity" != "-" ]]; then
+  # Auto-generate entitlements with JIT support for ORT
+  echo "NOTE: No entitlements file specified. ORT JIT (dynamic library loading) may require"
+  echo "  com.apple.security.cs.allow-unsigned-executable-memory and"
+  echo "  com.apple.security.cs.allow-jit entitlements for notarized distribution."
+  echo "  Pass --entitlements path/to/entitlements.plist to include them."
+fi
 
 echo
 echo "Running CPack ..."

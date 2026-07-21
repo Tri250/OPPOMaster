@@ -14,6 +14,7 @@
 #include <string>
 
 #include "edit/pipeline/large_image_manager.hpp"
+#include "renderer/memory_budget_manager.hpp"
 #include "utils/profiler/profiler.hpp"
 #include "image/image_buffer.hpp"
 #include "io/image/image_loader.hpp"
@@ -394,7 +395,49 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
     task_id = id_generator_.GenerateID();
   }
   task.task_id_ = task_id;
-  thread_pool_.Submit([task = std::move(task)]() mutable {
+
+  // ── Integration-6: Back-pressure check via MemoryBudgetManager ──
+  // Before submitting to the thread pool, refresh memory status and check
+  // whether there is enough budget for the estimated render allocation.
+  // On Apple Silicon (unified memory), the budget accounts for shared
+  // system+GPU memory. If memory is too low, queue the task instead of
+  // submitting immediately to avoid OOM.
+  auto& budget_mgr = MemoryBudgetManager::Instance();
+  budget_mgr.RefreshMemoryStatus();
+
+  // Estimate memory needed for this render task. Use a conservative
+  // estimate based on the render type and a typical image size.
+  const auto& render_desc = task.options_.render_desc_;
+  const size_t estimated_bytes = [&render_desc]() -> size_t {
+    switch (render_desc.render_type_) {
+      case RenderType::THUMBNAIL:
+        return 8ULL * 1024 * 1024;   // ~8 MB for thumbnails
+      case RenderType::FAST_PREVIEW:
+        return 64ULL * 1024 * 1024;  // ~64 MB for fast preview
+      case RenderType::QUALITY_BASE_PREVIEW:
+        return 128ULL * 1024 * 1024; // ~128 MB for quality preview
+      case RenderType::DETAIL_ROI_PREVIEW:
+        return 96ULL * 1024 * 1024;  // ~96 MB for ROI preview
+      case RenderType::FULL_RES_PREVIEW:
+        return 256ULL * 1024 * 1024; // ~256 MB for full-res preview
+      case RenderType::FULL_RES_EXPORT:
+        return 512ULL * 1024 * 1024; // ~512 MB for export
+      default:
+        return 64ULL * 1024 * 1024;  // default conservative estimate
+    }
+  }();
+
+  // On Apple Silicon / unified memory, MemoryBudgetManager accounts for
+  // the shared memory pool automatically via GetMemoryStatus().unified_memory_.
+  if (!budget_mgr.CanAllocate(estimated_bytes)) {
+    // Back-pressure: queue the task for later submission rather than
+    // submitting immediately, to prevent memory exhaustion.
+    std::lock_guard<std::mutex> lock(scheduler_lock_);
+    pending_tasks_.push_back(std::move(task));
+    return;
+  }
+
+  thread_pool_.Submit([this, task = std::move(task), estimated_bytes]() mutable {
     const auto set_blocking_value = [&task](std::shared_ptr<ImageBuffer> value) {
       if (!task.options_.is_blocking_ || !task.result_) {
         return;
@@ -553,6 +596,43 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
               reinterpret_cast<void*>(1),
               [&restore_frame_sink](void*) { restore_frame_sink(); });
 
+          // ── Integration-6: Request memory budget before render ──
+          // Generate a unique operation ID from the task ID for budget tracking.
+          const std::string budget_op_id =
+              "pipeline_task_" + std::to_string(task.task_id_);
+          auto& budget_mgr = MemoryBudgetManager::Instance();
+          const MemoryBudget budget = budget_mgr.RequestBudget(
+              budget_op_id, estimated_bytes);
+
+          // Adjust tile count based on the allocated budget. If the
+          // granted budget is significantly less than requested, reduce
+          // the effective tile count for this render pass.
+          if (budget.budget_bytes_ < estimated_bytes &&
+              budget.budget_bytes_ > 0) {
+            const size_t adjusted_tiles = budget_mgr.RecommendedBatchSize(
+                estimated_bytes, /*min_batch=*/1, /*max_batch=*/4);
+            if (adjusted_tiles < 4) {
+              // Reduce render resolution proportionally to match budget
+              const float budget_ratio = static_cast<float>(
+                  budget.budget_bytes_) / static_cast<float>(estimated_bytes);
+              if (budget_ratio < 0.5f && render_desc.render_type_ == RenderType::FAST_PREVIEW) {
+                task.pipeline_executor_->SetRenderRes(false, 1280);
+              } else if (budget_ratio < 0.5f && render_desc.render_type_ == RenderType::QUALITY_BASE_PREVIEW) {
+                task.pipeline_executor_->SetRenderRes(false, 2048);
+              }
+            }
+          }
+
+          // RAII guard to ensure budget is released on every exit path.
+          // After releasing budget, attempt to flush any tasks that were
+          // queued due to back-pressure.
+          auto budget_guard = std::unique_ptr<void, std::function<void(void*)>>(
+              reinterpret_cast<void*>(1),
+              [&budget_mgr, &budget_op_id, this](void*) {
+                budget_mgr.ReleaseBudget(budget_op_id);
+                this->TryFlushPendingTasks();
+              });
+
           task.SetExecutorRenderParams();
 
           if (task_cancelled()) {
@@ -653,4 +733,23 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
     }
   });
 }
+
+void PipelineScheduler::TryFlushPendingTasks() {
+  std::vector<PipelineTask> tasks_to_submit;
+  {
+    std::lock_guard<std::mutex> lock(scheduler_lock_);
+    if (pending_tasks_.empty()) {
+      return;
+    }
+    // Swap out the pending tasks so we can submit them without holding the lock.
+    tasks_to_submit.swap(pending_tasks_);
+  }
+
+  // Re-submit the queued tasks. ScheduleTask will re-check memory
+  // availability; if still constrained, they will be re-queued.
+  for (auto& task : tasks_to_submit) {
+    ScheduleTask(std::move(task));
+  }
+}
+
 }  // namespace alcedo

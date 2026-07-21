@@ -1,0 +1,16 @@
+{
+  "//": "Expected SHA-256 hashes for ONNX model files used by AlcedoStudio.",
+  "//": "Replace the placeholder hashes with actual computed hashes after building models.",
+  "//": "The model_distribution_service uses this file to verify integrity.",
+  "version": 1,
+  "models": {
+    "bayer.onnx": {
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 0
+    },
+    "xtrans.onnx": {
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 0
+    }
+  }
+}

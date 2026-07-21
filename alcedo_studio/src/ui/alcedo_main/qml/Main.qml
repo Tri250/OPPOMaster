@@ -31,25 +31,33 @@ ApplicationWindow {
     readonly property color toneAmber: appTheme.toneGold
     readonly property color toneAccentSecondary: appTheme.accentSecondaryColor
 
-    readonly property color colBgDeep: appTheme.bgDeepColor        // floating modals / popovers — topmost layer
-    readonly property color colBgBase: appTheme.bgBaseColor        // sunken inputs
-    readonly property color colBgPanel: appTheme.bgPanelColor      // side panels & header/footer
-    readonly property color colBgCanvas: appTheme.bgCanvasColor    // gap / outer canvas behind blocks
-    readonly property int panelRadius: appTheme.panelRadius        // uniform rounded-corner radius
-    readonly property color colBorder: "transparent"     // NO borders by default
-    readonly property color colText: appTheme.textColor
-    readonly property color colTextMuted: appTheme.textMutedColor
-    readonly property color colAccentPrimary: appTheme.accentColor
-    readonly property color colAccentSecondary: appTheme.accentSecondaryColor
+    // ── High-contrast accessibility theme ──
+    HighContrastTheme {
+        id: highContrast
+    }
+
+    // Apply high-contrast overrides when the system requires it.
+    // This merges the high-contrast palette into the root color properties
+    // that all child components bind to.
+    readonly property color colBgDeep:       highContrast.active ? highContrast.bgDeepColor       : appTheme.bgDeepColor        // floating modals / popovers — topmost layer
+    readonly property color colBgBase:       highContrast.active ? highContrast.bgBaseColor       : appTheme.bgBaseColor        // sunken inputs
+    readonly property color colBgPanel:      highContrast.active ? highContrast.bgPanelColor      : appTheme.bgPanelColor      // side panels & header/footer
+    readonly property color colBgCanvas:     highContrast.active ? highContrast.bgCanvasColor     : appTheme.bgCanvasColor    // gap / outer canvas behind blocks
+    readonly property int panelRadius:       highContrast.active ? highContrast.panelRadius       : appTheme.panelRadius        // uniform rounded-corner radius
+    readonly property color colBorder:       highContrast.active ? highContrast.borderVisible     : "transparent"     // borders in high contrast only
+    readonly property color colText:         highContrast.active ? highContrast.textColor         : appTheme.textColor
+    readonly property color colTextMuted:    highContrast.active ? highContrast.textMutedColor    : appTheme.textMutedColor
+    readonly property color colAccentPrimary: highContrast.active ? highContrast.accentColor       : appTheme.accentColor
+    readonly property color colAccentSecondary: highContrast.active ? highContrast.accentSecondaryColor : appTheme.accentSecondaryColor
     readonly property color colAccentSoft: appTheme.accentColor
-    readonly property color colDanger: appTheme.dangerColor
-    readonly property color colDangerTint: appTheme.dangerTintColor
-    readonly property color colSelectedTint: appTheme.selectedTintColor
-    readonly property color colHover: appTheme.hoverColor          // subtle hover tint
-    readonly property color colDivider: appTheme.dividerColor
-    readonly property color colGlassPanel: appTheme.glassPanelColor
-    readonly property color colGlassStroke: appTheme.glassStrokeColor
-    readonly property color colOverlay: appTheme.overlayColor
+    readonly property color colDanger: highContrast.active ? highContrast.dangerColor : appTheme.dangerColor
+    readonly property color colDangerTint: highContrast.active ? highContrast.dangerTintColor : appTheme.dangerTintColor
+    readonly property color colSelectedTint: highContrast.active ? highContrast.selectedTintColor : appTheme.selectedTintColor
+    readonly property color colHover: highContrast.active ? highContrast.hoverColor : appTheme.hoverColor
+    readonly property color colDivider: highContrast.active ? highContrast.dividerColor : appTheme.dividerColor
+    readonly property color colGlassPanel: highContrast.active ? highContrast.glassPanelColor : appTheme.glassPanelColor
+    readonly property color colGlassStroke: highContrast.active ? highContrast.glassStrokeColor : appTheme.glassStrokeColor
+    readonly property color colOverlay: highContrast.active ? highContrast.overlayColor : appTheme.overlayColor
     readonly property string dataFontFamily: appTheme.dataFontFamily
     readonly property string headlineFontFamily: appTheme.headlineFontFamily
     readonly property int controlRadius: 10
@@ -492,6 +500,17 @@ ApplicationWindow {
         deleteConfirmDialog.open()
     }
 
+    function requestStitchPanorama() {
+        const ids = Object.keys(root.selectedImagesById)
+        if (ids.length < 2) {
+            return
+        }
+        const imageIds = ids.map(function(k) { return Number(k) })
+        panoramaDialog.selectedImageIds = imageIds
+        panoramaDialog.open()
+        albumBackend.panoramaController.stitchImages(imageIds)
+    }
+
     function runAddTargetsToAlbum(targetFolderId) {
         if (!root.pendingDeleteTargets || root.pendingDeleteTargets.length === 0) {
             return
@@ -767,6 +786,7 @@ ApplicationWindow {
         exportQueueCount: root.exportQueueCount
         exportPreviewRows: root.exportPreviewRows
         hdrExportAvailable: exportQueueState.hasHdrItems()
+        exportPresetManager: exportPresetManager
         onAddSelectedToQueueRequested: {
             exportQueueState.addTargets(selectionState.currentSelectedItems())
             selectionState.clearSelectedImages()
@@ -867,6 +887,12 @@ ApplicationWindow {
                 // policy controller as pendingDeleteReason.
                 enabled: root.pendingDeleteTargets.length > 0
                           && albumBackend.interactionPolicyController.canDeletePendingTargets
+            },
+            {
+                id: "stitch-panorama",
+                label: qsTr("Stitch to Panorama"),
+                enabled: root.selectedCount >= 2
+                         && !albumBackend.panoramaController.running
             }
         ].concat(root.albumTargetActions())
         onRatingRequested: function(rating) {
@@ -885,6 +911,10 @@ ApplicationWindow {
             }
             if (actionId === "delete") {
                 requestDeleteConfirmation()
+                return
+            }
+            if (actionId === "stitch-panorama") {
+                root.requestStitchPanorama()
                 return
             }
             if (String(actionId).indexOf("add-to-album:") === 0) {
@@ -982,6 +1012,13 @@ ApplicationWindow {
         onDismissed: root.semanticGeneration.DismissActivatePrompt()
     }
 
+    PanoramaDialog {
+        id: panoramaDialog
+        parent: Overlay.overlay
+        backgroundSource: mainContent
+        onCloseRequested: panoramaDialog.close()
+    }
+
     Popup {
         id: deleteConfirmDialog
         modal: true
@@ -1059,6 +1096,12 @@ ApplicationWindow {
                     text: qsTr("Cancel")
                     Material.background: root.colButtonSecondary
                     Material.foreground: root.colText
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Cancel deletion")
+                    Accessible.onPressAction: {
+                        root.pendingDeleteTargets = []
+                        deleteConfirmDialog.close()
+                    }
                     onClicked: {
                         root.pendingDeleteTargets = []
                         deleteConfirmDialog.close()
@@ -1073,6 +1116,12 @@ ApplicationWindow {
                     enabled: albumBackend.interactionPolicyController.canDeletePendingTargets
                     Material.background: root.colDanger
                     Material.foreground: root.colText
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Confirm deletion")
+                    Accessible.onPressAction: {
+                        deleteConfirmDialog.close()
+                        root.runDeleteTargets()
+                    }
                     onClicked: {
                         deleteConfirmDialog.close()
                         root.runDeleteTargets()
@@ -1256,6 +1305,10 @@ ApplicationWindow {
                     flat: true
                     Material.foreground: root.colText
                     onClicked: fileMenu.open()
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("File menu")
+                    Accessible.description: qsTr("Open the file menu to load, create, or save projects")
+                    Accessible.onPressAction: fileMenu.open()
 
                     Menu {
                         id: fileMenu
@@ -1292,6 +1345,10 @@ ApplicationWindow {
                     flat: true
                     Material.foreground: root.colText
                     onClicked: root.openSettingsDialog()
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Settings")
+                    Accessible.description: qsTr("Open application settings dialog")
+                    Accessible.onPressAction: root.openSettingsDialog()
                 }
 
                 Item { Layout.fillWidth: true }
@@ -1344,6 +1401,10 @@ ApplicationWindow {
                         easing.type: Easing.OutCubic
                     }
                     onClicked: inspectorVisible = !inspectorVisible
+                    Accessible.role: Accessible.Button
+                    Accessible.name: inspectorVisible ? qsTr("Collapse Inspector") : qsTr("Expand Inspector")
+                    Accessible.description: qsTr("Toggle the inspector panel visibility")
+                    Accessible.onPressAction: inspectorVisible = !inspectorVisible
                 }
 
                 // ── Frameless window caption buttons ──
@@ -1522,6 +1583,9 @@ ApplicationWindow {
                                     stepSize: 1
                                     value: root.gridZoomLevel
                                     onValueChanged: root.gridZoomLevel = Math.round(value)
+                                    Accessible.role: Accessible.Slider
+                                    Accessible.name: qsTr("Thumbnail zoom level")
+                                    Accessible.description: qsTr("Adjust the thumbnail size in the browser grid")
                                     background: Rectangle {
                                         x: zoomSlider.leftPadding
                                         y: zoomSlider.topPadding + zoomSlider.availableHeight / 2 - height / 2
@@ -1698,6 +1762,12 @@ ApplicationWindow {
                                 text: qsTr("Load Project")
                                 Material.background: root.colButtonPrimary
                                 Material.foreground: root.colText
+                                Accessible.role: Accessible.Button
+                                Accessible.name: qsTr("Load Project")
+                                Accessible.description: qsTr("Open an existing project file")
+                                Accessible.onPressAction: root.beginProjectLaunch(function() {
+                                    return albumBackend.PromptAndLoadProject()
+                                })
                                 onClicked: root.beginProjectLaunch(function() {
                                     return albumBackend.PromptAndLoadProject()
                                 })
@@ -1768,6 +1838,13 @@ ApplicationWindow {
                             icon.height: 16
                             icon.color: root.colText
                             display: AbstractButton.TextBesideIcon
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Add to Export Queue (%1 selected)").arg(root.selectedCount)
+                            Accessible.description: qsTr("Add selected images to the export queue")
+                            Accessible.onPressAction: {
+                                exportQueueState.addTargets(selectionState.currentSelectedItems())
+                                selectionState.clearSelectedImages()
+                            }
                             background: Rectangle {
                                 radius: root.controlRadius
                                 color: root.secondaryButtonFill(
@@ -1797,6 +1874,13 @@ ApplicationWindow {
                             icon.height: 16
                             icon.color: root.colText
                             display: AbstractButton.TextBesideIcon
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Export (%1 in queue)").arg(root.exportQueueCount)
+                            Accessible.description: qsTr("Open the export dialog to export images")
+                            Accessible.onPressAction: {
+                                exportQueueState.refreshExportPreview()
+                                exportDialog.open()
+                            }
                             background: Canvas {
                                 opacity: exportQueueBtn.enabled ? 1.0 : 0.5
                                 property color gradStart: root.colAccentPrimary
@@ -2373,6 +2457,9 @@ ApplicationWindow {
                     text: qsTr("Cancel")
                     Material.background: root.colDanger
                     Material.foreground: root.colText
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Cancel import")
+                    Accessible.onPressAction: albumBackend.CancelImport()
                     onClicked: albumBackend.CancelImport()
                 }
             }

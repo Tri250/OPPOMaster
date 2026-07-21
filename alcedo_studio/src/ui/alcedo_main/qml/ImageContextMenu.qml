@@ -10,6 +10,8 @@ Menu {
     signal ratingRequested(int rating)
 
     readonly property int dynamicActionOffset: 2
+    Accessible.role: Accessible.PopupMenu
+    Accessible.name: qsTr("Image context menu")
 
     function openAt(sceneX, sceneY) {
         x = Math.max(0, sceneX)
@@ -30,12 +32,16 @@ Menu {
         id: ratingMenu
         title: qsTr("Rating")
         enabled: root.ratingEnabled
+        Accessible.role: Accessible.PopupMenu
+        Accessible.name: qsTr("Rating submenu")
 
         MenuItem {
             text: qsTr("Unrated")
             checkable: true
             checked: root.currentRating === 0
             onTriggered: root.ratingRequested(0)
+            Accessible.role: Accessible.MenuItem
+            Accessible.name: qsTr("Unrated")
         }
 
         MenuSeparator {}
@@ -48,6 +54,8 @@ Menu {
                 checkable: true
                 checked: root.currentRating === ratingValue
                 onTriggered: root.ratingRequested(ratingValue)
+                Accessible.role: Accessible.MenuItem
+                Accessible.name: qsTr("Rating %1 star(s)").arg(ratingValue)
             }
             onObjectAdded: function(index, object) {
                 ratingMenu.insertItem(index + 2, object)
@@ -67,6 +75,8 @@ Menu {
             text: actionData && actionData.label ? actionData.label : ""
             enabled: !(actionData && actionData.enabled === false)
             onTriggered: root.actionRequested(actionData && actionData.id ? actionData.id : "")
+            Accessible.role: Accessible.MenuItem
+            Accessible.name: actionData && actionData.label ? actionData.label : ""
         }
         onObjectAdded: function(index, object) {
             root.insertItem(index + root.dynamicActionOffset, object)

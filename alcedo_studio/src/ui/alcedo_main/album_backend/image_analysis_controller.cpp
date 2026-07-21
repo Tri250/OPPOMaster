@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "app/offline_ai_service.hpp"
 #include "ui/alcedo_main/album_backend/background_task_controller.hpp"
 
 namespace alcedo::ui {
@@ -372,6 +373,116 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
     SetError(Tr("AI sidecar runtime is unavailable. Open a project first."));
     return;
   }
+
+  // ── Check if the sidecar is in offline mode ──────────────────
+  // If the AI sidecar runtime service reports offline mode, attempt
+  // to use OfflineAiService for local analysis instead of the remote
+  // sidecar. This provides degraded but functional AI analysis when
+  // the sidecar is unreachable (e.g., no network, sidecar crashed).
+  const bool sidecar_offline = env_ ? env_->IsSidecarOfflineMode() : false;
+
+  if (sidecar_offline) {
+    offline_mode_ = true;
+    emit OfflineModeChanged(true);
+
+    // Get the OfflineAiService from the environment
+    auto* offline_service = env_ ? env_->GetOfflineAiService() : nullptr;
+
+    // Use offline AI if the service is available and initialized
+    if (offline_service && offline_service->IsAvailable() && env_->ThumbnailProvider()) {
+      ClearSecret(&secret);
+      sidecar_lease_.reset();
+
+      ResetCounters();
+      total_      = static_cast<int>(items.size());
+      running_    = true;
+      can_retry_  = false;
+      last_items_ = items;
+      status_text_ = PL_TEXT("Running offline AI analysis on %1 image(s)...", total_);
+      emit StateChanged();
+      if (registry_) {
+        background_task_id_ = RegisterBackgroundTask();
+      }
+
+      // Run offline analysis on a background thread using OfflineAiService.
+      // Each item gets a degraded local analysis based on cached embeddings
+      // and heuristic-based classification.
+      QPointer<ImageAnalysisController> self(this);
+      std::thread([self, items = std::move(items), env = env_,
+                   offline_service,
+                   describe = (last_task_ == alcedo::ImageAnalysisTask::kDescribe),
+                   analyze  = (last_task_ == alcedo::ImageAnalysisTask::kAnalyze)]() mutable {
+        std::vector<OfflineAiResult> results;
+        int completed = 0;
+        const auto total_count = static_cast<int>(items.size());
+        for (const auto& item : items) {
+          if (!self) break;
+
+          OfflineAiResult result;
+          result.item = item;
+          result.success = false;
+
+          // Get thumbnail pixels from the environment
+          auto thumb_data = env->ThumbnailProvider()->GetThumbnail(
+              item.element_id, item.image_id, 1024, 90);
+          if (thumb_data.pixels && thumb_data.width > 0 && thumb_data.height > 0) {
+            // Run offline analysis using the ONNX-based local model
+            auto analysis = offline_service->OfflineImageAnalysis(
+                *thumb_data.pixels, thumb_data.width, thumb_data.height);
+
+            result.success = true;
+            result.caption = analysis.caption;
+            result.tags    = analysis.tags;
+            // Offline analysis doesn't provide reliable ratings
+            result.rating = 0;
+            result.rating_reason.clear();
+          }
+
+          results.push_back(result);
+          completed++;
+
+          // Report progress
+          QMetaObject::invokeMethod(
+              self,
+              [self, total_count, completed]() {
+                if (!self) return;
+                self->total_    = total_count;
+                self->analyzed_ = completed;
+                const int pct = total_count > 0 ? (completed * 100) / total_count : 0;
+                self->status_text_ = PL_TEXT("Offline analysis: %1/%2 (%3%)", completed, total_count, pct);
+                if (self->registry_ && !self->background_task_id_.isEmpty()) {
+                  self->registry_->UpdateTask(self->background_task_id_,
+                                              self->status_text_.Render(), QString(), pct);
+                }
+                emit self->StateChanged();
+              },
+              Qt::QueuedConnection);
+        }
+
+        // Finish on the UI thread
+        QMetaObject::invokeMethod(
+            self,
+            [self, results = std::move(results)]() mutable {
+              if (self) {
+                self->FinishOffline(std::move(results));
+              }
+            },
+            Qt::QueuedConnection);
+      }).detach();
+
+      job_ = nullptr;  // offline job is managed by the background thread
+      return;
+    }
+
+    // Sidecar offline AND offline AI unavailable — report error
+    ClearSecret(&secret);
+    sidecar_lease_.reset();
+    SetError(Tr("AI sidecar is offline and local AI is unavailable. Check your connection or install a local model."));
+    return;
+  }
+
+  emit OfflineModeChanged(false);
+  offline_mode_ = false;
 
   // Register the run as a background task and surface "Starting AI sidecar..."
   // BEFORE the boot so the task bar mirrors the sidecar startup as part of the
@@ -839,6 +950,110 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
       registry_->FinishTask(background_task_id_, final_state, detail);
       background_task_id_.clear();
     }
+  }
+  sidecar_lease_.reset();
+  emit StateChanged();
+}
+
+void ImageAnalysisController::FinishOffline(std::vector<alcedo::OfflineAiResult> results) {
+  running_     = false;
+  offline_mode_ = true;
+  ResetCounters();
+  last_results_.clear();
+
+  const bool describe = (last_task_ == alcedo::ImageAnalysisTask::kDescribe);
+  const bool analyze  = (last_task_ == alcedo::ImageAnalysisTask::kAnalyze);
+
+  for (const auto& r : results) {
+    QVariantMap m;
+    m.insert("elementId", static_cast<uint>(r.item.element_id));
+    m.insert("imageId", static_cast<uint>(r.item.image_id));
+    m.insert("status", r.success ? QStringLiteral("analyzed") : QStringLiteral("failed"));
+    m.insert("error", QString::fromStdString(r.error));
+    m.insert("provider", QStringLiteral("offline-local"));
+
+    if (r.success) {
+      if (describe || analyze) {
+        m.insert("caption", QString::fromStdString(r.caption));
+        QVariantList tags;
+        for (const auto& t : r.tags) {
+          tags.push_back(QString::fromStdString(t));
+        }
+        m.insert("tags", tags);
+      }
+      if (!describe) {
+        m.insert("rating", r.rating);
+        m.insert("reasons", QString::fromStdString(r.rating_reason));
+      }
+      analyzed_++;
+    } else {
+      failed_++;
+    }
+    last_results_.push_back(m);
+  }
+
+  total_ = static_cast<int>(results.size());
+
+  const bool any_failure = (failed_ > 0);
+  can_retry_             = any_failure && !last_items_.empty();
+
+  if (analyzed_ == total_ && total_ > 0) {
+    last_error_.clear();
+    status_text_ = PL_TEXT("Offline analysis complete: %1 image(s).", analyzed_);
+  } else if (any_failure) {
+    status_text_ = PL_TEXT("Offline analysis: %1 ok, %2 failed.", analyzed_, failed_);
+  } else {
+    status_text_ = i18n::LocalizedText{};
+  }
+
+  // Persist offline analysis results through the same sink path
+  if (sink_ && analyzed_ > 0) {
+    std::vector<alcedo::ImageAnalysisItemResult> understanding_results;
+    if (describe || analyze) {
+      understanding_results.reserve(static_cast<size_t>(analyzed_));
+    }
+    for (const auto& r : results) {
+      if (!r.success) continue;
+
+      // Convert OfflineAiResult to ImageAnalysisItemResult for sink persistence
+      alcedo::ImageAnalysisItemResult item_result;
+      item_result.item = r.item;
+      item_result.status = alcedo::ImageAnalysisItemStatus::kAnalyzed;
+      item_result.understanding.caption = r.caption;
+      item_result.understanding.tags    = r.tags;
+      item_result.understanding.status  = 200;
+      item_result.rating.rating         = r.rating;
+      item_result.rating.reasons        = r.rating_reason;
+      item_result.rating.status         = 200;
+
+      if (describe || analyze) {
+        understanding_results.push_back(item_result);
+      }
+      if (!describe) {
+        if (last_include_rating_reasons_) {
+          sink_->PersistRatingReasons(item_result);
+        }
+        sink_->ApplyStarRating(static_cast<uint32_t>(r.item.element_id),
+                               static_cast<uint32_t>(r.item.image_id), r.rating);
+      }
+    }
+    if (describe || analyze) {
+      sink_->PersistUnderstandings(understanding_results);
+      sink_->NotifySearchDocumentChanged();
+    }
+    if (!describe) {
+      sink_->FlushPendingStarRatings();
+    }
+  }
+
+  RefreshConfiguredState();
+  if (registry_ && !background_task_id_.isEmpty()) {
+    const BackgroundTaskState final_state =
+        canceled_ > 0
+            ? BackgroundTaskState::Canceled
+            : (analyzed_ > 0 ? BackgroundTaskState::Succeeded : BackgroundTaskState::Failed);
+    registry_->FinishTask(background_task_id_, final_state, status_text_.Render());
+    background_task_id_.clear();
   }
   sidecar_lease_.reset();
   emit StateChanged();

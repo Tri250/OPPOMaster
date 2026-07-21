@@ -662,6 +662,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
       search_(*this),
       background_task_(),
       interaction_policy_(&background_task_, this),
+      panorama_controller_(*this),
       model_download_controller_(*this),
       semantic_generation_(*this),
       ai_provider_profiles_(this),

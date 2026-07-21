@@ -1159,6 +1159,30 @@ void RhiImageRenderer::uploadPendingLayer(LayerId layer, QRhiResourceUpdateBatch
     const size_t upload_bytes =
         pending.pending_upload->row_bytes * static_cast<size_t>(pending.pending_upload->height);
     if (*target_texture && upload_bytes <= static_cast<size_t>((std::numeric_limits<int>::max)())) {
+
+      // ── Apply ColorManager color transform to the preview buffer ──
+      // Apply the display color transform to the rendered preview pixels
+      // before uploading to the GPU texture, ensuring correct color
+      // reproduction on the user's calibrated display.
+      if (pending.pending_upload->pixels && pending.pending_upload->width > 0 &&
+          pending.pending_upload->height > 0) {
+        auto native_window_ptr = pending.pending_upload->display_config.native_window;
+        if (native_window_ptr) {
+          auto icc_profile = ColorManager::DetectMonitorIccProfile(native_window_ptr);
+          if (icc_profile.has_value()) {
+            auto transform = ColorManager::GetOrCreateColorTransform(
+                pending.pending_upload->display_config, icc_profile.value());
+            if (transform.transform) {
+              ColorManager::ApplyTransformToBuffer(
+                  transform,
+                  reinterpret_cast<float*>(pending.pending_upload->pixels.get()),
+                  pending.pending_upload->width,
+                  pending.pending_upload->height);
+            }
+          }
+        }
+      }
+
       QByteArray upload_data =
           QByteArray::fromRawData(static_cast<const char*>(pending.pending_upload->pixels.get()),
                                   static_cast<int>(upload_bytes));
@@ -2157,6 +2181,18 @@ void RhiEditViewerSurface::initialize(QRhiCommandBuffer* command_buffer) {
 void RhiEditViewerSurface::render(QRhiCommandBuffer* command_buffer) {
   if (display_config_dirty_) {
     applyDisplayConfig();
+  }
+
+  // ── ColorManager: check for display profile changes before each frame ──
+  QWidget* host_window = window();
+  if (host_window) {
+    const auto native_handle = reinterpret_cast<void*>(host_window->effectiveWinId());
+    if (native_handle) {
+      ColorManager::CheckAndInvalidateDisplayProfile(native_handle);
+
+      // ── Handle display change events for HDR mode transitions ──
+      HDRManager::CheckDisplayModeChange(native_handle);
+    }
   }
 
 #if defined(Q_OS_WIN) && (defined(HAVE_CUDA) || defined(HAVE_OPENCL))

@@ -10,7 +10,7 @@ on:
 
 env:
   BUILD_TYPE: Release
-  ALCEDO_VERSION: "0.2.7"
+  ORT_VERSION: "1.20.1"
 
 jobs:
   build-appimage:
@@ -39,13 +39,27 @@ jobs:
         with:
           vcpkgGitCommitId: '2024.12.16'
 
+      - name: Download ONNX Runtime
+        run: |
+          ORT_DIR="${GITHUB_WORKSPACE}/third_party/onnxruntime-linux"
+          if [ ! -d "${ORT_DIR}" ]; then
+            mkdir -p "${ORT_DIR}"
+            ORT_PKG="onnxruntime-linux-x64-${{ env.ORT_VERSION }}.tgz"
+            wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/${ORT_PKG}" -O /tmp/ort.tgz
+            tar xzf /tmp/ort.tgz -C /tmp
+            cp -r /tmp/onnxruntime-linux-x64-${{ env.ORT_VERSION }}/. "${ORT_DIR}/"
+            rm -f /tmp/ort.tgz
+            echo "ONNX Runtime extracted to ${ORT_DIR}"
+          fi
+          echo "ALCEDO_ORT_DIR=${ORT_DIR}" >> "$GITHUB_ENV"
+
       - name: Configure CMake
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DVCPKG_ROOT=${VCPKG_ROOT} \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DALCEDO_VERSION=${{ env.ALCEDO_VERSION }}
+            -Donnxruntime_ROOT=${ALCEDO_ORT_DIR}
 
       - name: Build
         run: cmake --build build --parallel $(nproc)
@@ -96,6 +110,19 @@ jobs:
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '2024.12.16'
+
+      - name: Download ONNX Runtime
+        run: |
+          ORT_DIR="${GITHUB_WORKSPACE}/third_party/onnxruntime-linux"
+          if [ ! -d "${ORT_DIR}" ]; then
+            mkdir -p "${ORT_DIR}"
+            ORT_PKG="onnxruntime-linux-x64-${{ env.ORT_VERSION }}.tgz"
+            wget -q "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/${ORT_PKG}" -O /tmp/ort.tgz
+            tar xzf /tmp/ort.tgz -C /tmp
+            cp -r /tmp/onnxruntime-linux-x64-${{ env.ORT_VERSION }}/. "${ORT_DIR}/"
+            rm -f /tmp/ort.tgz
+          fi
+          echo "ALCEDO_ORT_DIR=${ORT_DIR}" >> "$GITHUB_ENV"
 
       - name: Build .deb package
         run: |

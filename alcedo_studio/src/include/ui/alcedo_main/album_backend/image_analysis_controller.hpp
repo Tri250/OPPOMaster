@@ -16,6 +16,7 @@
 #include "app/ai_credential_store.hpp"
 #include "app/ai_provider_profile.hpp"
 #include "app/image_analysis_service.hpp"
+#include "app/offline_ai_service.hpp"
 #include "ui/alcedo_main/album_backend/image_analysis_sink.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 
@@ -23,6 +24,17 @@ namespace alcedo::ui {
 
 class AlbumBackend;
 class BackgroundTaskController;
+
+/// Result of an offline AI analysis for a single item.
+struct OfflineAiResult {
+  alcedo::ImageAnalysisItem item;
+  bool                      success       = false;
+  std::string               error;
+  std::string               caption;
+  std::vector<std::string>  tags;
+  int                       rating        = 0;
+  std::string               rating_reason;
+};
 
 /// Phase 6d — the runtime seams `ImageAnalysisController` needs, as an interface
 /// so the controller is unit-testable without a live project / sidecar.
@@ -63,6 +75,13 @@ class IImageAnalysisEnvironment {
   /// checkpoint. Default is a no-op (tests don't exercise boot cancel);
   /// production forwards to AiSidecarRuntimeService::RequestCancelStart.
   virtual void RequestSidecarStartCancel() {}
+  /// Check if the sidecar is in offline mode. Default returns false
+  /// (tests don't exercise offline mode). Production forwards to
+  /// AiSidecarRuntimeService::IsOfflineMode().
+  virtual bool IsSidecarOfflineMode() const { return false; }
+  /// Get the OfflineAiService for local analysis when sidecar is down.
+  /// Returns nullptr if offline AI is unavailable.
+  virtual auto GetOfflineAiService() -> alcedo::OfflineAiService* { return nullptr; }
 };
 
 /// Drives remote image analysis (caption/tags via `image_understanding.describe`,
@@ -105,6 +124,7 @@ class ImageAnalysisController final : public QObject {
   // (ai/analysis/ratingSeverity), default "normal". Drives the rating system
   // prompt the sidecar builds.
   Q_PROPERTY(QString ratingSeverity READ RatingSeverity NOTIFY StateChanged)
+  Q_PROPERTY(bool offlineMode READ OfflineMode NOTIFY OfflineModeChanged)
 
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
@@ -127,6 +147,7 @@ class ImageAnalysisController final : public QObject {
   QVariantList     DiscoveredModels() const { return discovered_models_; }
   QString          ConnectionStatus() const { return connection_status_; }
   QString          RatingSeverity() const { return rating_severity_; }
+  bool             OfflineMode() const { return offline_mode_; }
 
   // Album selection is a QVariantList of {elementId, imageId} maps (the same
   // convention as ImportExportHandler::CollectExportTargets). Empty selection is
@@ -154,6 +175,7 @@ class ImageAnalysisController final : public QObject {
 
  signals:
   void StateChanged();
+  void OfflineModeChanged(bool offline);
 
  private:
   void StartForTargets(const QVariantList& targetEntries, alcedo::ImageAnalysisTask task,
@@ -162,6 +184,7 @@ class ImageAnalysisController final : public QObject {
   void RefreshConfiguredState();
   void UpdateProgress(const alcedo::ImageAnalysisProgress& progress);
   void Finish(std::vector<alcedo::ImageAnalysisItemResult> results);
+  void FinishOffline(std::vector<alcedo::OfflineAiResult> results);
   void SetError(const QString& error);
   void ResetCounters();
   // Build the `affectedTargets` list ({elementId,imageId} maps) for the task
@@ -200,6 +223,7 @@ class ImageAnalysisController final : public QObject {
   bool                                       can_retry_            = false;
   bool                                       provider_configured_  = false;
   bool                                       credential_available_ = false;
+  bool                                       offline_mode_         = false;
   int                                        total_                = 0;
   int                                        analyzed_             = 0;
   int                                        failed_               = 0;

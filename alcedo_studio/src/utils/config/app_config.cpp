@@ -13,9 +13,47 @@
 #include <string>
 #include <utility>
 
+#include <QDir>
+#include <QStandardPaths>
+
 #include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
+
+namespace {
+
+/// Returns the platform-standard config file path using QStandardPaths:
+///   Windows: %APPDATA%/AlcedoStudio/config.json
+///   macOS:   ~/Library/Application Support/AlcedoStudio/config.json
+///   Linux:   ~/.config/AlcedoStudio/config.json
+auto GetStandardConfigPath() -> std::filesystem::path {
+  const QString app_data = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+  // QStandardPaths::AppDataLocation returns:
+  //   Windows: C:/Users/<USER>/AppData/Roaming/<ORG>/<APP>
+  //   macOS:   ~/Library/Application Support/<APP>
+  //   Linux:   ~/.config/<ORG>/<APP>
+  // We want a clean "AlcedoStudio" directory, so we construct it ourselves.
+  const QString config_dir = app_data + QStringLiteral("/../AlcedoStudio");
+  const QDir dir(config_dir);
+  return std::filesystem::path(QDir::cleanPath(dir.absolutePath()).toUtf8().constData())
+         / "config.json";
+}
+
+/// Old config paths that should be migrated to the standard location.
+auto GetLegacyConfigPaths() -> std::vector<std::filesystem::path> {
+  std::vector<std::filesystem::path> legacy_paths;
+  // Old Linux path: ~/.config/alcedo/config.json
+  const QString linux_legacy = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                               + QStringLiteral("/alcedo/config.json");
+  legacy_paths.emplace_back(linux_legacy.toUtf8().constData());
+  // Old macOS path: ~/Library/Application Support/alcedo/config.json
+  const QString macos_legacy = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+                               + QStringLiteral("/alcedo/config.json");
+  legacy_paths.emplace_back(macos_legacy.toUtf8().constData());
+  return legacy_paths;
+}
+
+}  // namespace
 
 auto AppConfig::Instance() -> AppConfig& {
   static AppConfig instance;
@@ -89,16 +127,56 @@ auto AppConfig::GetDefaultConfig() const -> nlohmann::json {
 
 void AppConfig::LoadFromFile(const std::filesystem::path& config_path) {
   std::lock_guard<std::mutex> lock(mutex_);
-  config_path_ = config_path;
 
-  if (!std::filesystem::exists(config_path)) {
+  auto effective_path = config_path;
+  if (effective_path.empty()) {
+    effective_path = GetStandardConfigPath();
+  }
+  config_path_ = effective_path;
+
+  // Ensure the config directory exists
+  {
+    std::error_code ec;
+    auto parent = effective_path.parent_path();
+    if (!parent.empty() && !std::filesystem::exists(parent)) {
+      std::filesystem::create_directories(parent, ec);
+      if (ec) {
+        APP_LOG_WARN_DEFAULT("AppConfig: Failed to create config directory: %s", ec.message().c_str());
+      } else {
+        APP_LOG_INFO_DEFAULT("AppConfig: Created config directory: %s", parent.string().c_str());
+      }
+    }
+  }
+
+  // If config file doesn't exist at the standard location, try migrating
+  // from old locations before creating a new default config.
+  if (!std::filesystem::exists(effective_path)) {
+    for (const auto& legacy_path : GetLegacyConfigPaths()) {
+      if (std::filesystem::exists(legacy_path)) {
+        std::error_code ec;
+        std::filesystem::create_directories(effective_path.parent_path(), ec);
+        std::filesystem::copy_file(legacy_path, effective_path,
+                                    std::filesystem::copy_options::overwrite_existing, ec);
+        if (!ec) {
+          APP_LOG_INFO_DEFAULT("AppConfig: Migrated config from %s to %s",
+                               legacy_path.string().c_str(), effective_path.string().c_str());
+        } else {
+          APP_LOG_WARN_DEFAULT("AppConfig: Failed to migrate config from %s: %s",
+                               legacy_path.string().c_str(), ec.message().c_str());
+        }
+        break;  // Only migrate from the first found legacy path
+      }
+    }
+  }
+
+  if (!std::filesystem::exists(effective_path)) {
     // Create default config file.
     config_ = GetDefaultConfig();
     try {
-      std::ofstream out(config_path);
+      std::ofstream out(effective_path);
       out << config_.dump(2);
       out.close();
-      APP_LOG_INFO_DEFAULT("AppConfig: Created default config at %s", config_path.string().c_str());
+      APP_LOG_INFO_DEFAULT("AppConfig: Created default config at %s", effective_path.string().c_str());
     } catch (const std::exception& e) {
       APP_LOG_WARN_DEFAULT("AppConfig: Failed to create default config file: %s", e.what());
     }
@@ -106,7 +184,7 @@ void AppConfig::LoadFromFile(const std::filesystem::path& config_path) {
   }
 
   try {
-    std::ifstream in(config_path);
+    std::ifstream in(effective_path);
     auto loaded = nlohmann::json::parse(in, nullptr, false);
     if (loaded.is_discarded()) {
       APP_LOG_WARN_DEFAULT("AppConfig: Failed to parse config file, using defaults");
@@ -116,7 +194,7 @@ void AppConfig::LoadFromFile(const std::filesystem::path& config_path) {
     config_ = loaded;
     MergeWithDefaults();
     Validate();
-    APP_LOG_INFO_DEFAULT("AppConfig: Loaded config from %s", config_path.string().c_str());
+    APP_LOG_INFO_DEFAULT("AppConfig: Loaded config from %s", effective_path.string().c_str());
   } catch (const std::exception& e) {
     APP_LOG_WARN_DEFAULT("AppConfig: Error loading config: %s", e.what());
     config_ = GetDefaultConfig();
@@ -144,7 +222,11 @@ void AppConfig::Reload() {
 
 auto AppConfig::ConfigFilePath() const -> std::filesystem::path {
   std::lock_guard<std::mutex> lock(mutex_);
-  return config_path_;
+  if (!config_path_.empty()) {
+    return config_path_;
+  }
+  // If not yet loaded, return the standard platform-appropriate path
+  return GetStandardConfigPath();
 }
 
 void AppConfig::MergeWithDefaults() {

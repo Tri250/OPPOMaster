@@ -68,5 +68,6 @@
     <file>history_icons/thermometer.svg</file>
     <file>history_icons/wand-sparkles.svg</file>
     <file>history_icons/workflow.svg</file>
+    <file>model_hashes.json</file>
   </qresource>
 </RCC>

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <mutex>
+#include <vector>
 
 #include "concurrency/thread_pool.hpp"
 #include "pipeline_task.hpp"
@@ -19,6 +20,12 @@ class PipelineScheduler {
   std::mutex                    scheduler_lock_;
   ThreadPool thread_pool_;  // use thred pool for now, can be changed to task scheduler later
 
+  // ── Integration-6: Pending tasks queue for back-pressure ──
+  // When MemoryBudgetManager reports insufficient memory, tasks are
+  // queued here instead of being submitted to the thread pool. They
+  // can be flushed later when memory becomes available.
+  std::vector<PipelineTask> pending_tasks_;
+
   
  public:
   explicit PipelineScheduler();
@@ -30,5 +37,11 @@ class PipelineScheduler {
    * @param task
    */
   void ScheduleTask(PipelineTask&& task);
+
+  /**
+   * @brief Attempt to submit queued tasks that were held back due to
+   *        memory back-pressure. Called when budget is released.
+   */
+  void TryFlushPendingTasks();
 };
 };  // namespace alcedo

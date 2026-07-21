@@ -102,26 +102,26 @@ Dialog {
     readonly property string severityTitle: root.uiIsChinese
                                             ? qsTr("评价严苛程度") : qsTr("Rating strictness")
     readonly property var severityModel: [
-        { code: "lite",   en: "Lite",   zh: "水",
+        { code: "lite",   en: qsTr("Lite"),   zh: qsTr("水"),
           selectedColor: root.accentColor,
-          flavorEn: "Generous scoring — ordinary photos default to 3–4 stars with mild reasons.",
-          flavorZh: "宽容打分——普通照片默认 3–4 星，理由温和。" },
-        { code: "normal", en: "Normal", zh: "普通",
+          flavorEn: qsTr("Generous scoring — ordinary photos default to 3–4 stars with mild reasons."),
+          flavorZh: qsTr("宽容打分——普通照片默认 3–4 星，理由温和。") },
+        { code: "normal", en: qsTr("Normal"), zh: qsTr("普通"),
           selectedColor: root.accentColor,
-          flavorEn: "Balanced 1–5 star rating with a short rationale.",
-          flavorZh: "正常评分，平衡的 1–5 星，简短理由。" },
-        { code: "high",   en: "High",   zh: "大师",
+          flavorEn: qsTr("Balanced 1–5 star rating with a short rationale."),
+          flavorZh: qsTr("正常评分，平衡的 1–5 星，简短理由。") },
+        { code: "high",   en: qsTr("High"),   zh: qsTr("大师"),
           selectedColor: root.accentColor,
-          flavorEn: "Strict but guiding — reads meaning, composition, narrative, expression, and completeness before technical trivia.",
-          flavorZh: "严格但引导式——先看寓意、构图、叙事、表达和完整性，不拿曝光/模糊小题大做。" },
-        { code: "xhigh",  en: "xHigh",  zh: "老法师",
+          flavorEn: qsTr("Strict but guiding — reads meaning, composition, narrative, expression, and completeness before technical trivia."),
+          flavorZh: qsTr("严格但引导式——先看寓意、构图、叙事、表达和完整性，不拿曝光/模糊小题大做。") },
+        { code: "xhigh",  en: qsTr("xHigh"),  zh: qsTr("老法师"),
           selectedColor: Qt.rgba(0.89, 0.72, 0.30, 1.0),
-          flavorEn: "Old-school gear-and-parameter scrutiny with heavy taste policing and blunt practical advice.",
-          flavorZh: "老法师标准——器材、参数、对比度、饱和度、虚化和“经验”都要拿出来说道说道。" },
-        { code: "max",    en: "Max",    zh: "懂哥",
+          flavorEn: qsTr("Old-school gear-and-parameter scrutiny with heavy taste policing and blunt practical advice."),
+          flavorZh: qsTr("老法师标准——器材、参数、对比度、饱和度、虚化和"经验"都要拿出来说道说道。") },
+        { code: "max",    en: qsTr("Max"),    zh: qsTr("懂哥"),
           selectedColor: Qt.rgba(0.65, 0.55, 0.98, 1.0),
-          flavorEn: "Maximum gatekeeping — harsh, cynical, and impossible to please.",
-          flavorZh: "懂哥模式——眼光挑剔，分数从严，评语里少不了那套居高临下的行话。" }
+          flavorEn: qsTr("Maximum gatekeeping — harsh, cynical, and impossible to please."),
+          flavorZh: qsTr("懂哥模式——眼光挑剔，分数从严，评语里少不了那套居高临下的行话。") }
     ]
     readonly property string severityFlavor: {
         for (let i = 0; i < severityModel.length; ++i) {

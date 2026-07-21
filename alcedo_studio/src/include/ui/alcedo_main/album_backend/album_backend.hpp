@@ -34,6 +34,7 @@
 #include "ui/alcedo_main/album_backend/model_download_controller.hpp"
 #include "ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp"
 #include "ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp"
+#include "ui/alcedo_main/album_backend/panorama_controller.hpp"
 #include "ui/alcedo_main/album_backend/project_db_write_barrier.hpp"
 #include "ui/alcedo_main/album_backend/project_handler.hpp"
 #include "ui/alcedo_main/album_backend/search_controller.hpp"
@@ -55,6 +56,7 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QObject* imageAnalysisController READ ImageAnalysisControllerObject CONSTANT)
   Q_PROPERTY(QObject* backgroundTaskController READ BackgroundTaskControllerObject CONSTANT)
   Q_PROPERTY(QObject* interactionPolicyController READ InteractionPolicyControllerObject CONSTANT)
+  Q_PROPERTY(QObject* panoramaController READ PanoramaControllerObject CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
@@ -161,6 +163,7 @@ class AlbumBackend final : public QObject {
   QObject*     ImageAnalysisControllerObject() { return &image_analysis_; }
   QObject*     BackgroundTaskControllerObject() { return &background_task_; }
   QObject*     InteractionPolicyControllerObject() { return &interaction_policy_; }
+  QObject*     PanoramaControllerObject() { return &panorama_controller_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
@@ -375,6 +378,7 @@ class AlbumBackend final : public QObject {
   friend class NikonHeRecoveryController;
   friend class EditorController;
   friend class AdjustmentTransferController;
+  friend class PanoramaController;
 
   void SetServiceState(bool ready, const i18n::LocalizedText& message);
   void SetServiceMessageForCurrentProject(const i18n::LocalizedText& message);
@@ -425,6 +429,7 @@ class AlbumBackend final : public QObject {
   // must be constructed after `background_task_` (declared immediately after it
   // to guarantee that). Standalone QObject, no AlbumBackend dependency.
   InteractionPolicyController                        interaction_policy_;
+  PanoramaController                                 panorama_controller_;
   alcedo::ModelDownloadService                       model_download_service_;
   ModelDownloadController                            model_download_controller_;
   SemanticGenerationController                       semantic_generation_;

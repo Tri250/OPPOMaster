@@ -17,6 +17,9 @@ Dialog {
     closePolicy: albumBackend.exportInFlight
         ? Popup.NoAutoClose
         : Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    Accessible.role: Accessible.Dialog
+    Accessible.name: qsTr("Export Dialog")
+    Accessible.description: qsTr("Configure and start image export")
 
     property Item blurSource: null
     property int selectedCount: 0
@@ -25,6 +28,7 @@ Dialog {
     property int queuePreviewLimit: 36
     property bool hdrExportAvailable: false
     property bool exportTriggered: false
+    property var exportPresetManager: null
 
     readonly property color panelColor: appTheme.bgPanelColor
     readonly property color cardColor: appTheme.bgBaseColor
@@ -143,19 +147,19 @@ Dialog {
         switch (formatValue) {
         case "JPEG":
         case "WEBP":
-            return [{ text: "8-bit", value: 8 }]
+            return [{ text: qsTr("8-bit"), value: 8 }]
         case "PNG":
-            return [{ text: "8-bit", value: 8 }, { text: "16-bit", value: 16 }]
+            return [{ text: qsTr("8-bit"), value: 8 }, { text: qsTr("16-bit"), value: 16 }]
         case "TIFF":
             return [
-                { text: "8-bit",  value: 8  },
-                { text: "16-bit", value: 16 },
-                { text: "32-bit", value: 32 }
+                { text: qsTr("8-bit"),  value: 8  },
+                { text: qsTr("16-bit"), value: 16 },
+                { text: qsTr("32-bit"), value: 32 }
             ]
         case "EXR":
-            return [{ text: "16-bit", value: 16 }, { text: "32-bit", value: 32 }]
+            return [{ text: qsTr("16-bit"), value: 16 }, { text: qsTr("32-bit"), value: 32 }]
         default:
-            return [{ text: "8-bit", value: 8 }]
+            return [{ text: qsTr("8-bit"), value: 8 }]
         }
     }
 
@@ -306,6 +310,125 @@ Dialog {
                     width: settingsScroll.availableWidth
                     spacing: 10
 
+                    // ── Card: Export Preset ────────────────────
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: presetCol.implicitHeight + 28
+                        radius: 8
+                        color: root.cardColor
+                        visible: root.exportPresetManager !== null
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !albumBackend.exportInFlight
+                            onClicked: root.clearSizeLimitFocus()
+                        }
+
+                        ColumnLayout {
+                            id: presetCol
+                            y: 14; x: 16
+                            width: parent.width - 32
+                            spacing: 10
+
+                            RowLayout {
+                                spacing: 0
+                                Label {
+                                    text: qsTr("Export Preset")
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                    color: root.textColor
+                                }
+                                Item { Layout.fillWidth: true }
+                                Label {
+                                    visible: presetCombo.currentIndex > 0
+                                    text: qsTr("Preset applied — adjust values manually if needed")
+                                    color: root.mutedTextColor
+                                    font.pixelSize: 10
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                ComboBox {
+                                    id: presetCombo
+                                    Layout.fillWidth: true
+                                    enabled: !albumBackend.exportInFlight
+                                    model: root.exportPresetManager
+                                           ? root.exportPresetManager.presetList()
+                                           : [{ text: qsTr("Custom"), value: "" }]
+                                    textRole: "text"
+                                    valueRole: "value"
+                                    currentIndex: 0
+                                    onActivated: function(index) {
+                                        if (index <= 0 || !root.exportPresetManager) return
+                                        var presetValue = presetCombo.currentValue
+                                        if (presetValue.length === 0) return
+                                        var preset = root.exportPresetManager.GetPreset(presetValue)
+                                        if (!preset) return
+
+                                        // Apply width / height as longest-edge limit
+                                        if (preset.maxWidth > 0 && preset.maxHeight > 0) {
+                                            sdrMaxSideField.text = Math.max(preset.maxWidth, preset.maxHeight)
+                                        } else if (preset.maxWidth > 0) {
+                                            sdrMaxSideField.text = preset.maxWidth
+                                        }
+
+                                        // Apply quality
+                                        if (preset.quality > 0) {
+                                            exportQualitySlider.value = preset.quality
+                                        }
+
+                                        // Apply format
+                                        if (preset.format && preset.format.length > 0) {
+                                            for (var i = 0; i < exportFormat.model.length; i++) {
+                                                if (exportFormat.model[i].value === preset.format) {
+                                                    exportFormat.currentIndex = i
+                                                    break
+                                                }
+                                            }
+                                        }
+
+                                        // Apply colorspace via bit depth (8-bit for sRGB presets, 16-bit for wide-gamut)
+                                        if (preset.colorSpace && preset.colorSpace.length > 0) {
+                                            var targetDepth = (preset.colorSpace === "srgb" || preset.colorSpace === "display-p3") ? 8 : 16
+                                            var depthOpts = root.bitDepthOptionsFor(root.sdrExportFormat)
+                                            for (var j = 0; j < depthOpts.length; j++) {
+                                                if (Number(depthOpts[j].value) === targetDepth) {
+                                                    exportBitDepth.currentIndex = j
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    text: qsTr("Reset")
+                                    visible: presetCombo.currentIndex > 0
+                                    onClicked: {
+                                        presetCombo.currentIndex = 0
+                                        sdrMaxSideField.text = ""
+                                        exportQualitySlider.value = 90
+                                        exportFormat.currentIndex = 0
+                                        root.ensureValidBitDepthSelection()
+                                    }
+                                    implicitWidth: 70
+                                    Material.foreground: root.textColor
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: parent.down ? Qt.rgba(1, 1, 1, 0.06)
+                                             : parent.hovered ? Qt.rgba(1, 1, 1, 0.12)
+                                                              : Qt.rgba(1, 1, 1, 0.07)
+                                        border.width: 1
+                                        border.color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.12)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // ── Card: Destination ──────────────────────
                     Rectangle {
                         Layout.fillWidth: true
@@ -378,7 +501,7 @@ Dialog {
                                 TextField {
                                     id: subfolderName
                                     visible: subfolderCheck.checked
-                                    text: "Processed"
+                                    text: qsTr("Processed")
                                     font.pixelSize: 12
                                     implicitWidth: 130
                                     enabled: !albumBackend.exportInFlight

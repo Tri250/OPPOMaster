@@ -11,6 +11,10 @@ SwipeView {
     property var profileController: null       // albumBackend.aiProviderProfileController
     property var analysisController: null      // albumBackend.imageAnalysisController
     property var interactionPolicy: null
+    property var offlineAiService: null
+    property bool sidecarAvailable: true
+    property bool offlineMode: false
+    property bool offlinePreference: false
     property color primaryAccent: "#457B9D"
     property color secondaryAccent: "#9FC7D8"
     property color textColor: "#F5F1EA"
@@ -18,6 +22,7 @@ SwipeView {
     property color canvasColor: "#111214"
     property color dividerColor: Qt.rgba(1, 1, 1, 0.08)
     property color dangerColor: "#D96C75"
+    property color warningColor: "#E9C46A"
     property string dataFontFamily: appTheme.dataFontFamily
     property int dataRevision: 0
     property string editingProfileId: ""
@@ -55,6 +60,18 @@ SwipeView {
         target: panel.profileController
         function onProfilesChanged() {
             panel.dataRevision += 1
+        }
+    }
+
+    Connections {
+        target: panel.offlineAiService
+        function onSidecarAvailabilityChanged(available) {
+            panel.sidecarAvailable = available
+            panel.offlineMode = !available || panel.offlinePreference
+        }
+        function onOfflinePreferenceChanged(preference) {
+            panel.offlinePreference = preference
+            panel.offlineMode = !panel.sidecarAvailable || preference
         }
     }
 
@@ -282,6 +299,104 @@ SwipeView {
                     onActivated: function(index) {
                         if (panel.hasProfilesController) {
                             panel.profileController.SetOutputLanguage(model[index].value)
+                        }
+                    }
+                }
+            }
+
+            // ── Offline AI Mode Banner ────────────────────────
+            Rectangle {
+                Layout.fillWidth: true
+                visible: !panel.sidecarAvailable || panel.offlineMode
+                radius: 8
+                color: Qt.rgba(panel.warningColor.r, panel.warningColor.g, panel.warningColor.b, 0.10)
+                border.width: 1
+                border.color: Qt.rgba(panel.warningColor.r, panel.warningColor.g, panel.warningColor.b, 0.30)
+                implicitHeight: offlineBannerCol.implicitHeight + 20
+
+                ColumnLayout {
+                    id: offlineBannerCol
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Rectangle {
+                            implicitWidth: 8
+                            implicitHeight: 8
+                            radius: 4
+                            color: panel.warningColor
+
+                            SequentialAnimation on opacity {
+                                running: !panel.sidecarAvailable
+                                loops: Animation.Infinite
+                                NumberAnimation { from: 1.0; to: 0.3; duration: 800 }
+                                NumberAnimation { from: 0.3; to: 1.0; duration: 800 }
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: !panel.sidecarAvailable
+                                  ? qsTr("AI sidecar service is unavailable — running in Limited AI Mode")
+                                  : qsTr("Limited AI Mode")
+                            color: panel.warningColor
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Cloud-based AI features are unavailable. Local analysis will be used where possible, with reduced accuracy.")
+                        color: panel.mutedTextColor
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        CheckBox {
+                            id: offlinePreferenceToggle
+                            text: qsTr("Prefer offline AI mode")
+                            checked: panel.offlinePreference
+                            onToggled: {
+                                panel.offlinePreference = checked
+                                if (panel.offlineAiService) {
+                                    panel.offlineAiService.SetOfflinePreference(checked)
+                                }
+                            }
+                            font.pixelSize: 12
+                            Material.foreground: panel.textColor
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Button {
+                            text: qsTr("Retry Connection")
+                            visible: !panel.sidecarAvailable
+                            onClicked: {
+                                if (panel.offlineAiService) {
+                                    panel.offlineAiService.RetrySidecarConnection()
+                                }
+                            }
+                            implicitHeight: 28
+                            font.pixelSize: 11
+                            Material.foreground: panel.textColor
+                            background: Rectangle {
+                                radius: 6
+                                color: parent.down ? Qt.rgba(1, 1, 1, 0.06)
+                                     : parent.hovered ? Qt.rgba(1, 1, 1, 0.12)
+                                                      : Qt.rgba(1, 1, 1, 0.07)
+                                border.width: 1
+                                border.color: Qt.rgba(panel.warningColor.r, panel.warningColor.g, panel.warningColor.b, 0.25)
+                            }
                         }
                     }
                 }

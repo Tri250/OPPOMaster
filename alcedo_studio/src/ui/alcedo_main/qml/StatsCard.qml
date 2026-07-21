@@ -65,8 +65,9 @@ Item {
     }
 
     function monthName(mm) {
-        const names = ["January", "February", "March", "April", "May", "June",
-                       "July", "August", "September", "October", "November", "December"];
+        const names = [qsTr("January"), qsTr("February"), qsTr("March"), qsTr("April"),
+                       qsTr("May"), qsTr("June"), qsTr("July"), qsTr("August"),
+                       qsTr("September"), qsTr("October"), qsTr("November"), qsTr("December")];
         const idx = parseInt(mm) - 1;
         return (idx >= 0 && idx < 12) ? names[idx] : mm;
     }

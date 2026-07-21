@@ -152,6 +152,16 @@ if(ALCEDO_CUDA_ENABLED)
     target_link_libraries(GpuCapabilityDetector PRIVATE CudaDriverRequirements ${ALCEDO_OPENCV_CORE_DEPS})
     target_compile_definitions(GpuCapabilityDetector PRIVATE HAVE_CUDA)
 endif()
+
+def_library(CjkFontManager
+    SOURCES utils/font/cjk_font_manager.cpp
+    PUBLIC_DEPS Qt6::Core Qt6::Gui AppDiagnostics
+)
+
+def_library(PathConverter
+    SOURCES utils/path/path_converter.cpp
+    PUBLIC_DEPS Qt6::Core
+)
 if(ALCEDO_OPENCL_ENABLED)
     target_link_libraries(GpuCapabilityDetector PRIVATE OpenClContext)
     target_compile_definitions(GpuCapabilityDetector PRIVATE HAVE_OPENCL)
@@ -1447,6 +1457,13 @@ def_library(ModelDownloadService
     PUBLIC_DEPS Qt6::Core Qt6::Network
 )
 
+def_library(ModelDistributionService
+    SOURCES
+        app/model_distribution_service.cpp
+        include/app/model_distribution_service.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network NlohmannJson
+)
+
 def_library(ProjectService
     SOURCES
         app/project_service.cpp
@@ -1661,10 +1678,12 @@ add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/nikon_he_recovery_controller.cpp
     ui/alcedo_main/album_backend/editor_controller.cpp
     ui/alcedo_main/album_backend/adjustment_transfer_controller.cpp
+    ui/alcedo_main/album_backend/panorama_controller.cpp
     include/ui/alcedo_main/album_backend/album_backend.hpp
     include/ui/alcedo_main/album_backend/album_thumbnail_model.hpp
     include/ui/alcedo_main/album_backend/album_types.hpp
     include/ui/alcedo_main/album_backend/interaction_policy_controller.hpp
+    include/ui/alcedo_main/album_backend/panorama_controller.hpp
     include/ui/alcedo_main/album_backend/project_db_write_barrier.hpp
     include/ui/alcedo_main/album_backend/path_utils.hpp
     include/ui/alcedo_main/album_backend/project_handler.hpp
@@ -1916,6 +1935,10 @@ target_link_libraries(alcedo_main
         UpdateChecker
         CrashReporter
         AiLabelHistory
+        CjkFontManager
+        GpuCapabilityDetector
+        PathConverter
+        ModelDistributionService
         Qt6::Quick
         Qt6::Qml
         Qt6::QuickControls2
@@ -1969,6 +1992,8 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ThumbnailListView.qml
         ui/alcedo_main/qml/BackgroundTaskBar.qml
         ui/alcedo_main/qml/BackgroundTaskPopover.qml
+        ui/alcedo_main/qml/PanoramaDialog.qml
+        ui/alcedo_main/qml/HighContrastTheme.qml
     RESOURCES
         ui/alcedo_main/qml/util/qmldir
 )

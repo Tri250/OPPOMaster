@@ -27,13 +27,73 @@ done
 
 APP_NAME="AlcedoStudio"
 APP_NAME_LOWER="alcedo-studio"
-VERSION="${ALCEDO_VERSION:-0.2.7}"
+
+# --- Dynamic version detection ---
+detect_version() {
+  # 1. From environment variable
+  if [ -n "${ALCEDO_VERSION:-}" ]; then
+    echo "${ALCEDO_VERSION}"
+    return
+  fi
+  # 2. From git tag (e.g. v0.2.7 -> 0.2.7)
+  if git -C "${PROJECT_ROOT}" describe --tags --exact-match 2>/dev/null | sed 's/^v//' ; then
+    return
+  fi
+  # 3. From CMakeLists.txt project() command
+  local cmake_ver
+  cmake_ver="$(grep -m1 'project(' "${PROJECT_ROOT}/CMakeLists.txt" 2>/dev/null \
+    | sed -n 's/.*VERSION[[:space:]]\+\([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')"
+  if [ -n "${cmake_ver}" ]; then
+    echo "${cmake_ver}"
+    return
+  fi
+  # 4. Fallback
+  echo "0.0.0"
+}
+VERSION="$(detect_version)"
 ARCH="$(dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null || echo amd64)"
+
+# --- ONNX Runtime configuration ---
+ORT_VERSION="${ORT_VERSION:-1.20.1}"
+ORT_BASE_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}"
+ORT_DIR="${PROJECT_ROOT}/third_party/onnxruntime-linux"
+
+download_onnxruntime() {
+  if [ -d "${ORT_DIR}" ]; then
+    echo "ONNX Runtime already downloaded at ${ORT_DIR}"
+    return
+  fi
+  echo ">>> Downloading ONNX Runtime v${ORT_VERSION}..."
+  mkdir -p "${ORT_DIR}"
+  local ort_pkg="onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+  local ort_url="${ORT_BASE_URL}/${ort_pkg}"
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  curl -fSL -o "${tmpdir}/${ort_pkg}" "${ort_url}" || {
+    echo "ERROR: Failed to download ONNX Runtime from ${ort_url}" >&2
+    rm -rf "${ORT_DIR}" "${tmpdir}"
+    exit 1
+  }
+  tar xzf "${tmpdir}/${ort_pkg}" -C "${tmpdir}"
+  # The archive extracts as onnxruntime-linux-x64-VERSION/
+  local extracted_dir="${tmpdir}/onnxruntime-linux-x64-${ORT_VERSION}"
+  if [ -d "${extracted_dir}" ]; then
+    cp -r "${extracted_dir}/." "${ORT_DIR}/"
+  else
+    echo "WARNING: Unexpected ONNX Runtime archive layout; copying as-is."
+    cp -r "${tmpdir}/"* "${ORT_DIR}/"
+  fi
+  rm -rf "${tmpdir}"
+  echo "ONNX Runtime extracted to ${ORT_DIR}"
+}
 
 echo "========================================"
 echo "Packaging ${APP_NAME} v${VERSION} (${ARCH})"
 echo "Build dir: ${BUILD_DIR}"
 echo "========================================"
+
+# --- Download ONNX Runtime ---
+download_onnxruntime
 
 # --- Build ---
 mkdir -p "${BUILD_DIR}"
@@ -45,7 +105,9 @@ if [ ! -f "${BUILD_DIR}/alcedo_studio/src/${APP_NAME_LOWER}" ]; then
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DVCPKG_ROOT="${VCPKG_ROOT}" \
     -DCMAKE_INSTALL_PREFIX=/usr \
-    -DALCEDO_VERSION="${VERSION}"
+    -DALCEDO_VERSION="${VERSION}" \
+    -Donnxruntime_ROOT="${ORT_DIR}" \
+    -DCMAKE_PREFIX_PATH="${ORT_DIR}/lib/cmake;${CMAKE_PREFIX_PATH:-}"
 
   echo ">>> Building..."
   cmake --build . --parallel "$(nproc)"
@@ -124,6 +186,24 @@ APPRUN
     done
   fi
 
+  # Bundle ONNX Runtime shared library
+  echo ">>> Bundling ONNX Runtime..."
+  if [ -f "${ORT_DIR}/lib/libonnxruntime.so.${ORT_VERSION}" ]; then
+    cp "${ORT_DIR}/lib/libonnxruntime.so."* "${APPDIR}/usr/lib/" 2>/dev/null || true
+  elif [ -f "${ORT_DIR}/lib/libonnxruntime.so" ]; then
+    cp "${ORT_DIR}/lib/libonnxruntime.so"* "${APPDIR}/usr/lib/" 2>/dev/null || true
+  else
+    echo "WARNING: libonnxruntime.so not found in ${ORT_DIR}/lib"
+  fi
+
+  # Bundle model files directory
+  echo ">>> Bundling model files..."
+  MODEL_DIR="${PROJECT_ROOT}/alcedo_studio/src/config/models"
+  if [ -d "${MODEL_DIR}" ]; then
+    mkdir -p "${APPDIR}/usr/share/${APP_NAME_LOWER}/models"
+    cp -r "${MODEL_DIR}/"* "${APPDIR}/usr/share/${APP_NAME_LOWER}/models/" 2>/dev/null || true
+  fi
+
   # Use linuxdeployqt if available, otherwise manual approach
   if command -v linuxdeployqt &>/dev/null; then
     linuxdeployqt "${APPDIR}/usr/share/applications/AlcedoStudio.desktop" \
@@ -182,6 +262,13 @@ if [ "${MAKE_DEB}" = true ]; then
   # Copy staging files
   cp -r "${STAGING_DIR}/usr" "${DEB_DIR}/"
 
+  # Install model files into the deb package
+  MODEL_DIR="${PROJECT_ROOT}/alcedo_studio/src/config/models"
+  if [ -d "${MODEL_DIR}" ]; then
+    mkdir -p "${DEB_DIR}/usr/share/${APP_NAME_LOWER}/models"
+    cp -r "${MODEL_DIR}/"* "${DEB_DIR}/usr/share/${APP_NAME_LOWER}/models/" 2>/dev/null || true
+  fi
+
   # Generate control file
   cat > "${DEB_DIR}/DEBIAN/control" << CONTROLEOF
 Package: ${APP_NAME_LOWER}
@@ -189,7 +276,7 @@ Version: ${VERSION}
 Section: graphics
 Priority: optional
 Architecture: ${ARCH}
-Depends: libc6 (>= 2.31), libgcc-s1 (>= 10), libstdc++6 (>= 10), libgl1, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libglib2.0-0, libpng16-16, libjpeg-turbo8 | libjpeg8, libtiff5 | libtiff6, libopenexr25 | libopenexr-3-1-30, liblcms2-2
+Depends: libc6 (>= 2.31), libgcc-s1 (>= 10), libstdc++6 (>= 10), libgl1, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libglib2.0-0, libpng16-16, libjpeg-turbo8 | libjpeg8, libtiff5 | libtiff6, libopenexr25 | libopenexr-3-1-30, liblcms2-2, libonnxruntime (>= 1.17) | onnxruntime (>= 1.17)
 Maintainer: AlcedoStudio Team <dev@alcedo.studio>
 Description: Professional RAW image editor with AI-powered tools
  AlcedoStudio is a professional RAW image editor featuring
