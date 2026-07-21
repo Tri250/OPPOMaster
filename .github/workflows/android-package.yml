@@ -1,0 +1,201 @@
+name: Android Package
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-build:
+    name: Android APK (arm64-v8a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      QT_VERSION: "6.9.3"
+      NDK_VERSION: "27.2.12479018"
+      ABI: "arm64-v8a"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Prepare third-party source trees
+        run: bash scripts/ci_prepare_third_party.sh
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          set -euo pipefail
+          echo "y" | sdkmanager --install "ndk;${{ env.NDK_VERSION }}"
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> "$GITHUB_ENV"
+
+      - name: Install Qt for Android
+        run: |
+          set -euo pipefail
+          pip install aqtinstall
+          QT_ANDROID_DIR="${{ runner.temp }}/Qt/${QT_VERSION}/android_arm64_v8a"
+          aqt install-qt linux desktop "${QT_VERSION}" gcc_64 -O "${{ runner.temp }}/Qt"
+          aqt install-qt linux android "${QT_VERSION}" android_arm64_v8a -O "${{ runner.temp }}/Qt" -m qtnetworkauth
+          echo "QT_ANDROID_DIR=${QT_ANDROID_DIR}" >> "$GITHUB_ENV"
+          echo "QT_HOST_DIR=${{ runner.temp }}/Qt/${QT_VERSION}/gcc_64" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+
+      - name: Install OpenCV for Android
+        run: |
+          set -euo pipefail
+          OPENCV_VERSION="4.10.0"
+          OPENCV_ANDROID_DIR="${{ runner.temp }}/opencv-android"
+          mkdir -p "${OPENCV_ANDROID_DIR}"
+          curl -fSL -o /tmp/opencv-android.zip \
+            "https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/opencv-${OPENCV_VERSION}-android-sdk.zip"
+          unzip -q /tmp/opencv-android.zip -d "${OPENCV_ANDROID_DIR}"
+          echo "OPENCV_ANDROID_DIR=${OPENCV_ANDROID_DIR}/OpenCV-android-sdk" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          mkdir -p build/android-release
+          cd build/android-release
+
+          QT_TOOLCHAIN="${QT_ANDROID_DIR}/lib/cmake/Qt6/qt.toolchain.cmake"
+
+          cmake "${GITHUB_WORKSPACE}" \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="${QT_TOOLCHAIN}" \
+            -DQT_HOST_PATH="${QT_HOST_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DANDROID_ABI="${ABI}" \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_SYSTEM_VERSION=24 \
+            -DCMAKE_ANDROID_ARCH_ABI="${ABI}" \
+            -DANDROID_NDK="${ANDROID_NDK}" \
+            -DANDROID_SDK="${ANDROID_HOME}" \
+            -DALCEDO_ENABLE_CUDA=OFF \
+            -DALCEDO_ENABLE_METAL=OFF \
+            -DALCEDO_ENABLE_OPENCL=OFF \
+            -DALCEDO_ENABLE_OPENGL_EDITOR=OFF \
+            -DALCEDO_ENABLE_ANDROID=ON \
+            -DALCEDO_BUILD_TESTS=OFF \
+            -DALCEDO_BUILD_SEMANTIC_SIDECAR=OFF \
+            -DOpenCV_DIR="${OPENCV_ANDROID_DIR}/sdk/native/jni"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cd build/android-release
+          cmake --build . --parallel "$(nproc)"
+
+      - name: Package APK
+        run: |
+          set -euo pipefail
+          cd build/android-release
+
+          # Find the deployment settings file
+          DEPLOY_SETTINGS=$(find . -name "*android*deployment*settings*.json" -type f | head -1)
+
+          if [[ -z "${DEPLOY_SETTINGS}" ]]; then
+            echo "WARNING: Deployment settings not found; attempting manual APK packaging."
+            echo "The APK may need to be created manually with androiddeployqt."
+            exit 0
+          fi
+
+          echo "Found deployment settings: ${DEPLOY_SETTINGS}"
+
+          ANDROIDDEPLOYQT="${QT_ANDROID_DIR}/bin/androiddeployqt"
+
+          if [[ ! -x "${ANDROIDDEPLOYQT}" ]]; then
+            echo "ERROR: androiddeployqt not found at ${ANDROIDDEPLOYQT}" >&2
+            exit 1
+          fi
+
+          mkdir -p android-build
+
+          "${ANDROIDDEPLOYQT}" \
+            --output android-build \
+            --input "${DEPLOY_SETTINGS}" \
+            --android-platform android-34 \
+            --jdk "${JAVA_HOME}" \
+            --release
+
+      - name: Sign APK with debug key
+        run: |
+          set -euo pipefail
+          BUILD_DIR="build/android-release"
+
+          # Find the APK
+          APK_FILE=$(find "${BUILD_DIR}" -name "*.apk" -type f | head -1 || true)
+
+          if [[ -z "${APK_FILE}" ]]; then
+            echo "No APK file found; skipping signing."
+            exit 0
+          fi
+
+          echo "Found APK: ${APK_FILE}"
+
+          # Create a debug keystore if not present
+          DEBUG_KEYSTORE="${HOME}/.android/debug.keystore"
+          mkdir -p "$(dirname "${DEBUG_KEYSTORE}")"
+
+          if [[ ! -f "${DEBUG_KEYSTORE}" ]]; then
+            keytool -genkey -v -keystore "${DEBUG_KEYSTORE}" \
+              -alias androiddebugkey -storepass android -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # Find apksigner
+          BUILD_TOOLS_DIR="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools/" | sort -V | tail -1)"
+          APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+          ZIPALIGN="${BUILD_TOOLS_DIR}/zipalign"
+
+          if [[ -x "${APKSIGNER}" ]]; then
+            SIGNED_APK="${APK_FILE%.apk}-debug-signed.apk"
+
+            if [[ -x "${ZIPALIGN}" ]]; then
+              ALIGNED_APK="${APK_FILE%.apk}-aligned.apk"
+              "${ZIPALIGN}" -f 4 "${APK_FILE}" "${ALIGNED_APK}"
+              APK_FILE="${ALIGNED_APK}"
+            fi
+
+            "${APKSIGNER}" sign \
+              --ks "${DEBUG_KEYSTORE}" \
+              --ks-pass "pass:android" \
+              --ks-key-alias androiddebugkey \
+              --out "${SIGNED_APK}" \
+              "${APK_FILE}"
+
+            echo "Signed APK: ${SIGNED_APK}"
+          else
+            echo "WARNING: apksigner not found; APK will be unsigned."
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-v8a-apk
+          path: build/android-release/**/*.apk
+          if-no-files-found: warn

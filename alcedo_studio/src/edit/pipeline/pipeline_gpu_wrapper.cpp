@@ -19,6 +19,10 @@ auto CreateMetalGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
 #ifdef HAVE_OPENCL
 auto CreateOpenCLGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
 #endif
+#ifdef HAVE_OPENGL_ES
+// Forward declaration — defined in gles_pipeline.cpp
+auto CreateGlesGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
+#endif
 
 namespace {
 class UnavailableGPUPipeline final : public GPUPipelineImpl {
@@ -55,6 +59,12 @@ auto CreateGPUPipeline(const GpuBackendKind backend) -> std::unique_ptr<GPUPipel
     case GpuBackendKind::OpenCL:
 #ifdef HAVE_OPENCL
       return CreateOpenCLGPUPipeline();
+#else
+      break;
+#endif
+    case GpuBackendKind::OpenGLES:
+#ifdef HAVE_OPENGL_ES
+      return CreateGlesGPUPipeline();
 #else
       break;
 #endif

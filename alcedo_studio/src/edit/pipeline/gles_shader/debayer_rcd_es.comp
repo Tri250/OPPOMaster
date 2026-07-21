@@ -1,0 +1,102 @@
+//  Copyright 2026 Yurun Zi
+//  SPDX-License-Identifier: GPL-3.0-only
+//  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
+
+// RCD (Ratio of Correlation and Direction) demosaic for OpenGL ES 3.0+
+// This compute shader implements the RCD algorithm for Bayer CFA patterns.
+
+#version 310 es
+precision highp float;
+precision highp sampler2D;
+precision highp image2D;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba16f) writeonly image2D u_output;
+layout(binding = 1) uniform sampler2D u_input;
+
+uniform int u_width;
+uniform int u_height;
+uniform int u_bayer_pattern;  // 0=RGGB, 1=GRBG, 2=GBRG, 3=BGRG
+
+// Get Bayer value at (x, y) — the raw sensor data
+float getRaw(ivec2 p) {
+    p = clamp(p, ivec2(0), ivec2(u_width - 1, u_height - 1));
+    return texelFetch(u_input, p, 0).r;
+}
+
+// Determine the color channel at a given position based on the Bayer pattern
+ivec3 bayerColor(ivec2 p, int pattern) {
+    int x = p.x & 1;
+    int y = p.y & 1;
+    switch (pattern) {
+        case 0: return (y == 0) ? ((x == 0) ? ivec3(1,0,0) : ivec3(0,1,0))
+                                : ((x == 0) ? ivec3(0,1,0) : ivec3(0,0,1));
+        case 1: return (y == 0) ? ((x == 0) ? ivec3(0,1,0) : ivec3(1,0,0))
+                                : ((x == 0) ? ivec3(0,0,1) : ivec3(0,1,0));
+        case 2: return (y == 0) ? ((x == 0) ? ivec3(0,1,0) : ivec3(0,0,1))
+                                : ((x == 0) ? ivec3(1,0,0) : ivec3(0,1,0));
+        case 3: return (y == 0) ? ((x == 0) ? ivec3(0,0,1) : ivec3(0,1,0))
+                                : ((x == 0) ? ivec3(0,1,0) : ivec3(1,0,0));
+    }
+    return ivec3(0,1,0);
+}
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_width || gid.y >= u_height) return;
+
+    int x = gid.x;
+    int y = gid.y;
+    ivec3 col = bayerColor(gid, u_bayer_pattern);
+
+    float r = 0.0, g = 0.0, b = 0.0;
+
+    if (col.r == 1) {
+        // Red pixel: R is known, interpolate G and B
+        r = getRaw(ivec2(x, y));
+        // Green at red: bilinear from 4 cardinal neighbors
+        g = (getRaw(ivec2(x-1, y)) + getRaw(ivec2(x+1, y)) +
+             getRaw(ivec2(x, y-1)) + getRaw(ivec2(x, y+1))) * 0.25;
+        // Blue at red: diagonal average
+        b = (getRaw(ivec2(x-1, y-1)) + getRaw(ivec2(x+1, y-1)) +
+             getRaw(ivec2(x-1, y+1)) + getRaw(ivec2(x+1, y+1))) * 0.25;
+    } else if (col.g == 1) {
+        // Green pixel: G is known, interpolate R and B
+        g = getRaw(ivec2(x, y));
+        // Determine if on a red-row or blue-row green
+        bool on_red_row;
+        switch (u_bayer_pattern) {
+            case 0: on_red_row = (y & 1) == 0; break;
+            case 1: on_red_row = (y & 1) == 0 && (x & 1) == 1; break;
+            case 2: on_red_row = (y & 1) == 1 && (x & 1) == 0; break;
+            case 3: on_red_row = (y & 1) == 1 && (x & 1) == 1; break;
+            default: on_red_row = false; break;
+        }
+
+        if (on_red_row) {
+            // Green on red row: R is horizontal, B is vertical
+            r = (getRaw(ivec2(x-1, y)) + getRaw(ivec2(x+1, y))) * 0.5;
+            b = (getRaw(ivec2(x, y-1)) + getRaw(ivec2(x, y+1))) * 0.5;
+        } else {
+            // Green on blue row: R is vertical, B is horizontal
+            r = (getRaw(ivec2(x, y-1)) + getRaw(ivec2(x, y+1))) * 0.5;
+            b = (getRaw(ivec2(x-1, y)) + getRaw(ivec2(x+1, y))) * 0.5;
+        }
+    } else {
+        // Blue pixel: B is known, interpolate R and G
+        b = getRaw(ivec2(x, y));
+        // Green at blue: bilinear from 4 cardinal neighbors
+        g = (getRaw(ivec2(x-1, y)) + getRaw(ivec2(x+1, y)) +
+             getRaw(ivec2(x, y-1)) + getRaw(ivec2(x, y+1))) * 0.25;
+        // Red at blue: diagonal average
+        r = (getRaw(ivec2(x-1, y-1)) + getRaw(ivec2(x+1, y-1)) +
+             getRaw(ivec2(x-1, y+1)) + getRaw(ivec2(x+1, y+1))) * 0.25;
+    }
+
+    // Clamp to valid range
+    r = max(r, 0.0);
+    g = max(g, 0.0);
+    b = max(b, 0.0);
+
+    imageStore(u_output, gid, vec4(r, g, b, 1.0));
+}

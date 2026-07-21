@@ -16,6 +16,7 @@ enum class AcceleratorBackendPreference {
   CUDA,
   OpenCL,
   Metal,
+  OpenGLES,
 };
 
 auto ResolveAcceleratorBackend(AcceleratorBackendPreference preference) -> GpuBackendKind;

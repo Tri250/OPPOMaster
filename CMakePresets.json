@@ -142,6 +142,28 @@
         "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install"
       }
+    },
+    {
+      "name": "android_release",
+      "displayName": "Android Release (arm64-v8a)",
+      "description": "Android: OpenGL ES 3.0 build for arm64-v8a with no CUDA/Metal/OpenCL",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/android-release",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "Android",
+        "CMAKE_SYSTEM_VERSION": "24",
+        "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a",
+        "ANDROID_ABI": "arm64-v8a",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_METAL": "OFF",
+        "ALCEDO_ENABLE_OPENCL": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_ENABLE_ANDROID": "ON",
+        "ALCEDO_BUILD_TESTS": "OFF",
+        "ALCEDO_BUILD_SEMANTIC_SIDECAR": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -216,6 +238,11 @@
       "targets": [
         "macos_package"
       ]
+    },
+    {
+      "name": "android_release",
+      "configurePreset": "android_release",
+      "jobs": 8
     }
   ],
   "testPresets": [

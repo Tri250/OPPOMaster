@@ -20,12 +20,18 @@
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QtGlobal>
+#include <QKeyEvent>
 
 #include <exiv2/error.hpp>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#include <QtAndroid>
+#endif
 
 #include "app/crash_reporter.hpp"
 #include "app/update_checker.hpp"
@@ -56,6 +62,10 @@
 #include "utils/font/cjk_font_manager.hpp"
 #include "utils/gpu/gpu_capability_detector.hpp"
 #include "utils/config/app_config.hpp"
+
+#ifdef Q_OS_ANDROID
+#include "utils/android/android_platform.hpp"
+#endif
 
 #if defined(Q_OS_WIN) && defined(HAVE_OPENCL)
 #include <QtGui/qopenglcontext_platform.h>
@@ -150,6 +160,35 @@ class OpenClGlSharingBootstrap {
 
 }  // namespace
 
+#ifdef Q_OS_ANDROID
+/// Android back-button event filter: intercepts Key_Back and invokes
+/// the QML stack navigator instead of letting Qt close the application.
+class AndroidBackButtonFilter : public QObject {
+ public:
+  explicit AndroidBackButtonFilter(QApplication* app) : app_(app) {}
+
+ protected:
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    if (event->type() == QEvent::KeyRelease) {
+      auto* key_event = static_cast<QKeyEvent*>(event);
+      if (key_event->key() == Qt::Key_Back) {
+        // Find the top-level window and try to navigate back.
+        // If no QML handler consumes the back event, minimize the app
+        // instead of exiting (Android convention).
+        if (auto* window = app_->topLevelWindows().first()) {
+          Q_EMIT window->close();  // Let QML decide via onClosing handler
+          return true;             // Consume the event
+        }
+      }
+    }
+    return QObject::eventFilter(watched, event);
+  }
+
+ private:
+  QApplication* app_;
+};
+#endif
+
 // P1-8: Configure Qt application-level color space support.
 // Sets the default QSurfaceFormat to request sRGB-capable framebuffer,
 // and registers display profile change callbacks so the color management
@@ -201,6 +240,14 @@ int main(int argc, char* argv[]) {
   QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 #endif
 
+#ifdef Q_OS_ANDROID
+  // Android-specific application attributes
+  QGuiApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+  // Enable smooth scaling for Android's variable DPI screens
+  QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+      Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#endif
+
   // ── Initialize CrashReporter early (before UI) ───────────────
   alcedo::CrashReporter crash_reporter;
   crash_reporter.Initialize();
@@ -208,7 +255,10 @@ int main(int argc, char* argv[]) {
 
   alcedo::TimeProvider::Refresh();
   alcedo::RegisterAllOperators();
+#ifndef Q_OS_ANDROID
+  // Exiv2 may not be available on Android; skip log level configuration.
   Exiv2::LogMsg::setLevel(Exiv2::LogMsg::Level::error);
+#endif
 
   QApplication app(argc, argv);
   QCoreApplication::setOrganizationName(QStringLiteral("Alcedo"));
@@ -243,6 +293,31 @@ int main(int argc, char* argv[]) {
                      alcedo::ui::AppTheme::ApplyApplicationFont(app);
                    });
   QQuickStyle::setStyle("Material");
+
+#ifdef Q_OS_ANDROID
+  // ── Android-specific initialization ────────────────────────────
+  {
+    // Request storage permission at startup for photo import
+    auto& android_platform = alcedo::android::AndroidPlatform::Instance();
+    android_platform.RequestStoragePermission();
+
+    // Log Android display information for diagnostics
+    auto display_info = android_platform.GetDisplayInfo();
+    qCInfo(alcedo::diag::appLog).noquote()
+        << QStringLiteral("app.android display=%1x%2 dpi=%3 density=%4 refresh=%5")
+               .arg(display_info.width_pixels)
+               .arg(display_info.height_pixels)
+               .arg(display_info.density_dpi)
+               .arg(display_info.density_scale)
+               .arg(display_info.refresh_rate_hz);
+
+    qCInfo(alcedo::diag::appLog).noquote()
+        << QStringLiteral("app.android hdr=%1 internal=%2 cache=%3")
+               .arg(android_platform.IsHdrSupported() ? "yes" : "no")
+               .arg(QString::fromStdString(android_platform.GetInternalStoragePath()))
+               .arg(QString::fromStdString(android_platform.GetCachePath()));
+  }
+#endif
 
   // Initialize CJK font fallback chain for optimal Chinese/Japanese/Korean rendering.
   alcedo::font::CjkFontManager::Instance().Initialize();
@@ -327,10 +402,31 @@ int main(int argc, char* argv[]) {
   alcedo::ui::QmlHdrManagerBridge hdr_manager_bridge(&app);
   engine.rootContext()->setContextProperty("hdrManager", &hdr_manager_bridge);
 
+#ifdef Q_OS_ANDROID
+  // ── Register AndroidPlatform as QML context property ──────────
+  engine.rootContext()->setContextProperty(
+      "androidPlatform", &alcedo::android::AndroidPlatform::Instance());
+
+  // ── Handle Android back button ────────────────────────────────
+  // On Android, the system back button should close the topmost
+  // dialog or navigate back in the QML stack rather than exit the app.
+  QObject::connect(&app, &QGuiApplication::platformSurfaceChanged,
+                   &app, [](QPlatformSurface* surface) {
+    Q_UNUSED(surface)
+  });
+#endif
+
   QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                    []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
 
   engine.loadFromModule("Alcedo.Main", "Main");
+
+#ifdef Q_OS_ANDROID
+  // Install the Android back-button event filter on the application.
+  // This must happen after the QApplication is created.
+  static AndroidBackButtonFilter back_button_filter(&app);
+  app.installEventFilter(&back_button_filter);
+#endif
 
   // ── Trigger update check after window shows ───────────────────
   QTimer::singleShot(2000, &update_checker, &alcedo::UpdateChecker::MaybeCheckForUpdate);

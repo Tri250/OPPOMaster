@@ -153,6 +153,21 @@ auto GpuCapabilityDetector::Detect() -> GpuCapabilityInfo {
   return info;
 #endif
 
+#elif defined(Q_OS_ANDROID)
+  // On Android, use OpenGL ES 3.0+ for GPU acceleration.
+#ifdef HAVE_OPENGL_ES
+  info.capability_level = GpuCapabilityLevel::Limited;
+  info.recommended_backend = GpuBackendKind::OpenGLES;
+  info.gpu_adapter_name = "OpenGL ES";
+  info.detail = "OpenGL ES GPU acceleration is available (limited feature set).";
+  return info;
+#else
+  info.capability_level = GpuCapabilityLevel::SoftwareOnly;
+  info.recommended_backend = GpuBackendKind::None;
+  info.detail = "OpenGL ES backend is not compiled. Using CPU-only pipeline.";
+  return info;
+#endif
+
 #elif defined(_WIN32)
   // On Windows, check CUDA driver version first.
   // If the CUDA driver is too old (< 570.xx), fall back to OpenCL or CPU.

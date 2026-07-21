@@ -73,6 +73,24 @@ void CjkFontManager::BuildFallbackChain() {
       QStringLiteral("Heiti SC"),
   };
 
+#elif defined(Q_OS_ANDROID)
+  // Android: Noto Sans CJK SC is the system CJK font on Android 5.0+
+  static const QStringList kAndroidCjkCandidates = {
+      QStringLiteral("Noto Sans CJK SC"),
+      QStringLiteral("Noto Sans CJK"),
+      QStringLiteral("Noto Sans SC"),
+      QStringLiteral("Droid Sans Fallback"),
+      QStringLiteral("Noto Serif CJK SC"),
+  };
+  primary_cjk_family_ = DetectAvailableFont(kAndroidCjkCandidates);
+  cjk_fallback_chain_ = QStringList{
+      QStringLiteral("Noto Sans CJK SC"),
+      QStringLiteral("Noto Sans CJK"),
+      QStringLiteral("Noto Sans SC"),
+      QStringLiteral("Droid Sans Fallback"),
+      QStringLiteral("Noto Serif CJK SC"),
+  };
+
 #else
   // Linux: Noto Sans CJK SC → WenQuanYi Micro Hei → system default
   static const QStringList kLinuxCjkCandidates = {

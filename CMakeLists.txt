@@ -22,22 +22,31 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # set(BUILD_STATIC_LIBS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(APPLE)
+if(ANDROID)
+    set(ALCEDO_ENABLE_CUDA_DEFAULT OFF)
+    set(ALCEDO_ENABLE_METAL_DEFAULT OFF)
+    set(ALCEDO_ENABLE_OPENCL_DEFAULT OFF)
+    set(ALCEDO_ENABLE_OPENGL_EDITOR_DEFAULT OFF)
+    set(ALCEDO_ENABLE_ANDROID_DEFAULT ON)
+elseif(APPLE)
     set(ALCEDO_ENABLE_CUDA_DEFAULT OFF)
     set(ALCEDO_ENABLE_METAL_DEFAULT ON)
     set(ALCEDO_ENABLE_OPENCL_DEFAULT OFF)
     set(ALCEDO_ENABLE_OPENGL_EDITOR_DEFAULT OFF)
+    set(ALCEDO_ENABLE_ANDROID_DEFAULT OFF)
 else()
     set(ALCEDO_ENABLE_CUDA_DEFAULT ON)
     set(ALCEDO_ENABLE_METAL_DEFAULT OFF)
     set(ALCEDO_ENABLE_OPENCL_DEFAULT ON)
     set(ALCEDO_ENABLE_OPENGL_EDITOR_DEFAULT ON)
+    set(ALCEDO_ENABLE_ANDROID_DEFAULT OFF)
 endif()
 
 option(ALCEDO_ENABLE_CUDA "Enable CUDA-accelerated pipeline backends when CUDA is available." ${ALCEDO_ENABLE_CUDA_DEFAULT})
 option(ALCEDO_ENABLE_METAL "Enable Metal-accelerated pipeline backends when building on Apple platforms." ${ALCEDO_ENABLE_METAL_DEFAULT})
 option(ALCEDO_ENABLE_OPENCL "Enable OpenCL support when the OpenCL SDK/ICD loader is available." ${ALCEDO_ENABLE_OPENCL_DEFAULT})
 option(ALCEDO_ENABLE_OPENGL_EDITOR "Build the OpenGL-based editor UI when the required backend is available." ${ALCEDO_ENABLE_OPENGL_EDITOR_DEFAULT})
+option(ALCEDO_ENABLE_ANDROID "Enable Android platform support with OpenGL ES and Android-specific adaptations." ${ALCEDO_ENABLE_ANDROID_DEFAULT})
 option(ALCEDO_BUILD_TESTS "Build alcedo tests and demos." ON)
 option(ALCEDO_MACOS_BUNDLE
        "Build alcedo_main as a macOS .app bundle (intended for packaging/install)."
@@ -190,6 +199,13 @@ else()
     if(APPLE)
         add_compile_definitions(__MACOSX_CORE__)
     endif()
+
+    # Android-specific compile flags and definitions
+    if(ANDROID)
+        add_compile_definitions(HAVE_OPENGL_ES)
+        add_compile_options(-fno-rtti)
+        # Disable OpenMP on Android — use std::thread fallback
+    endif()
 endif()
 
 # Qt6
@@ -295,7 +311,14 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
         endif()
     endif()
 endif()
-find_package(OpenMP COMPONENTS CXX REQUIRED)
+if(ANDROID)
+    # OpenMP is not reliably available on Android; use std::thread fallback.
+    set(ALCEDO_OPENMP_ENABLED OFF)
+    message(STATUS "OpenMP disabled on Android; using std::thread fallback.")
+else()
+    find_package(OpenMP COMPONENTS CXX REQUIRED)
+    set(ALCEDO_OPENMP_ENABLED ON)
+endif()
 
 # Headers-only libraries
 # UUID
@@ -405,45 +428,57 @@ else()
 endif()
    
 # OpenImageIO
-find_package(OpenImageIO CONFIG QUIET)
-if (NOT TARGET OpenImageIO::OpenImageIO)
-    if (TARGET OpenImageIO)
-        add_library(OpenImageIO::OpenImageIO ALIAS OpenImageIO)
-    else()
-        find_library(OPENIMAGEIO_LIB NAMES OpenImageIO PATHS ${ALCEDO_LIBRARY_HINTS})
-        find_path(OPENIMAGEIO_INC NAMES OpenImageIO/imageio.h PATHS ${ALCEDO_INCLUDE_HINTS})
-        if(OPENIMAGEIO_LIB AND OPENIMAGEIO_INC)
-            add_library(OpenImageIO::OpenImageIO SHARED IMPORTED)
-            set_target_properties(OpenImageIO::OpenImageIO PROPERTIES
-                IMPORTED_LOCATION "${OPENIMAGEIO_LIB}"
-                INTERFACE_INCLUDE_DIRECTORIES "${OPENIMAGEIO_INC}"
-            )
+set(ALCEDO_OPENIMAGEIO_ENABLED ON)
+if(ANDROID)
+    set(ALCEDO_OPENIMAGEIO_ENABLED OFF)
+    message(STATUS "OpenImageIO disabled on Android (not yet ported); using fallback image I/O.")
+else()
+    find_package(OpenImageIO CONFIG QUIET)
+    if (NOT TARGET OpenImageIO::OpenImageIO)
+        if (TARGET OpenImageIO)
+            add_library(OpenImageIO::OpenImageIO ALIAS OpenImageIO)
         else()
-            message(FATAL_ERROR "OpenImageIO not found. Install via Homebrew (openimageio) or set CMAKE_PREFIX_PATH to its prefix.")
+            find_library(OPENIMAGEIO_LIB NAMES OpenImageIO PATHS ${ALCEDO_LIBRARY_HINTS})
+            find_path(OPENIMAGEIO_INC NAMES OpenImageIO/imageio.h PATHS ${ALCEDO_INCLUDE_HINTS})
+            if(OPENIMAGEIO_LIB AND OPENIMAGEIO_INC)
+                add_library(OpenImageIO::OpenImageIO SHARED IMPORTED)
+                set_target_properties(OpenImageIO::OpenImageIO PROPERTIES
+                    IMPORTED_LOCATION "${OPENIMAGEIO_LIB}"
+                    INTERFACE_INCLUDE_DIRECTORIES "${OPENIMAGEIO_INC}"
+                )
+            else()
+                message(FATAL_ERROR "OpenImageIO not found. Install via Homebrew (openimageio) or set CMAKE_PREFIX_PATH to its prefix.")
+            endif()
         endif()
     endif()
 endif()
 
 # Exiv2
-find_package(Exiv2 QUIET CONFIG)
-if (TARGET Exiv2::Exiv2 AND NOT TARGET Exiv2)
-    add_library(Exiv2 ALIAS Exiv2::Exiv2)
-elseif(WIN32)
-    add_library(Exiv2 SHARED IMPORTED)
-    set_target_properties(Exiv2 PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/bin/exiv2.dll"
-        IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/lib/exiv2.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/include"
-    )
+set(ALCEDO_EXIV2_ENABLED ON)
+if(ANDROID)
+    set(ALCEDO_EXIV2_ENABLED OFF)
+    message(STATUS "Exiv2 disabled on Android (requires Android patches); metadata support will be limited.")
 else()
-  find_library(EXIV2_LIB NAMES exiv2 PATHS ${ALCEDO_LIBRARY_HINTS})
-  find_path(EXIV2_INC NAMES exiv2/exiv2.hpp PATHS ${ALCEDO_INCLUDE_HINTS})
-  if(EXIV2_LIB AND EXIV2_INC)
-    add_library(Exiv2 SHARED IMPORTED)
-    set_target_properties(Exiv2 PROPERTIES IMPORTED_LOCATION "${EXIV2_LIB}" INTERFACE_INCLUDE_DIRECTORIES "${EXIV2_INC}")
-  else()
-    message(FATAL_ERROR "Exiv2 not found. Install via Homebrew (exiv2) or set CMAKE_PREFIX_PATH to its prefix.")
-  endif()
+    find_package(Exiv2 QUIET CONFIG)
+    if (TARGET Exiv2::Exiv2 AND NOT TARGET Exiv2)
+        add_library(Exiv2 ALIAS Exiv2::Exiv2)
+    elseif(WIN32)
+        add_library(Exiv2 SHARED IMPORTED)
+        set_target_properties(Exiv2 PROPERTIES
+            IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/bin/exiv2.dll"
+            IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/lib/exiv2.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/include"
+        )
+    else()
+      find_library(EXIV2_LIB NAMES exiv2 PATHS ${ALCEDO_LIBRARY_HINTS})
+      find_path(EXIV2_INC NAMES exiv2/exiv2.hpp PATHS ${ALCEDO_INCLUDE_HINTS})
+      if(EXIV2_LIB AND EXIV2_INC)
+        add_library(Exiv2 SHARED IMPORTED)
+        set_target_properties(Exiv2 PROPERTIES IMPORTED_LOCATION "${EXIV2_LIB}" INTERFACE_INCLUDE_DIRECTORIES "${EXIV2_INC}")
+      else()
+        message(FATAL_ERROR "Exiv2 not found. Install via Homebrew (exiv2) or set CMAKE_PREFIX_PATH to its prefix.")
+      endif()
+    endif()
 endif()
 
 # DuckDB API
@@ -728,6 +763,27 @@ endif()
 
 set(ALCEDO_MAIN_BIN alcedo_main)
 if(TARGET ${ALCEDO_MAIN_BIN})
+    # Android-specific linking and deployment
+    if(ANDROID AND ALCEDO_ENABLE_ANDROID)
+        find_package(Qt6 REQUIRED COMPONENTS Core)
+        # Android platform libraries
+        target_link_libraries(${ALCEDO_MAIN_BIN} PRIVATE
+            log
+            android
+            GLESv3
+            EGL
+        )
+        # Set Android deployment settings
+        set(ANDROID_API_LEVEL 24)
+        set(QT_ANDROID_BUILD_ALL_ABIS OFF CACHE BOOL "Build only the target ABI" FORCE)
+
+        # Android APK packaging via androiddeployqt
+        set(QT_ANDROID_PACKAGE_SOURCE_DIR
+            "${CMAKE_SOURCE_DIR}/packaging/android"
+            CACHE PATH "Android package source directory"
+        )
+    endif()
+
     if(APPLE AND ALCEDO_MACOS_BUNDLE)
         # Match the app bundle name to the QML module URI (Alcedo.Main)
         # so that Qt's QML deploy puts files in the correct bundle.

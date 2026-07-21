@@ -1,0 +1,135 @@
+//  Copyright 2026 Yurun Zi
+//  SPDX-License-Identifier: GPL-3.0-only
+//  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
+
+// Basic tone mapping compute shader for OpenGL ES 3.0+
+// Implements: Reinhard, ACES Filmic, and simple exposure-based tone mapping
+// with highlight/shadow recovery and vibrance control.
+
+#version 310 es
+precision highp float;
+precision highp sampler2D;
+precision highp image2D;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba16f) writeonly image2D u_output;
+layout(binding = 1) uniform sampler2D u_input;
+
+uniform int u_width;
+uniform int u_height;
+uniform int u_method;          // 0=Reinhard, 1=ACES Filmic
+uniform float u_exposure;      // Exposure compensation in EV
+uniform float u_highlight;     // Highlight recovery amount [-1, 1]
+uniform float u_shadow;        // Shadow recovery amount [-1, 1]
+uniform float u_white_point;   // White point for Reinhard
+uniform float u_vibrance;      // Vibrance amount
+uniform float u_saturation;    // Global saturation
+
+// ── ACES Filmic tone mapping ─────────────────────────────────────
+
+vec3 acesFilmic(vec3 x) {
+    // Stephen Hill's fit of the ACES curve
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+// ── Reinhard tone mapping ────────────────────────────────────────
+
+vec3 reinhardToneMap(vec3 color, float white) {
+    vec3 mapped = color / (1.0 + color);
+    if (white > 0.0) {
+        float white_sq = white * white;
+        mapped = mapped * (1.0 + mapped / white_sq) / (1.0 + mapped);
+    }
+    return mapped;
+}
+
+// ── sRGB encoding ────────────────────────────────────────────────
+
+vec3 linearToSrgb(vec3 linear) {
+    vec3 srgb_low  = linear * 12.92;
+    vec3 srgb_high = 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055;
+    vec3 selector  = step(0.0031308, linear);
+    return mix(srgb_low, srgb_high, selector);
+}
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_width || gid.y >= u_height) return;
+
+    vec4 px = texelFetch(u_input, gid, 0);
+    vec3 color = px.rgb;
+
+    // Apply exposure compensation
+    color *= pow(2.0, u_exposure);
+
+    // Luminance calculation (Rec.709)
+    float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+
+    // Highlight recovery: compress highlights above mid-gray
+    if (u_highlight != 0.0) {
+        float highlight_mask = smoothstep(0.5, 1.5, lum);
+        if (u_highlight < 0.0) {
+            // Reduce highlights
+            color = mix(color, color * (1.0 + u_highlight * 0.5), highlight_mask);
+        } else {
+            // Recover highlights by pulling down the top end
+            vec3 compressed = color / (1.0 + color * u_highlight * 0.3);
+            color = mix(color, compressed, highlight_mask);
+        }
+    }
+
+    // Shadow recovery: lift shadows below mid-gray
+    if (u_shadow != 0.0) {
+        float shadow_mask = 1.0 - smoothstep(0.0, 0.5, lum);
+        if (u_shadow > 0.0) {
+            // Lift shadows
+            color = color + u_shadow * 0.15 * shadow_mask;
+        } else {
+            // Crush shadows
+            color = color * (1.0 + u_shadow * 0.5 * shadow_mask);
+        }
+    }
+
+    // Recalculate luminance after highlight/shadow adjustments
+    lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+
+    // Apply tone mapping
+    switch (u_method) {
+        case 0:  // Reinhard
+            color = reinhardToneMap(color, u_white_point);
+            break;
+        case 1:  // ACES Filmic
+            color = acesFilmic(color);
+            break;
+    }
+
+    // Vibrance: boost saturation of less-saturated pixels
+    if (u_vibrance != 0.0) {
+        float max_c = max(color.r, max(color.g, color.b));
+        float min_c = min(color.r, min(color.g, color.b));
+        float chroma = max_c - min_c;
+        float sat = chroma / max(max_c, 0.001);
+        float vibrance_amount = u_vibrance * (1.0 - sat);
+        vec3 lifted = mix(vec3(lum), color, 1.0 + vibrance_amount);
+        color = lifted;
+    }
+
+    // Global saturation
+    if (u_saturation != 1.0) {
+        float new_lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        color = mix(vec3(new_lum), color, u_saturation);
+    }
+
+    // Ensure non-negative
+    color = max(color, 0.0);
+
+    // Convert to sRGB for display
+    color = linearToSrgb(color);
+
+    imageStore(u_output, gid, vec4(color, px.a));
+}

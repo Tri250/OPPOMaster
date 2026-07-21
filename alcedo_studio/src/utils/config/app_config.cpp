@@ -16,6 +16,10 @@
 #include <QDir>
 #include <QStandardPaths>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
+
 #include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
@@ -26,7 +30,30 @@ namespace {
 ///   Windows: %APPDATA%/AlcedoStudio/config.json
 ///   macOS:   ~/Library/Application Support/AlcedoStudio/config.json
 ///   Linux:   ~/.config/AlcedoStudio/config.json
+///   Android: <app_private_files>/AlcedoStudio/config.json
 auto GetStandardConfigPath() -> std::filesystem::path {
+#ifdef Q_OS_ANDROID
+  // On Android, QStandardPaths::AppDataLocation may not resolve correctly.
+  // Use Context.getFilesDir() via JNI for the app-private storage path.
+  QJniObject activity = QJniObject::callStaticObjectMethod(
+      "org/qtproject/qt/android/bindings/QtActivity",
+      "currentActivity",
+      "()Landroid/app/Activity;");
+  if (activity.isValid()) {
+    QJniObject files_dir = activity.callObjectMethod(
+        "getFilesDir", "()Ljava/io/File;");
+    if (files_dir.isValid()) {
+      QJniObject path = files_dir.callObjectMethod(
+          "getAbsolutePath", "()Ljava/lang/String;");
+      if (path.isValid()) {
+        QString config_dir = path.toString() + QStringLiteral("/AlcedoStudio");
+        QDir dir(config_dir);
+        return std::filesystem::path(
+            QDir::cleanPath(dir.absolutePath()).toUtf8().constData()) / "config.json";
+      }
+    }
+  }
+#endif
   const QString app_data = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
   // QStandardPaths::AppDataLocation returns:
   //   Windows: C:/Users/<USER>/AppData/Roaming/<ORG>/<APP>

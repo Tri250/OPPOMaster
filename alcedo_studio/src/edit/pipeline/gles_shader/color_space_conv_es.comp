@@ -1,0 +1,81 @@
+//  Copyright 2026 Yurun Zi
+//  SPDX-License-Identifier: GPL-3.0-only
+//  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
+
+// Color space conversion compute shader for OpenGL ES 3.0+
+// Supports: linear ↔ sRGB, linear ↔ AdobeRGB, camera native → linear
+
+#version 310 es
+precision highp float;
+precision highp sampler2D;
+precision highp image2D;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba16f) writeonly image2D u_output;
+layout(binding = 1) uniform sampler2D u_input;
+
+uniform int u_width;
+uniform int u_height;
+uniform int u_conversion;    // 0=linear_to_srgb, 1=srgb_to_linear, 2=linear_to_adobergb, 3=camera_to_linear
+uniform float u_camera_white[3];  // Camera white balance multipliers (R, G, B)
+uniform mat3 u_color_matrix;      // 3x3 color matrix for camera → linear conversion
+
+// ── sRGB transfer functions ──────────────────────────────────────
+
+vec3 linearToSrgb(vec3 linear) {
+    vec3 srgb_low  = linear * 12.92;
+    vec3 srgb_high = 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055;
+    vec3 selector  = step(0.0031308, linear);
+    return mix(srgb_low, srgb_high, selector);
+}
+
+vec3 srgbToLinear(vec3 srgb) {
+    vec3 linear_low  = srgb / 12.92;
+    vec3 linear_high = pow((srgb + 0.055) / 1.055, vec3(2.4));
+    vec3 selector    = step(0.04045, srgb);
+    return mix(linear_low, linear_high, selector);
+}
+
+// ── AdobeRGB transfer functions ──────────────────────────────────
+
+vec3 linearToAdobeRgb(vec3 linear) {
+    return pow(linear, vec3(1.0 / 2.2));
+}
+
+vec3 adobeRgbToLinear(vec3 adobe) {
+    return pow(adobe, vec3(2.2));
+}
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_width || gid.y >= u_height) return;
+
+    vec4 px = texelFetch(u_input, gid, 0);
+    vec3 color = px.rgb;
+    vec3 result;
+
+    switch (u_conversion) {
+        case 0:  // linear → sRGB
+            result = linearToSrgb(color);
+            break;
+        case 1:  // sRGB → linear
+            result = srgbToLinear(color);
+            break;
+        case 2:  // linear → AdobeRGB
+            result = linearToAdobeRgb(color);
+            break;
+        case 3:  // camera native → linear (white balance + color matrix)
+            {
+                // Apply white balance
+                vec3 balanced = color * vec3(u_camera_white[0], u_camera_white[1], u_camera_white[2]);
+                // Apply color matrix
+                result = u_color_matrix * balanced;
+            }
+            break;
+        default:
+            result = color;
+            break;
+    }
+
+    imageStore(u_output, gid, vec4(result, px.a));
+}

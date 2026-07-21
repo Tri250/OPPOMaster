@@ -24,8 +24,12 @@ class GPUPipelineImpl {
   virtual void Execute(std::shared_ptr<ImageBuffer> output)            = 0;
   virtual void ReleaseScratchBuffers() {}
   virtual void ReleaseResources()                                      = 0;
-  [[nodiscard]] virtual auto DebugGetAllocatedScratchBytes() const -> size_t { return 0; }
+  [[nodiscard]] auto DebugGetAllocatedScratchBytes() const -> size_t { return 0; }
 };
+
+/// Factory function: create a GLES (OpenGL ES 3.0) GPU pipeline.
+/// Only available when HAVE_OPENGL_ES is defined.
+auto CreateGlesGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
 
 class GPUPipelineWrapper {
  public:

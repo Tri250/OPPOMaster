@@ -91,10 +91,23 @@ auto ResolveAcceleratorBackend(AcceleratorBackendPreference preference) -> GpuBa
       ThrowUnavailableBackend("metal");
 #endif
 
+    case AcceleratorBackendPreference::OpenGLES:
+#ifdef HAVE_OPENGL_ES
+      return GpuBackendKind::OpenGLES;
+#else
+      ThrowUnavailableBackend("opengles");
+#endif
+
     case AcceleratorBackendPreference::Auto:
 #if defined(__APPLE__)
 #ifdef HAVE_METAL
       return GpuBackendKind::Metal;
+#else
+      return GpuBackendKind::None;
+#endif
+#elif defined(Q_OS_ANDROID)
+#ifdef HAVE_OPENGL_ES
+      return GpuBackendKind::OpenGLES;
 #else
       return GpuBackendKind::None;
 #endif
@@ -150,6 +163,12 @@ auto IsCompiledGpuBackend(GpuBackendKind backend) -> bool {
 #else
       return false;
 #endif
+    case GpuBackendKind::OpenGLES:
+#ifdef HAVE_OPENGL_ES
+      return true;
+#else
+      return false;
+#endif
   }
   return false;
 }
@@ -170,6 +189,12 @@ auto IsImplementedMergedPipelineBackend(GpuBackendKind backend) -> bool {
 #endif
     case GpuBackendKind::OpenCL:
 #ifdef HAVE_OPENCL
+      return true;
+#else
+      return false;
+#endif
+    case GpuBackendKind::OpenGLES:
+#ifdef HAVE_OPENGL_ES
       return true;
 #else
       return false;
@@ -200,6 +225,12 @@ auto IsImplementedGeometryOperatorBackend(GpuBackendKind backend) -> bool {
 #else
       return false;
 #endif
+    case GpuBackendKind::OpenGLES:
+#ifdef HAVE_OPENGL_ES
+      return true;
+#else
+      return false;
+#endif
     case GpuBackendKind::None:
       return false;
   }
@@ -219,6 +250,8 @@ auto AcceleratorBackendPreferenceToString(AcceleratorBackendPreference preferenc
       return "opencl";
     case AcceleratorBackendPreference::Metal:
       return "metal";
+    case AcceleratorBackendPreference::OpenGLES:
+      return "opengles";
   }
   return "unknown";
 }
@@ -231,6 +264,8 @@ auto GpuBackendKindToRawGpuBackendString(GpuBackendKind backend) -> std::string_
       return "opencl";
     case GpuBackendKind::Metal:
       return "metal";
+    case GpuBackendKind::OpenGLES:
+      return "opengles";
     case GpuBackendKind::None:
       return "cpu";
   }

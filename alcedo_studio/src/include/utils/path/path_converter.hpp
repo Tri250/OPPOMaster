@@ -9,6 +9,10 @@
 #include <optional>
 #include <string>
 
+#ifdef Q_OS_ANDROID
+class QJniObject;
+#endif
+
 namespace alcedo::path {
 
 /// Utility for safe path conversion between QString and std::filesystem::path,
@@ -53,6 +57,20 @@ class PathConverter {
   /// to the system locale on Windows. This is useful when receiving paths
   /// from legacy APIs that return std::string.
   [[nodiscard]] static auto SafeStringToQString(const std::string& str_path) -> QString;
+
+#ifdef Q_OS_ANDROID
+  /// Resolves an Android content:// URI to a file path using ContentResolver.
+  /// If the URI cannot be resolved (e.g. scoped storage), copies the content
+  /// to a cache file and returns the cache path.
+  [[nodiscard]] static auto ResolveAndroidContentUri(const QString& content_uri) -> QString;
+
+  /// Fallback: copies content from a content:// URI to the app cache directory.
+  [[nodiscard]] static auto CopyContentUriToCache(
+      const QString& content_uri,
+      const QJniObject& content_resolver,
+      const QJniObject& uri,
+      const QJniObject& context) -> QString;
+#endif
 };
 
 }  // namespace alcedo::path
