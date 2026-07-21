@@ -1,0 +1,252 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21
+  },
+  "configurePresets": [
+    {
+      "name": "win_debug",
+      "displayName": "Debug Build",
+      "description": "Windows: Build with debug info",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "ON"
+      }
+    },
+    {
+      "name": "win_release",
+      "displayName": "Release Build",
+      "description": "Windows: Build release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install",
+        "ALCEDO_BUILD_TESTS": "OFF",
+        "ALCEDO_ENABLE_WEBGPU": "OFF"
+      }
+    },
+    {
+      "name": "win_release_test",
+      "displayName": "Release Test Build",
+      "description": "Windows: Build release test executables",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release-test",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "ON",
+        "ALCEDO_BUILD_DEMO_TARGETS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug Build",
+      "description": "Build with debug info",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release Build",
+      "description": "Build release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos_debug",
+      "displayName": "macOS Debug",
+      "description": "macOS: Metal-enabled app build without the legacy OpenGL editor",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "OFF",
+        "ALCEDO_MACOS_BUNDLE": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
+      }
+    },
+    {
+      "name": "macos_debug_tests",
+      "displayName": "macOS Debug Tests",
+      "description": "macOS: Debug test build for the Metal backend path, CMake Tools, and clangd",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-debug-tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "ON",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_MACOS_BUNDLE": "OFF",
+        "ALCEDO_GENERATE_QMLTYPES": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
+      }
+    },
+    {
+      "name": "macos_arm_metal_ci",
+      "displayName": "macOS arm64 Metal CI",
+      "description": "macOS arm64 CI build with Metal enabled and headless tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-arm-metal-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_METAL": "ON",
+        "ALCEDO_ENABLE_WEBGPU": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_MACOS_BUNDLE": "OFF",
+        "ALCEDO_GENERATE_QMLTYPES": "OFF",
+        "PUERHLAB_USE_BUNDLED_LIBRAW": "ON",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3"
+      }
+    },
+    {
+      "name": "macos_release",
+      "displayName": "macOS Release",
+      "description": "macOS: Metal-enabled app build without the legacy OpenGL editor",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "OFF",
+        "ALCEDO_MACOS_BUNDLE": "ON",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
+        "ALCEDO_QT_PREFIX": "/Users/zidage/Qt/6.9.3/macos",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win_debug",
+      "configurePreset": "win_debug",
+      "jobs": 8
+    },
+    {
+      "name": "win_debug_app",
+      "configurePreset": "win_debug",
+      "jobs": 8,
+      "targets": [
+        "alcedo_main"
+      ]
+    },
+    {
+      "name": "win_release",
+      "configurePreset": "win_release",
+      "jobs": 8,
+      "targets": [
+        "alcedo_main"
+      ]
+    },
+    {
+      "name": "win_release_test",
+      "configurePreset": "win_release_test",
+      "jobs": 8
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "jobs": 8
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "jobs": 8
+    },
+    {
+      "name": "macos_debug",
+      "configurePreset": "macos_debug",
+      "jobs": 8
+    },
+    {
+      "name": "macos_debug_tests",
+      "configurePreset": "macos_debug_tests",
+      "jobs": 8,
+      "targets": [
+        "alcedo_tests_all"
+      ]
+    },
+    {
+      "name": "macos_arm_metal_ci",
+      "configurePreset": "macos_arm_metal_ci",
+      "jobs": 4,
+      "targets": [
+        "alcedo_tests_ci_core",
+        "alcedo_tests_ci_raw",
+        "alcedo_tests_ci_metal"
+      ]
+    },
+    {
+      "name": "macos_release",
+      "configurePreset": "macos_release",
+      "jobs": 8
+    },
+    {
+      "name": "macos_package",
+      "configurePreset": "macos_release",
+      "jobs": 8,
+      "targets": [
+        "macos_package"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "win_release_test",
+      "configurePreset": "win_release_test",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos_debug_tests",
+      "configurePreset": "macos_debug_tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos_arm_metal_ci",
+      "configurePreset": "macos_arm_metal_ci",
+      "filter": {
+        "include": {
+          "label": "ci_core_flow|ci_raw_flow|ci_metal_runtime"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

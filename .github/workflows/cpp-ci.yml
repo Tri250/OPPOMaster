@@ -1,0 +1,79 @@
+name: C++ CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpp-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-arm-metal:
+    name: macOS arm64 Metal
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Pull CI RAW fixtures
+        run: git lfs pull --include="alcedo_studio/tests/resources/sample_images/ci_rawfiles/**"
+
+      - name: Prepare third-party source trees
+        run: bash scripts/ci_prepare_third_party.sh
+
+      - name: Install dependencies
+        run: |
+          brew update
+          # grpc + protobuf: required by the semantic search proto codegen under
+          # PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON (see alcedo_studio/src/third_party/CMakeLists.txt).
+          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
+
+      - name: Pre-install DuckDB extensions
+        # Semantic search and image-description FTS need DuckDB extensions. Fresh
+        # runners do not have them cached, and the app disables runtime autoinstall
+        # for offline/user-machine behavior. Install matching extensions now and
+        # pass exact paths to CMake so build-tree tests can copy/load them directly.
+        run: |
+          set -euo pipefail
+          duckdb_ext_dir="$(mktemp -d)"
+          duckdb -c "SET extension_directory='${duckdb_ext_dir}'; INSTALL vss; INSTALL fts;"
+          vss_path="$(find "${duckdb_ext_dir}" -name 'vss.duckdb_extension' -type f | head -n1)"
+          fts_path="$(find "${duckdb_ext_dir}" -name 'fts.duckdb_extension' -type f | head -n1)"
+          if [ -z "${vss_path}" ]; then
+            echo "Failed to locate installed vss.duckdb_extension under ${duckdb_ext_dir}" >&2
+            find "${duckdb_ext_dir}" -type f >&2 || true
+            exit 1
+          fi
+          if [ -z "${fts_path}" ]; then
+            echo "Failed to locate installed fts.duckdb_extension under ${duckdb_ext_dir}" >&2
+            find "${duckdb_ext_dir}" -type f >&2 || true
+            exit 1
+          fi
+          echo "Resolved VSS extension: ${vss_path}"
+          echo "Resolved FTS extension: ${fts_path}"
+          # Persist for later Configure/Test steps (each `run:` is a fresh shell).
+          echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
+          echo "ALCEDO_DUCKDB_FTS_EXTENSION=${fts_path}" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake --preset macos_arm_metal_ci \
+            -DALCEDO_DUCKDB_VSS_EXTENSION="${ALCEDO_DUCKDB_VSS_EXTENSION}" \
+            -DALCEDO_DUCKDB_FTS_EXTENSION="${ALCEDO_DUCKDB_FTS_EXTENSION}"
+
+      - name: Build CI targets
+        run: cmake --build --preset macos_arm_metal_ci --parallel 4
+
+      - name: Test
+        run: ctest --preset macos_arm_metal_ci --output-on-failure

@@ -1,0 +1,903 @@
+//  Copyright 2025 Yurun Zi
+//  SPDX-License-Identifier: GPL-3.0-only
+//  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
+
+#include "io/image/image_writer.hpp"
+#include "io/image/export_icc_profile_resolver.hpp"
+#include "io/image/ultra_hdr_writer.hpp"
+
+#include <OpenImageIO/imageio.h>
+#include <exiv2/exiv2.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <limits>
+#include <memory>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "image/metadata.hpp"
+
+namespace alcedo {
+namespace {
+OIIO_NAMESPACE_USING
+
+auto PathToUtf8(const std::filesystem::path& path) -> std::string {
+  auto u8 = path.u8string();
+  return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+auto RatingPercentFor(int rating) -> uint16_t {
+  switch (ExifDisplayMetaData::NormalizeRating(rating)) {
+    case 1:
+      return 1;
+    case 2:
+      return 25;
+    case 3:
+      return 50;
+    case 4:
+      return 75;
+    case 5:
+      return 99;
+    default:
+      return 0;
+  }
+}
+
+auto HasMeaningfulExportMetadata(const ExifDisplayMetaData& metadata) -> bool {
+  return !metadata.make_.empty() || !metadata.model_.empty() || !metadata.lens_.empty() ||
+         !metadata.lens_make_.empty() || !metadata.date_time_str_.empty() ||
+         metadata.aperture_ > 0.0f || metadata.focal_ > 0.0f || metadata.focal_35mm_ > 0.0f ||
+         metadata.focus_distance_m_ > 0.0f || metadata.iso_ > 0 ||
+         (metadata.shutter_speed_.first > 0 && metadata.shutter_speed_.second > 0) ||
+         ExifDisplayMetaData::NormalizeRating(metadata.rating_) > 0;
+}
+
+auto RationalFromFloat(float value, int denominator) -> Exiv2::Rational {
+  if (!std::isfinite(value) || value <= 0.0f || denominator <= 0) {
+    return {0, 1};
+  }
+  return {std::max(1, static_cast<int>(std::lround(value * denominator))), denominator};
+}
+
+auto ExifDateTimeString(std::string value) -> std::optional<std::string> {
+  if (value.size() < 19) {
+    return std::nullopt;
+  }
+  value = value.substr(0, 19);
+  if (value[4] == '-') value[4] = ':';
+  if (value[7] == '-') value[7] = ':';
+  return value;
+}
+
+auto XmpDateTimeString(const std::string& value) -> std::optional<std::string> {
+  if (value.size() < 19) {
+    return std::nullopt;
+  }
+  std::string out = value.substr(0, 19);
+  if (out[4] == ':') out[4] = '-';
+  if (out[7] == ':') out[7] = '-';
+  if (out[10] == ' ') out[10] = 'T';
+  return out;
+}
+
+auto ShouldResize(const ExportFormatOptions& options) -> bool {
+  return options.resize_enabled_ && options.max_length_side_ > 0;
+}
+
+auto ResizeRGBA32F(const cv::Mat& rgba32f, const ExportFormatOptions& options) -> cv::Mat {
+  if (!ShouldResize(options)) return rgba32f;
+
+  const int src_w = rgba32f.cols;
+  const int src_h = rgba32f.rows;
+  const int max_s = options.max_length_side_;
+  if (src_w <= 0 || src_h <= 0 || max_s <= 0) return rgba32f;
+
+  const int cur_max = std::max(src_w, src_h);
+  if (cur_max <= max_s) return rgba32f;
+
+  const double scale = static_cast<double>(max_s) / static_cast<double>(cur_max);
+  const int    dst_w = std::max(1, static_cast<int>(std::lround(src_w * scale)));
+  const int    dst_h = std::max(1, static_cast<int>(std::lround(src_h * scale)));
+
+  cv::Mat      resized;
+  cv::resize(rgba32f, resized, cv::Size(dst_w, dst_h), 0.0, 0.0, cv::INTER_AREA);
+  return resized;
+}
+
+auto FormatSupportsAlpha(ImageFormatType fmt) -> bool {
+  switch (fmt) {
+    case ImageFormatType::PNG:
+    case ImageFormatType::TIFF:
+    case ImageFormatType::WEBP:
+    case ImageFormatType::EXR:
+      return true;
+    default:
+      return false;
+  }
+}
+
+auto IsUltraHdrTransfer(ColorUtils::EOTF eotf) -> bool {
+  return eotf == ColorUtils::EOTF::ST2084 || eotf == ColorUtils::EOTF::HLG;
+}
+
+auto MakeOIIOBuffer(const cv::Mat& rgba32f, const ExportFormatOptions& options,
+                    TypeDesc& out_spec_format, TypeDesc& out_input_format, int& out_channels)
+    -> cv::Mat {
+  const ImageFormatType fmt        = options.format_;
+  const bool            want_alpha = FormatSupportsAlpha(fmt) && rgba32f.channels() == 4;
+
+  if (fmt == ImageFormatType::JPEG || fmt == ImageFormatType::BMP) {
+    out_channels = 3;
+  } else {
+    out_channels = want_alpha ? 4 : 3;
+  }
+
+  cv::Mat rgb_or_rgba;
+  if (out_channels == 3) {
+    cv::cvtColor(rgba32f, rgb_or_rgba, cv::COLOR_RGBA2RGB);
+  } else {
+    rgb_or_rgba = rgba32f;
+  }
+
+  if (fmt == ImageFormatType::EXR) {
+    if (options.bit_depth_ == ExportFormatOptions::BIT_DEPTH::BIT_32) {
+      out_spec_format  = TypeDesc::FLOAT;
+      out_input_format = TypeDesc::FLOAT;
+      return (rgb_or_rgba.type() == CV_32FC(out_channels) && rgb_or_rgba.isContinuous())
+                 ? rgb_or_rgba
+                 : rgb_or_rgba.clone();
+    }
+
+    out_spec_format  = TypeDesc::HALF;
+    out_input_format = TypeDesc::FLOAT;
+    return (rgb_or_rgba.type() == CV_32FC(out_channels) && rgb_or_rgba.isContinuous())
+               ? rgb_or_rgba
+               : rgb_or_rgba.clone();
+  }
+
+  if (fmt == ImageFormatType::JPEG || fmt == ImageFormatType::WEBP || fmt == ImageFormatType::BMP) {
+    out_spec_format  = TypeDesc::UINT8;
+    out_input_format = TypeDesc::UINT8;
+    cv::Mat u8;
+    rgb_or_rgba.convertTo(u8, CV_MAKETYPE(CV_8U, out_channels), 255.0);
+    return u8.isContinuous() ? u8 : u8.clone();
+  }
+
+  if (fmt == ImageFormatType::PNG || fmt == ImageFormatType::TIFF) {
+    switch (options.bit_depth_) {
+      case ExportFormatOptions::BIT_DEPTH::BIT_8: {
+        out_spec_format  = TypeDesc::UINT8;
+        out_input_format = TypeDesc::UINT8;
+        cv::Mat u8;
+        rgb_or_rgba.convertTo(u8, CV_MAKETYPE(CV_8U, out_channels), 255.0);
+        return u8.isContinuous() ? u8 : u8.clone();
+      }
+      case ExportFormatOptions::BIT_DEPTH::BIT_16: {
+        out_spec_format  = TypeDesc::UINT16;
+        out_input_format = TypeDesc::UINT16;
+        cv::Mat u16;
+        rgb_or_rgba.convertTo(u16, CV_MAKETYPE(CV_16U, out_channels), 65535.0);
+        return u16.isContinuous() ? u16 : u16.clone();
+      }
+      case ExportFormatOptions::BIT_DEPTH::BIT_32: {
+        out_spec_format  = TypeDesc::FLOAT;
+        out_input_format = TypeDesc::FLOAT;
+        return (rgb_or_rgba.type() == CV_32FC(out_channels) && rgb_or_rgba.isContinuous())
+                   ? rgb_or_rgba
+                   : rgb_or_rgba.clone();
+      }
+      default:
+        break;
+    }
+  }
+
+  out_spec_format  = TypeDesc::UINT8;
+  out_input_format = TypeDesc::UINT8;
+  out_channels     = 3;
+  cv::Mat rgb;
+  cv::cvtColor(rgba32f, rgb, cv::COLOR_RGBA2RGB);
+  cv::Mat u8;
+  rgb.convertTo(u8, CV_8UC3, 255.0);
+  return u8.isContinuous() ? u8 : u8.clone();
+}
+
+auto ApplyOIIOFormatOptions(ImageSpec& spec, const ExportFormatOptions& options) -> void {
+  switch (options.format_) {
+    case ImageFormatType::JPEG:
+    case ImageFormatType::WEBP:
+      spec.attribute("CompressionQuality", options.quality_);
+      break;
+    case ImageFormatType::PNG:
+      spec.attribute("CompressionLevel", options.compression_level_);
+      spec.attribute("png:compressionLevel", options.compression_level_);
+      break;
+    case ImageFormatType::TIFF: {
+      const int tiff_compress = static_cast<int>(options.tiff_compress_);
+      spec.attribute("tiff:compression", tiff_compress);
+      std::string compress_str = "none";
+      if (options.tiff_compress_ == ExportFormatOptions::TIFF_COMPRESS::LZW) {
+        compress_str = "lzw";
+      } else if (options.tiff_compress_ == ExportFormatOptions::TIFF_COMPRESS::ZIP) {
+        compress_str = "zip";
+      }
+      spec.attribute("compression", compress_str);
+      spec.attribute("Compression", compress_str);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+auto ForceUprightOrientation(ImageSpec& spec) -> void {
+  // The pipeline already applies any required orientation to pixel data.
+  // If we preserve the source Orientation metadata, some viewers will rotate again.
+  //
+  // OpenImageIO uses the standard "Orientation" metadata key (1 = normal/upright).
+  spec.extra_attribs.remove("Exif:Orientation", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("EXIF:Orientation", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("exif:Orientation", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("tiff:Orientation", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("TIFF:Orientation", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("Orientation", TypeDesc::UNKNOWN, false);
+  spec.attribute("Orientation", 1);
+}
+
+void RemoveEmbeddedColorProfileMetadata(ImageSpec& spec) {
+  spec.extra_attribs.remove("ICCProfile", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("icc_profile", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("Exif:ColorSpace", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("EXIF:ColorSpace", TypeDesc::UNKNOWN, false);
+  spec.extra_attribs.remove("exif:ColorSpace", TypeDesc::UNKNOWN, false);
+}
+
+void EraseExifKey(Exiv2::ExifData& exif_data, const char* key) {
+  const auto it = exif_data.findKey(Exiv2::ExifKey(key));
+  if (it != exif_data.end()) {
+    exif_data.erase(it);
+  }
+}
+
+void RemoveConflictingExifColorTags(Exiv2::ExifData& exif_data) {
+  EraseExifKey(exif_data, "Exif.Photo.ColorSpace");
+  EraseExifKey(exif_data, "Exif.Image.ColorSpace");
+  EraseExifKey(exif_data, "Exif.Iop.InteroperabilityIndex");
+  EraseExifKey(exif_data, "Exif.Iop.InteroperabilityVersion");
+}
+
+void ApplyExportColorProfile(ImageSpec& spec,
+                             const std::optional<ExportColorProfileConfig>& color_profile) {
+  if (!color_profile.has_value()) {
+    return;
+  }
+
+  const std::vector<uint8_t> icc_bytes =
+      ExportIccProfileResolver::ResolveIccProfileBytes(*color_profile);
+  if (icc_bytes.empty()) {
+    return;
+  }
+
+  RemoveEmbeddedColorProfileMetadata(spec);
+  spec.attribute("oiio:ColorSpace",
+                 ColorUtils::ColorSpaceToString(color_profile->encoding_space) + ":" +
+                     ColorUtils::EOTFToString(color_profile->encoding_eotf));
+  spec.attribute("ICCProfile",
+                 TypeDesc(TypeDesc::UINT8, TypeDesc::SCALAR, TypeDesc::NOSEMANTICS,
+                          static_cast<int>(icc_bytes.size())),
+                 icc_bytes.data());
+}
+
+void ApplyExportMetadataToOIIO(ImageSpec& spec,
+                               const std::optional<ExifDisplayMetaData>& export_metadata) {
+  if (!export_metadata.has_value() || !HasMeaningfulExportMetadata(*export_metadata)) {
+    return;
+  }
+
+  const ExifDisplayMetaData& metadata = *export_metadata;
+  if (!metadata.make_.empty()) {
+    spec.attribute("Exif:Make", metadata.make_);
+  }
+  if (!metadata.model_.empty()) {
+    spec.attribute("Exif:Model", metadata.model_);
+  }
+  if (!metadata.lens_.empty()) {
+    spec.attribute("Exif:LensModel", metadata.lens_);
+  }
+  if (!metadata.lens_make_.empty()) {
+    spec.attribute("Exif:LensMake", metadata.lens_make_);
+  }
+  if (const auto exif_dt = ExifDateTimeString(metadata.date_time_str_); exif_dt.has_value()) {
+    spec.attribute("Exif:DateTime", *exif_dt);
+    spec.attribute("Exif:DateTimeOriginal", *exif_dt);
+    spec.attribute("Exif:DateTimeDigitized", *exif_dt);
+  }
+
+  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(metadata.rating_);
+  if (normalized_rating > 0) {
+    spec.attribute("Exif:Rating", normalized_rating);
+    spec.attribute("Exif:RatingPercent", static_cast<int>(RatingPercentFor(normalized_rating)));
+    spec.attribute("XMP:xmp:Rating", normalized_rating);
+  }
+}
+
+void ApplyDisplayMetadataToExif(Exiv2::ExifData& exif_data,
+                                const ExifDisplayMetaData& metadata) {
+  if (!metadata.make_.empty()) {
+    try {
+      exif_data["Exif.Image.Make"] = metadata.make_;
+    } catch (...) {
+    }
+  }
+  if (!metadata.model_.empty()) {
+    try {
+      exif_data["Exif.Image.Model"] = metadata.model_;
+    } catch (...) {
+    }
+  }
+  if (!metadata.lens_.empty()) {
+    try {
+      exif_data["Exif.Photo.LensModel"] = metadata.lens_;
+    } catch (...) {
+    }
+  }
+  if (!metadata.lens_make_.empty()) {
+    try {
+      exif_data["Exif.Photo.LensMake"] = metadata.lens_make_;
+    } catch (...) {
+    }
+  }
+  if (metadata.aperture_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.FNumber"] = RationalFromFloat(metadata.aperture_, 100);
+    } catch (...) {
+    }
+  }
+  if (metadata.focal_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.FocalLength"] = RationalFromFloat(metadata.focal_, 100);
+    } catch (...) {
+    }
+  }
+  if (metadata.focal_35mm_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.FocalLengthIn35mmFilm"] =
+          static_cast<uint16_t>(std::lround(metadata.focal_35mm_));
+    } catch (...) {
+    }
+  }
+  if (metadata.focus_distance_m_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.SubjectDistance"] = RationalFromFloat(metadata.focus_distance_m_, 1000);
+    } catch (...) {
+    }
+  }
+  if (metadata.iso_ > 0) {
+    try {
+      exif_data["Exif.Photo.ISOSpeedRatings"] = static_cast<uint16_t>(
+          std::min<uint64_t>(metadata.iso_, std::numeric_limits<uint16_t>::max()));
+    } catch (...) {
+    }
+  }
+  if (metadata.shutter_speed_.first > 0 && metadata.shutter_speed_.second > 0) {
+    try {
+      exif_data["Exif.Photo.ExposureTime"] = Exiv2::Rational(metadata.shutter_speed_.first,
+                                                             metadata.shutter_speed_.second);
+    } catch (...) {
+    }
+  }
+  if (const auto exif_dt = ExifDateTimeString(metadata.date_time_str_); exif_dt.has_value()) {
+    try {
+      exif_data["Exif.Image.DateTime"] = *exif_dt;
+    } catch (...) {
+    }
+    try {
+      exif_data["Exif.Photo.DateTimeOriginal"] = *exif_dt;
+    } catch (...) {
+    }
+    try {
+      exif_data["Exif.Photo.DateTimeDigitized"] = *exif_dt;
+    } catch (...) {
+    }
+  }
+
+  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(metadata.rating_);
+  if (normalized_rating > 0) {
+    try {
+      exif_data["Exif.Image.Rating"] = static_cast<uint16_t>(normalized_rating);
+    } catch (...) {
+    }
+    try {
+      exif_data["Exif.Image.RatingPercent"] = RatingPercentFor(normalized_rating);
+    } catch (...) {
+    }
+  }
+}
+
+void ApplyDisplayMetadataToXmp(Exiv2::XmpData& xmp_data, const ExifDisplayMetaData& metadata) {
+  if (!metadata.lens_.empty()) {
+    try {
+      xmp_data["Xmp.exif.LensModel"] = metadata.lens_;
+    } catch (...) {
+    }
+  }
+  if (const auto xmp_dt = XmpDateTimeString(metadata.date_time_str_); xmp_dt.has_value()) {
+    try {
+      xmp_data["Xmp.xmp.CreateDate"] = *xmp_dt;
+    } catch (...) {
+    }
+    try {
+      xmp_data["Xmp.photoshop.DateCreated"] = *xmp_dt;
+    } catch (...) {
+    }
+    try {
+      xmp_data["Xmp.exif.DateTimeOriginal"] = *xmp_dt;
+    } catch (...) {
+    }
+  }
+
+  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(metadata.rating_);
+  if (normalized_rating > 0) {
+    try {
+      xmp_data["Xmp.xmp.Rating"] = normalized_rating;
+    } catch (...) {
+    }
+  }
+}
+
+void SetIccProfileBytes(Exiv2::Image& image, const std::vector<uint8_t>& icc_bytes) {
+  if (icc_bytes.empty()) {
+    return;
+  }
+
+  Exiv2::DataBuf profile(reinterpret_cast<const Exiv2::byte*>(icc_bytes.data()),
+                         icc_bytes.size());
+  try {
+    image.setIccProfile(std::move(profile));
+  } catch (...) {
+    Exiv2::DataBuf unchecked(reinterpret_cast<const Exiv2::byte*>(icc_bytes.data()),
+                             icc_bytes.size());
+    image.setIccProfile(std::move(unchecked), false);
+  }
+}
+
+auto EmbeddedIccMatches(Exiv2::Image& image, const std::vector<uint8_t>& icc_bytes) -> bool {
+  if (icc_bytes.empty()) {
+    return true;
+  }
+  const auto& profile = image.iccProfile();
+  return profile.size() == icc_bytes.size() &&
+         std::equal(profile.cbegin(), profile.cend(), icc_bytes.begin());
+}
+
+auto ReadFileBytes(const std::filesystem::path& path) -> std::vector<uint8_t> {
+  std::ifstream input(path, std::ios::binary);
+  if (!input.is_open()) {
+    return {};
+  }
+  return std::vector<uint8_t>(std::istreambuf_iterator<char>(input), {});
+}
+
+auto WriteFileBytes(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) -> bool {
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output.is_open()) {
+    return false;
+  }
+  output.write(reinterpret_cast<const char*>(bytes.data()),
+               static_cast<std::streamsize>(bytes.size()));
+  return output.good();
+}
+
+auto IsJpegBytes(const std::vector<uint8_t>& bytes) -> bool {
+  return bytes.size() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8;
+}
+
+auto IsExifApp1Segment(const std::vector<uint8_t>& bytes, size_t marker_pos,
+                       size_t segment_length) -> bool {
+  constexpr uint8_t kExifPrefix[] = {'E', 'x', 'i', 'f', 0, 0};
+  const size_t      payload_pos   = marker_pos + 4;
+  return segment_length >= 2 + sizeof(kExifPrefix) &&
+         payload_pos + sizeof(kExifPrefix) <= bytes.size() &&
+         std::equal(std::begin(kExifPrefix), std::end(kExifPrefix), bytes.begin() + payload_pos);
+}
+
+auto BuildJpegExifPayload(const std::optional<ExifDisplayMetaData>& export_metadata)
+    -> std::vector<uint8_t> {
+  try {
+    Exiv2::ExifData exif_data;
+    if (export_metadata.has_value() && HasMeaningfulExportMetadata(*export_metadata)) {
+      ApplyDisplayMetadataToExif(exif_data, *export_metadata);
+    }
+    if (exif_data.empty()) {
+      return {};
+    }
+
+    Exiv2::Blob      blob;
+    Exiv2::ExifParser::encode(blob, Exiv2::littleEndian, exif_data);
+
+    constexpr uint8_t kExifPrefix[] = {'E', 'x', 'i', 'f', 0, 0};
+    std::vector<uint8_t> payload(std::begin(kExifPrefix), std::end(kExifPrefix));
+    payload.insert(payload.end(), blob.begin(), blob.end());
+    return payload;
+  } catch (...) {
+    return {};
+  }
+}
+
+auto ReplaceJpegExifSegment(const std::filesystem::path& export_path,
+                            const std::vector<uint8_t>&  exif_payload) -> bool {
+  if (exif_payload.empty() || exif_payload.size() > 65533) {
+    return false;
+  }
+
+  std::vector<uint8_t> bytes = ReadFileBytes(export_path);
+  if (!IsJpegBytes(bytes)) {
+    return false;
+  }
+
+  std::vector<uint8_t> segment;
+  const uint16_t segment_length = static_cast<uint16_t>(exif_payload.size() + 2);
+  segment.reserve(exif_payload.size() + 4);
+  segment.push_back(0xFF);
+  segment.push_back(0xE1);
+  segment.push_back(static_cast<uint8_t>((segment_length >> 8) & 0xFF));
+  segment.push_back(static_cast<uint8_t>(segment_length & 0xFF));
+  segment.insert(segment.end(), exif_payload.begin(), exif_payload.end());
+
+  size_t insert_pos = 2;
+  for (size_t pos = 2; pos + 4 <= bytes.size();) {
+    if (bytes[pos] != 0xFF) {
+      break;
+    }
+    while (pos < bytes.size() && bytes[pos] == 0xFF) {
+      ++pos;
+    }
+    if (pos >= bytes.size()) {
+      break;
+    }
+    const uint8_t marker = bytes[pos++];
+    if (marker == 0xDA || marker == 0xD9) {
+      insert_pos = pos - 2;
+      break;
+    }
+    if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
+      insert_pos = pos;
+      continue;
+    }
+    if (pos + 2 > bytes.size()) {
+      break;
+    }
+    const size_t length = (static_cast<size_t>(bytes[pos]) << 8) | bytes[pos + 1];
+    if (length < 2 || pos + length > bytes.size()) {
+      break;
+    }
+    const size_t marker_pos = pos - 2;
+    const size_t next_pos   = pos + length;
+    if (marker == 0xE1 && IsExifApp1Segment(bytes, marker_pos, length)) {
+      std::vector<uint8_t> out;
+      out.reserve(bytes.size() - (next_pos - marker_pos) + segment.size());
+      out.insert(out.end(), bytes.begin(), bytes.begin() + marker_pos);
+      out.insert(out.end(), segment.begin(), segment.end());
+      out.insert(out.end(), bytes.begin() + next_pos, bytes.end());
+      return WriteFileBytes(export_path, out);
+    }
+    if (marker == 0xE0 && insert_pos == marker_pos) {
+      insert_pos = next_pos;
+    }
+    pos = next_pos;
+  }
+
+  std::vector<uint8_t> out;
+  out.reserve(bytes.size() + segment.size());
+  out.insert(out.end(), bytes.begin(), bytes.begin() + insert_pos);
+  out.insert(out.end(), segment.begin(), segment.end());
+  out.insert(out.end(), bytes.begin() + insert_pos, bytes.end());
+  return WriteFileBytes(export_path, out);
+}
+
+void ApplyExportMetadata(
+    const std::filesystem::path& export_path,
+    const std::optional<ExportColorProfileConfig>& color_profile,
+    const std::optional<ExifDisplayMetaData>& export_metadata) {
+  const bool has_metadata =
+      export_metadata.has_value() && HasMeaningfulExportMetadata(*export_metadata);
+  const std::vector<uint8_t> icc_bytes =
+      color_profile.has_value() ? ExportIccProfileResolver::ResolveIccProfileBytes(*color_profile)
+                                : std::vector<uint8_t>{};
+  if (!has_metadata && icc_bytes.empty()) {
+    return;
+  }
+
+  bool icc_needs_repair = !icc_bytes.empty();
+  if (!icc_bytes.empty()) {
+    const std::vector<uint8_t> exif_payload = BuildJpegExifPayload(export_metadata);
+    if (ReplaceJpegExifSegment(export_path, exif_payload)) {
+      try {
+        auto image = Exiv2::ImageFactory::open(PathToUtf8(export_path));
+        if (image) {
+          image->readMetadata();
+          if (!icc_bytes.empty()) {
+            icc_needs_repair = !EmbeddedIccMatches(*image, icc_bytes);
+          }
+        }
+      } catch (...) {
+      }
+      if (icc_needs_repair) {
+        try {
+          auto image = Exiv2::ImageFactory::open(PathToUtf8(export_path));
+          if (!image) {
+            return;
+          }
+          image->readMetadata();
+          SetIccProfileBytes(*image, icc_bytes);
+          image->writeMetadata();
+        } catch (...) {
+        }
+      }
+      return;
+    }
+  }
+
+  if (has_metadata || !icc_bytes.empty()) {
+    try {
+      auto image = Exiv2::ImageFactory::open(PathToUtf8(export_path));
+      if (!image) {
+        return;
+      }
+
+      image->readMetadata();
+      if (!icc_bytes.empty()) {
+        icc_needs_repair = !EmbeddedIccMatches(*image, icc_bytes);
+      }
+
+      try {
+        Exiv2::ExifData exif_data = image->exifData();
+        if (!icc_bytes.empty()) {
+          RemoveConflictingExifColorTags(exif_data);
+        }
+        if (has_metadata) {
+          ApplyDisplayMetadataToExif(exif_data, *export_metadata);
+        }
+        image->setExifData(exif_data);
+      } catch (...) {
+      }
+
+      if (has_metadata) {
+        try {
+          Exiv2::XmpData xmp_data = image->xmpData();
+          ApplyDisplayMetadataToXmp(xmp_data, *export_metadata);
+          image->setXmpData(xmp_data);
+        } catch (...) {
+        }
+      }
+
+      image->writeMetadata();
+    } catch (...) {
+      // Metadata injection is best-effort; pixel export should not fail for unsupported tags/formats.
+    }
+  }
+
+  if (icc_needs_repair) {
+    try {
+      auto image = Exiv2::ImageFactory::open(PathToUtf8(export_path));
+      if (!image) {
+        return;
+      }
+
+      image->readMetadata();
+      SetIccProfileBytes(*image, icc_bytes);
+      image->writeMetadata();
+    } catch (...) {
+      // ICC repair is best-effort; OIIO may already have embedded the profile.
+    }
+  }
+}
+
+auto TryWriteWithOpenImageIO(const image_path_t& src_path, const std::filesystem::path& export_path,
+                             const cv::Mat& rgba32f, const ExportFormatOptions& options,
+                             const std::optional<ExportColorProfileConfig>& color_profile,
+                             const std::optional<ExifDisplayMetaData>& export_metadata,
+                             std::string& out_error) -> bool {
+  const std::string dst          = PathToUtf8(export_path);
+
+  TypeDesc          spec_format  = TypeDesc::UINT8;
+  TypeDesc          input_format = TypeDesc::UINT8;
+  int               channels     = 0;
+  cv::Mat           pixels = MakeOIIOBuffer(rgba32f, options, spec_format, input_format, channels);
+
+  ImageSpec         outspec(pixels.cols, pixels.rows, channels, spec_format);
+  if (channels == 3) outspec.channelnames = {"R", "G", "B"};
+  if (channels == 4) outspec.channelnames = {"R", "G", "B", "A"};
+
+  // Best-effort metadata copy (EXIF/IPTC/XMP/etc.) from source image.
+  try {
+    const std::string src = PathToUtf8(src_path);
+    if (auto in = ImageInput::open(src)) {
+      outspec.extra_attribs = in->spec().extra_attribs;
+      in->close();
+    }
+  } catch (const std::exception&) {
+    // Best effort: ignore metadata failures.
+  }
+
+  ForceUprightOrientation(outspec);
+  ApplyOIIOFormatOptions(outspec, options);
+  ApplyExportMetadataToOIIO(outspec, export_metadata);
+  ApplyExportColorProfile(outspec, color_profile);
+
+  // OIIO v3 exports ImageOutput::create(string_view, ...) (and a UTF-16 helper).
+  // Avoid the deprecated create(std::string, std::string) overload, which can
+  // lead to unresolved externals on MSVC when linking against the DLL.
+  std::unique_ptr<ImageOutput> out = ImageOutput::create(dst);
+  if (!out) {
+    out_error = "OpenImageIO: failed to create ImageOutput";
+    return false;
+  }
+
+  if (!out->open(dst, outspec)) {
+    out_error = "OpenImageIO: failed to open output: " + out->geterror();
+    return false;
+  }
+
+  const stride_t xstride = static_cast<stride_t>(pixels.elemSize());
+  const stride_t ystride = static_cast<stride_t>(pixels.step);
+  if (!out->write_image(input_format, pixels.data, xstride, ystride, AutoStride)) {
+    out_error = "OpenImageIO: failed to write image: " + out->geterror();
+    out->close();
+    return false;
+  }
+
+  out->close();
+  return true;
+}
+
+auto TryWriteWithOpenCV(const std::filesystem::path& export_path, const cv::Mat& rgba32f,
+                        const ExportFormatOptions& options, std::string& out_error) -> bool {
+  const std::string dst        = export_path.string();
+
+  const bool        want_alpha = FormatSupportsAlpha(options.format_);
+  const int         channels   = want_alpha ? 4 : 3;
+
+  cv::Mat           bgr_or_bgra;
+  if (channels == 3) {
+    cv::cvtColor(rgba32f, bgr_or_bgra, cv::COLOR_RGBA2BGR);
+  } else {
+    cv::cvtColor(rgba32f, bgr_or_bgra, cv::COLOR_RGBA2BGRA);
+  }
+
+  cv::Mat encoded;
+  if (options.format_ == ImageFormatType::EXR ||
+      (options.format_ == ImageFormatType::TIFF &&
+       options.bit_depth_ == ExportFormatOptions::BIT_DEPTH::BIT_32)) {
+    encoded = bgr_or_bgra;
+  } else if (options.format_ == ImageFormatType::PNG || options.format_ == ImageFormatType::TIFF) {
+    if (options.bit_depth_ == ExportFormatOptions::BIT_DEPTH::BIT_16) {
+      bgr_or_bgra.convertTo(encoded, CV_MAKETYPE(CV_16U, channels), 65535.0);
+    } else {
+      bgr_or_bgra.convertTo(encoded, CV_MAKETYPE(CV_8U, channels), 255.0);
+    }
+  } else {
+    bgr_or_bgra.convertTo(encoded, CV_MAKETYPE(CV_8U, channels), 255.0);
+  }
+
+  std::vector<int> params;
+  switch (options.format_) {
+    case ImageFormatType::JPEG:
+      params = {cv::IMWRITE_JPEG_QUALITY, options.quality_};
+      break;
+    case ImageFormatType::WEBP:
+      params = {cv::IMWRITE_WEBP_QUALITY, options.quality_};
+      break;
+    case ImageFormatType::PNG:
+      params = {cv::IMWRITE_PNG_COMPRESSION, options.compression_level_};
+      break;
+    case ImageFormatType::TIFF:
+      params = {cv::IMWRITE_TIFF_COMPRESSION, static_cast<int>(options.tiff_compress_)};
+      break;
+    case ImageFormatType::EXR:
+      params = {cv::IMWRITE_EXR_TYPE, (options.bit_depth_ == ExportFormatOptions::BIT_DEPTH::BIT_32)
+                                          ? cv::IMWRITE_EXR_TYPE_FLOAT
+                                          : cv::IMWRITE_EXR_TYPE_HALF};
+      break;
+    default:
+      break;
+  }
+
+  try {
+    if (!cv::imwrite(dst, encoded, params)) {
+      out_error = "OpenCV: imwrite returned false";
+      return false;
+    }
+    return true;
+  } catch (const cv::Exception& e) {
+    out_error = std::string("OpenCV: ") + e.what();
+    return false;
+  }
+}
+}  // namespace
+
+auto ImageWriter::ShouldWriteUltraHdr(
+    const ExportFormatOptions&                       options,
+    const std::optional<ExportColorProfileConfig>& color_profile) -> bool {
+  return options.format_ == ImageFormatType::JPEG && color_profile.has_value() &&
+         options.hdr_export_mode_ == ExportFormatOptions::HDR_EXPORT_MODE::ULTRA_HDR &&
+         IsUltraHdrTransfer(color_profile->encoding_eotf);
+}
+
+void ImageWriter::WriteImageToPath(const image_path_t&          src_path,
+                                   std::shared_ptr<ImageBuffer> image_data,
+                                   ExportFormatOptions          options,
+                                   std::optional<ExportColorProfileConfig> color_profile,
+                                   std::optional<ExifDisplayMetaData> export_metadata) {
+  if (!image_data) {
+    throw std::runtime_error("ImageWriter: image_data is null");
+  }
+  if (options.export_path_.empty()) {
+    throw std::runtime_error("ImageWriter: export_path is empty");
+  }
+
+  const auto export_path = options.export_path_;
+  if (export_path.has_parent_path()) {
+    std::filesystem::create_directories(export_path.parent_path());
+  }
+
+  if (!image_data->cpu_data_valid_) {
+    if (image_data->gpu_data_valid_) {
+      image_data->SyncToCPU();
+    } else {
+      throw std::runtime_error("ImageWriter: image_data has no valid CPU/GPU data");
+    }
+  }
+
+  // Use GetCPUData() to acquire the actual image data. Expected: CV_32FC4 in [0,1].
+  const cv::Mat& src_rgba32f = image_data->GetCPUData();
+  if (src_rgba32f.empty()) {
+    throw std::runtime_error("ImageWriter: CPU image data is empty");
+  }
+  if (src_rgba32f.type() != CV_32FC4) {
+    throw std::runtime_error("ImageWriter: expected image data type CV_32FC4");
+  }
+
+  cv::Mat     working = ResizeRGBA32F(src_rgba32f.clone(), options);
+
+  if (ShouldWriteUltraHdr(options, color_profile)) {
+#if defined(ALCEDO_HAS_ULTRAHDR)
+    UltraHdrWriter::WriteImageToPath(src_path, export_path, working, options, *color_profile,
+                                     export_metadata);
+    return;
+#else
+    throw std::runtime_error(
+        "ImageWriter: JPEG HDR export requires Ultra HDR support in this build.");
+#endif
+  }
+
+  if (color_profile.has_value() && IsUltraHdrTransfer(color_profile->encoding_eotf)) {
+    throw std::runtime_error("ImageWriter: HDR export requires Ultra HDR JPEG output.");
+  }
+
+  std::string oiio_err;
+  try {
+    if (TryWriteWithOpenImageIO(src_path, export_path, working, options, color_profile,
+                                export_metadata, oiio_err)) {
+      ApplyExportMetadata(export_path, color_profile, export_metadata);
+      return;
+    }
+  } catch (const std::exception& e) {
+    oiio_err = e.what();
+  }
+
+  std::string cv_err;
+  if (TryWriteWithOpenCV(export_path, working, options, cv_err)) {
+    ApplyExportMetadata(export_path, color_profile, export_metadata);
+    return;
+  }
+
+  throw std::runtime_error("ImageWriter: export failed. OIIO: " + oiio_err +
+                           " | OpenCV: " + cv_err);
+}
+};  // namespace alcedo
