@@ -9,6 +9,13 @@
 #include <optional>
 #include <string>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "ui/edit_viewer/frame_sink.hpp"
 
 namespace alcedo {
@@ -91,6 +98,10 @@ class HDRManager {
   static HDRDisplayInfo           cached_display_info_;
   static bool                     hdr_preview_enabled_;
   static HDRDisplayChangeCallback display_change_callback_;
+#if defined(_WIN32)
+  static LUID                     cached_adapter_luid_;
+  static bool                     has_cached_adapter_luid_;
+#endif
 };
 
 }  // namespace alcedo

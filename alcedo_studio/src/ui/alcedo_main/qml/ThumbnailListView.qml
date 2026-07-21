@@ -9,6 +9,19 @@ ListView {
     clip: true
     cacheBuffer: 0
     spacing: 8
+
+    // List add/remove transitions
+    add: Transition {
+        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
+    }
+    remove: Transition {
+        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 140; easing.type: Easing.InCubic }
+        NumberAnimation { property: "scale"; from: 1.0; to: 0.92; duration: 140; easing.type: Easing.InCubic }
+    }
+    displaced: Transition {
+        NumberAnimation { property: "y"; duration: 220; easing.type: Easing.OutQuint }
+        NumberAnimation { property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutCubic }
+    }
     readonly property color rowBg: "transparent"
     readonly property color rowBgSelected: appTheme.selectedTintColor
     readonly property color rowBgHover: appTheme.hoverColor
@@ -209,6 +222,8 @@ ListView {
                     maskEnabled: true
                     maskSource: thumbMask
                     visible: thumbnailReady
+                    opacity: thumbnailReady ? 1.0 : 0
+                    Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
                 }
                 Rectangle {
                     anchors.top: parent.top

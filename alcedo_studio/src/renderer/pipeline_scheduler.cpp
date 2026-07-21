@@ -20,6 +20,7 @@
 #include "io/image/image_loader.hpp"
 #include "renderer/pipeline_task.hpp"
 #include "utils/config/app_config.hpp"
+#include "utils/diagnostics/app_logging.hpp"
 
 namespace alcedo {
 namespace {
@@ -27,10 +28,10 @@ constexpr float kRotationPreviewEpsilon = 1e-4f;
 constexpr float kFullFrameRegionEpsilon = 1e-4f;
 // Preview size limits are now configurable via AppConfig. These constants
 // serve as compile-time fallbacks only.
-constexpr int   AppConfig::Instance().FastPreviewMaxLongEdge()Fallback = 2560;
-constexpr int   AppConfig::Instance().QualityBasePreviewMaxLongEdge()Fallback = 4096;
+constexpr int   kFastPreviewMaxLongEdgeFallback = 2560;
+constexpr int   kQualityBasePreviewMaxLongEdgeFallback = 4096;
 constexpr int   kHsReferenceMaskMaxLongEdgeFallback = 2048;
-constexpr int   AppConfig::Instance().FullResPreviewMaxLongEdge()Fallback = 8192;
+constexpr int   kFullResPreviewMaxLongEdgeFallback = 8192;
 
 auto HasActiveGeometryRotation(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor)
     -> bool {
@@ -352,7 +353,14 @@ void PipelineTask::SetExecutorRenderParams() {
     pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
     return;
   }
-  throw std::runtime_error("[ERROR] PipelineTask: Unknown render type");
+  qCCritical(diag::renderLog) << "PipelineTask::SetExecutorRenderParams: unknown render type";
+  // Reset to safe defaults rather than throwing — the caller's catch-all
+  // would recover, but avoiding the exception path is more robust.
+  pipeline_executor_->SetRenderRes(false, kFastPreviewMaxLongEdgeFallback);
+  pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
+  pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
+  pipeline_executor_->SetForceCPUOutput(false);
+  pipeline_executor_->SetEnableCache(true);
 }
 
 void PipelineTask::ResetPreviewRenderParams() {

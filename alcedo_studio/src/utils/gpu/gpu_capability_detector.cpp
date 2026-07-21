@@ -114,11 +114,55 @@ auto HasNvidiaAdapter() -> bool {
     }
     const std::wstring device_string(device.DeviceString);
     const std::wstring device_id(device.DeviceID);
-    for (auto& ch : device_string) {
+    std::wstring upper_string = device_string;
+    for (auto& ch : upper_string) {
       if (ch >= L'a' && ch <= L'z') ch = static_cast<wchar_t>(ch - L'a' + L'A');
     }
-    if (device_string.find(L"NVIDIA") != std::wstring::npos ||
+    if (upper_string.find(L"NVIDIA") != std::wstring::npos ||
         device_id.find(L"VEN_10DE") != std::wstring::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
+auto HasAmdAdapter() -> bool {
+  for (DWORD index = 0;; ++index) {
+    DISPLAY_DEVICEW device{};
+    device.cb = sizeof(device);
+    if (::EnumDisplayDevicesW(nullptr, index, &device, 0) == FALSE) {
+      break;
+    }
+    const std::wstring device_string(device.DeviceString);
+    const std::wstring device_id(device.DeviceID);
+    std::wstring upper_string = device_string;
+    for (auto& ch : upper_string) {
+      if (ch >= L'a' && ch <= L'z') ch = static_cast<wchar_t>(ch - L'a' + L'A');
+    }
+    if (upper_string.find(L"AMD") != std::wstring::npos ||
+        upper_string.find(L"RADEON") != std::wstring::npos ||
+        device_id.find(L"VEN_1002") != std::wstring::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
+auto HasIntelAdapter() -> bool {
+  for (DWORD index = 0;; ++index) {
+    DISPLAY_DEVICEW device{};
+    device.cb = sizeof(device);
+    if (::EnumDisplayDevicesW(nullptr, index, &device, 0) == FALSE) {
+      break;
+    }
+    const std::wstring device_string(device.DeviceString);
+    const std::wstring device_id(device.DeviceID);
+    std::wstring upper_string = device_string;
+    for (auto& ch : upper_string) {
+      if (ch >= L'a' && ch <= L'z') ch = static_cast<wchar_t>(ch - L'a' + L'A');
+    }
+    if (upper_string.find(L"INTEL") != std::wstring::npos ||
+        device_id.find(L"VEN_8086") != std::wstring::npos) {
       return true;
     }
   }
@@ -172,6 +216,8 @@ auto GpuCapabilityDetector::Detect() -> GpuCapabilityInfo {
   // On Windows, check CUDA driver version first.
   // If the CUDA driver is too old (< 570.xx), fall back to OpenCL or CPU.
   const bool has_nvidia = HasNvidiaAdapter();
+  const bool has_amd    = HasAmdAdapter();
+  const bool has_intel  = HasIntelAdapter();
 
 #ifdef HAVE_CUDA
   auto driver_support = cuda::CheckDriverSupport();
@@ -212,6 +258,10 @@ auto GpuCapabilityDetector::Detect() -> GpuCapabilityInfo {
   } else if (driver_support.status == cuda::DriverSupportStatus::kDriverUnavailable) {
     if (has_nvidia) {
       info.detail = "NVIDIA GPU detected but CUDA driver is not installed. ";
+    } else if (has_amd) {
+      info.detail = "AMD GPU detected (no CUDA support). ";
+    } else if (has_intel) {
+      info.detail = "Intel GPU detected (no CUDA support). ";
     } else {
       info.detail = "No NVIDIA GPU detected. ";
     }
@@ -314,11 +364,20 @@ auto GpuCapabilityDetector::BuildDriverWarningMessage(const GpuCapabilityInfo& i
     if (!info.gpu_adapter_name.empty()) {
       msg << "Detected adapter: " << info.gpu_adapter_name << "\n\n";
     }
+    if (!info.detail.empty()) {
+      msg << info.detail << "\n\n";
+    }
     msg << "The application will run in CPU-only mode.\n"
         << "Performance may be significantly reduced for large images.\n\n";
     if (info.detected_cuda_driver_version > 0) {
       msg << "If you have an NVIDIA GPU, please install the latest driver "
           << "(version 570.xx or later).";
+    } else if (info.detail.find("AMD") != std::string::npos) {
+      msg << "AMD GPUs are supported via OpenCL. Please ensure OpenCL runtime "
+          << "is installed (AMD Adrenalin driver package includes OpenCL support).";
+    } else if (info.detail.find("Intel") != std::string::npos) {
+      msg << "Intel GPUs are supported via OpenCL. Please ensure the Intel "
+          << "OpenCL runtime is installed (part of Intel GPU driver package).";
     }
   }
 

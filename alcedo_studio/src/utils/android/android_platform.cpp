@@ -130,7 +130,43 @@ auto AndroidPlatform::GetInternalStoragePath() -> std::string {
 }
 
 auto AndroidPlatform::GetExternalStoragePath() -> std::string {
-  // Use Environment.getExternalStorageDirectory() for shared storage
+  // Android 10+ (API 29) deprecated Environment.getExternalStorageDirectory()
+  // for app-private access; Android 11+ (API 30) enforces scoped storage.
+  // On API 30+, use the app-specific external directory instead.
+  QJniObject build_version = QJniObject::getStaticObjectField(
+      "android/os/Build$VERSION",
+      "SDK_INT",
+      "I");
+  int sdk_int = build_version.isValid() ? build_version.toInt() : 0;
+
+  if (sdk_int >= 30) {
+    // API 30+: Use getExternalFilesDir() for app-specific external storage
+    // which does not require READ_EXTERNAL_STORAGE permission.
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/bindings/QtActivity",
+        "currentActivity",
+        "()Landroid/app/Activity;");
+    if (!activity.isValid()) {
+      ALOGE("AndroidPlatform::GetExternalStoragePath: failed to get activity for scoped storage");
+      return {};
+    }
+    QJniObject ext_files_dir = activity.callObjectMethod(
+        "getExternalFilesDir",
+        "(Ljava/lang/String;)Ljava/io/File;",
+        nullptr);  // null = root external files dir
+    if (ext_files_dir.isValid()) {
+      QJniObject path = ext_files_dir.callObjectMethod(
+          "getAbsolutePath",
+          "()Ljava/lang/String;");
+      if (path.isValid()) {
+        return path.toString().toStdString();
+      }
+    }
+    ALOGW("AndroidPlatform::GetExternalStoragePath: getExternalFilesDir() failed, "
+          "falling back to getExternalStorageDirectory()");
+  }
+
+  // Legacy path (API < 30): Use Environment.getExternalStorageDirectory()
   QJniObject env_class = QJniObject::callStaticObjectMethod(
       "android/os/Environment",
       "getExternalStorageDirectory",
@@ -308,6 +344,23 @@ auto AndroidPlatform::GetDisplayInfo() -> DisplayInfo {
     return info;
   }
 
+  // On API 30+, WindowManager.getDefaultDisplay() is deprecated.
+  // Use Context.getDisplay() for the current display.
+  QJniObject build_version = QJniObject::getStaticObjectField(
+      "android/os/Build$VERSION",
+      "SDK_INT",
+      "I");
+  int sdk_int = build_version.isValid() ? build_version.toInt() : 0;
+
+  if (sdk_int >= 30) {
+    QJniObject ctx_display = activity.callObjectMethod(
+        "getDisplay",
+        "()Landroid/view/Display;");
+    if (ctx_display.isValid()) {
+      display = ctx_display;
+    }
+  }
+
   // Get display metrics
   QJniObject metrics = QJniObject("android/util/DisplayMetrics");
   display.callMethod<void>(
@@ -316,17 +369,12 @@ auto AndroidPlatform::GetDisplayInfo() -> DisplayInfo {
       metrics.object());
 
   if (metrics.isValid()) {
-    info.density_dpi = metrics.getField<float>("densityDpi");
+    // densityDpi is an int field in DisplayMetrics, not float
+    info.density_dpi = static_cast<float>(metrics.getField<int>("densityDpi"));
     info.density_scale = metrics.getField<float>("density");
 
-    // Get refresh rate from the Display object
-    QJniObject refresh_rate = display.callObjectMethod(
-        "getRefreshRate",
-        "()F");
-    if (refresh_rate.isValid()) {
-      // getRefreshRate returns a float directly
-      info.refresh_rate_hz = display.callMethod<float>("getRefreshRate");
-    }
+    // getRefreshRate is a float-returning method on Display (deprecated API 31+)
+    info.refresh_rate_hz = display.callMethod<float>("getRefreshRate", "()F");
   }
 
   // Get real display metrics for accurate size

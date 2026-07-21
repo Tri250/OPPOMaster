@@ -7,6 +7,8 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <QuartzCore/QuartzCore.h>
+#import <ColorSync/ColorSync.h>
+#include <CoreServices/CoreServices.h>
 
 #include "ui/edit_viewer/color_manager.hpp"
 
@@ -15,6 +17,7 @@
 #include <QString>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace alcedo {
 
@@ -256,11 +259,105 @@ auto ColorManager::ApplyWindowColorSpace(void*                      native_view_
   return true;
 }
 
-// ---- Stubs for Windows-only API (no-op on macOS) ----
+// ---- macOS ColorSync ICC profile detection ----
 
 auto ColorManager::DetectMonitorIccProfile(void* native_window) -> std::optional<MonitorIccProfile> {
-  (void)native_window;
-  return std::nullopt;
+  if (!native_window) {
+    return std::nullopt;
+  }
+
+  id object = (__bridge id)native_window;
+  NSScreen* screen = nil;
+
+  if ([object isKindOfClass:[NSWindow class]]) {
+    screen = [(NSWindow*)object screen];
+  } else if ([object isKindOfClass:[NSView class]]) {
+    NSWindow* window = [(NSView*)object window];
+    if (window) {
+      screen = window.screen;
+    }
+  }
+
+  if (!screen) {
+    return std::nullopt;
+  }
+
+  // Get the ColorSync profile UUID for the screen
+  CGDirectDisplayID display_id = 0;
+  if (@available(macOS 10.15, *)) {
+    NSNumber* screen_num = screen.deviceDescription[@"NSScreenNumber"];
+    if (screen_num) {
+      display_id = (CGDirectDisplayID)[screen_num unsignedIntValue];
+    }
+  }
+
+  if (display_id == 0) {
+    return std::nullopt;
+  }
+
+  // Retrieve the ColorSync profile URL for the display
+  CFDictionaryRef uuid_info = nullptr;
+  if (@available(macOS 10.11, *)) {
+    uuid_info = ColorSyncDeviceGetDeviceInfo(
+        kColorSyncDisplayDeviceClass,
+        (__bridge CFStringRef)[NSString stringWithFormat:@"%u", display_id],
+        false,
+        nullptr);
+  }
+
+  MonitorIccProfile result;
+
+  if (uuid_info) {
+    CFStringRef profile_url_str = (CFStringRef)CFDictionaryGetValue(
+        uuid_info, kColorSyncDeviceProfileURL);
+    if (profile_url_str) {
+      char buffer[1024] = {};
+      if (CFStringGetCString(profile_url_str, buffer, sizeof(buffer),
+                             kCFStringEncodingUTF8)) {
+        result.profile_path = std::wstring(buffer, buffer + strlen(buffer));
+      }
+    }
+    CFRelease(uuid_info);
+  }
+
+  // Attempt to read the ICC profile data from the display
+  CMProfileRef cm_profile = nullptr;
+  if (@available(macOS 10.13, *)) {
+    CMError err = CMGetProfileByAVID(std::numeric_limits<UInt32>::max(), &cm_profile);
+    if (err != noErr) {
+      // Fallback: try getting the profile from the display ID
+      err = CMGetProfileByAVID(display_id, &cm_profile);
+    }
+  }
+
+  if (cm_profile) {
+    CFDataRef data = nullptr;
+    CMProfileCopyDescriptionData(cm_profile, &data);
+    if (data) {
+      const UInt8* bytes = CFDataGetBytePtr(data);
+      CFIndex length = CFDataGetLength(data);
+      if (bytes && length > 0) {
+        result.profile_bytes.assign(bytes, bytes + length);
+      }
+      CFRelease(data);
+    }
+    CMCloseProfile(cm_profile);
+  }
+
+  if (result.profile_bytes.empty()) {
+    return std::nullopt;
+  }
+
+  // Compute a simple hash for cache invalidation
+  if (!result.profile_bytes.empty()) {
+    const size_t sz = result.profile_bytes.size();
+    const uint32_t h1 = static_cast<uint32_t>(sz);
+    const uint32_t h2 = static_cast<uint32_t>(result.profile_bytes[0]) |
+                         (static_cast<uint32_t>(result.profile_bytes[sz > 1 ? sz - 1 : 0]) << 8);
+    result.profile_hash = std::to_string(h1) + "_" + std::to_string(h2);
+  }
+
+  return result;
 }
 
 auto ColorManager::GetOrCreateColorTransform(const ViewerDisplayConfig& source_config,

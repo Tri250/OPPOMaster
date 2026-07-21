@@ -25,6 +25,11 @@ Popup {
     property var selectedImageIds: []
     property Item backgroundSource: null
 
+    // Animation state for dialog enter/exit
+    property real animScale: 1.0
+    property real animOpacity: 1.0
+    property real animY: 0
+
     readonly property color modalColor: appTheme.bgPanelColor
     readonly property color accentColor: appTheme.accentColor
     readonly property color textColor: appTheme.textColor
@@ -35,6 +40,33 @@ Popup {
     signal stitchRequested(var imageIds, var config)
     signal cancelRequested()
     signal closeRequested()
+    signal saveToLibraryRequested(string filePath)
+
+    onAboutToShow: {
+        animScale = 0.96
+        animOpacity = 0
+        animY = 18
+        dialogEnterAnim.start()
+    }
+
+    Behavior on animScale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on animOpacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on animY { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+    ParallelAnimation {
+        id: dialogEnterAnim
+        NumberAnimation { target: root; property: "animScale"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "animY"; to: 0; duration: 220; easing.type: Easing.OutCubic }
+    }
+
+    ParallelAnimation {
+        id: dialogExitAnim
+        NumberAnimation { target: root; property: "animScale"; to: 0.97; duration: 160; easing.type: Easing.InCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 0; duration: 160; easing.type: Easing.InCubic }
+        NumberAnimation { target: root; property: "animY"; to: 18; duration: 160; easing.type: Easing.InCubic }
+        onFinished: root.close()
+    }
 
     onRunningChanged: {
         if (!running && !hasResult && !failed) {
@@ -58,6 +90,11 @@ Popup {
         radius: 14
         color: root.modalColor
         border.width: 0
+        opacity: root.animOpacity
+        transform: [
+            Scale { origin.x: root.width / 2; origin.y: root.height / 2; xScale: root.animScale; yScale: root.animScale },
+            Translate { y: root.animY }
+        ]
 
         MultiEffect {
             visible: root.backgroundSource !== null
@@ -138,6 +175,8 @@ Popup {
                     from: 0
                     to: 1
                     value: root.progress
+
+                    Behavior on value { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
                     background: Rectangle {
                         radius: 4
@@ -230,12 +269,28 @@ Popup {
                     Item { Layout.fillWidth: true }
 
                     Button {
+                        text: qsTr("Save to Library")
+                        highlighted: true
+                        visible: root.result && root.result.filePath && root.result.filePath.length > 0
+                        onClicked: {
+                            root.saveToLibraryRequested(root.result.filePath)
+                        }
+                        Material.foreground: root.textColor
+                        background: Rectangle {
+                            radius: 8
+                            color: parent.down ? Qt.darker("#457B9D", 1.18)
+                                 : parent.hovered ? Qt.lighter("#457B9D", 1.08)
+                                                  : "#457B9D"
+                        }
+                    }
+
+                    Button {
                         text: qsTr("Close")
                         onClicked: {
                             if (root.panoramaController) {
                                 root.panoramaController.dismissResult()
                             }
-                            root.close()
+                            dialogExitAnim.start()
                             root.closeRequested()
                         }
                     }
@@ -279,7 +334,7 @@ Popup {
                             if (root.panoramaController) {
                                 root.panoramaController.dismissResult()
                             }
-                            root.close()
+                            dialogExitAnim.start()
                             root.closeRequested()
                         }
                     }

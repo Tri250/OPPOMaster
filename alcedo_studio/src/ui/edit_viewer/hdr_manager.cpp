@@ -29,9 +29,17 @@ bool                     HDRManager::hdr_preview_enabled_ = false;
 HDRManager::HDRDisplayChangeCallback HDRManager::display_change_callback_;
 
 #if defined(_WIN32)
+// Cached LUID of the DXGI adapter used for the last successful HDR detection.
+// When the adapter changes (e.g. eGPU hot-plug, GPU preference change), the
+// cached display info must be invalidated and re-detected.
+LUID                     HDRManager::cached_adapter_luid_ = {};
+bool                     HDRManager::has_cached_adapter_luid_ = false;
+#endif
+
+#if defined(_WIN32)
 namespace {
 
-auto GetDXGIOutputForWindow(HWND window) -> IDXGIOutput6* {
+auto GetDXGIOutputForWindow(HWND window, LUID* out_adapter_luid = nullptr) -> IDXGIOutput6* {
   if (!window) {
     return nullptr;
   }
@@ -78,6 +86,13 @@ auto GetDXGIOutputForWindow(HWND window) -> IDXGIOutput6* {
         output->Release();
         if (SUCCEEDED(hr) && output6) {
           result_output = output6;
+          // Capture the adapter LUID so callers can detect adapter changes.
+          if (out_adapter_luid) {
+            DXGI_ADAPTER_DESC1 adapter_desc;
+            if (SUCCEEDED(adapter->GetDesc1(&adapter_desc))) {
+              *out_adapter_luid = adapter_desc.AdapterLuid;
+            }
+          }
           adapter->Release();
           factory->Release();
           return result_output;
@@ -111,11 +126,26 @@ auto HDRManager::DetectHDRDisplay(void* native_window) -> HDRDisplayInfo {
   }
 
   HWND window = static_cast<HWND>(native_window);
-  IDXGIOutput6* output6 = GetDXGIOutputForWindow(window);
+  LUID current_adapter_luid = {};
+  IDXGIOutput6* output6 = GetDXGIOutputForWindow(window, &current_adapter_luid);
   if (!output6) {
     qWarning("HDRManager: could not get IDXGIOutput6 for window.");
     return info;
   }
+
+  // Detect GPU adapter change (e.g. eGPU hot-plug, driver update).
+  // When the adapter changes, we must re-evaluate HDR capabilities from scratch.
+  if (has_cached_adapter_luid_) {
+    if (current_adapter_luid.LowPart != cached_adapter_luid_.LowPart ||
+        current_adapter_luid.HighPart != cached_adapter_luid_.HighPart) {
+      qInfo("HDRManager: GPU adapter changed (LUID %lu/%lu -> %lu/%lu). "
+            "Re-detecting HDR capabilities.",
+            cached_adapter_luid_.LowPart, cached_adapter_luid_.HighPart,
+            current_adapter_luid.LowPart, current_adapter_luid.HighPart);
+    }
+  }
+  cached_adapter_luid_ = current_adapter_luid;
+  has_cached_adapter_luid_ = true;
 
   DXGI_OUTPUT_DESC1 desc1;
   HRESULT hr = output6->GetDesc1(&desc1);
@@ -456,6 +486,10 @@ void HDRManager::ClearCache() {
   cached_display_info_ = {};
   hdr_preview_enabled_ = false;
   display_change_callback_ = nullptr;
+#if defined(_WIN32)
+  cached_adapter_luid_ = {};
+  has_cached_adapter_luid_ = false;
+#endif
 }
 
 }  // namespace alcedo

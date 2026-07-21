@@ -23,6 +23,25 @@ Popup {
     property int embedded: 0
     property int skipped: 0
     property int failed: 0
+
+    // Dialog enter/exit animation
+    property real animScale: 1.0
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animScale = 0.96
+        animOpacity = 0
+        semanticEnterAnim.start()
+    }
+
+    Behavior on animScale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on animOpacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+    ParallelAnimation {
+        id: semanticEnterAnim
+        NumberAnimation { target: root; property: "animScale"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+    }
     property int canceled: 0
     property string statusText: ""
     property Item backgroundSource: null
@@ -136,6 +155,10 @@ Popup {
         radius: 14
         color: root.panelColor
         border.width: 0
+        opacity: root.animOpacity
+        transform: [
+            Scale { origin.x: root.width / 2; origin.y: root.height / 2; xScale: root.animScale; yScale: root.animScale }
+        ]
     }
 
     contentItem: ColumnLayout {

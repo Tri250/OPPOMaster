@@ -165,6 +165,14 @@ HERE="$(dirname "${SELF}")"
 export PATH="${HERE}/usr/bin:${PATH}"
 export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
 export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+# Wayland compatibility: prefer Wayland if available, fall back to X11.
+# Qt6 auto-detects the platform but the WAYLAND_DISPLAY variable helps
+# when running under XWayland without native Wayland support.
+if [ -n "${WAYLAND_DISPLAY}" ]; then
+  export QT_QPA_PLATFORM=wayland;xcb
+else
+  export QT_QPA_PLATFORM=xcb
+fi
 exec "${HERE}/usr/bin/alcedo-studio" "$@"
 APPRUN
   chmod +x "${APPDIR}/AppRun"
@@ -276,7 +284,7 @@ Version: ${VERSION}
 Section: graphics
 Priority: optional
 Architecture: ${ARCH}
-Depends: libc6 (>= 2.31), libgcc-s1 (>= 10), libstdc++6 (>= 10), libgl1, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libglib2.0-0, libpng16-16, libjpeg-turbo8 | libjpeg8, libtiff5 | libtiff6, libopenexr25 | libopenexr-3-1-30, liblcms2-2, libonnxruntime (>= 1.17) | onnxruntime (>= 1.17)
+Depends: libc6 (>= 2.31), libgcc-s1 (>= 10), libstdc++6 (>= 10), libgl1, libx11-6, libxcb1, libxkbcommon0, libdbus-1-3, libfontconfig1, libfreetype6, libglib2.0-0, libpng16-16, libjpeg-turbo8 | libjpeg8, libtiff5 | libtiff6, libopenexr25 | libopenexr-3-1-30, liblcms2-2, libwayland-client0, libonnxruntime (>= 1.17) | onnxruntime (>= 1.17)
 Maintainer: AlcedoStudio Team <dev@alcedo.studio>
 Description: Professional RAW image editor with AI-powered tools
  AlcedoStudio is a professional RAW image editor featuring

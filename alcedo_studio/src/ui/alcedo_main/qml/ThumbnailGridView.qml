@@ -715,6 +715,19 @@ Item {
                                             + root.cardInset * 2
                                             + root.delegateGap))
         interactive: false
+
+        // Grid add/remove transitions
+        add: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
+        }
+        remove: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 140; easing.type: Easing.InCubic }
+        }
+        displaced: Transition {
+            NumberAnimation { property: "x"; duration: 220; easing.type: Easing.OutQuint }
+            NumberAnimation { property: "y"; duration: 220; easing.type: Easing.OutQuint }
+            NumberAnimation { property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutCubic }
+        }
         onContentYChanged: root.maybeLoadMoreThumbnails()
         onContentHeightChanged: root.clampContentY()
         onHeightChanged: root.clampContentY()
@@ -1007,6 +1020,8 @@ Item {
                     maskEnabled: true
                     maskSource: thumbMask
                     visible: thumbnailReady
+                    opacity: thumbnailReady ? 1.0 : 0
+                    Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
                 }
                 Rectangle {
                     anchors.top: parent.top

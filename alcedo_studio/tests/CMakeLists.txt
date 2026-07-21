@@ -1430,6 +1430,8 @@ alcedo_assign_test_category(core ALCEDO_BUILD_CORE_TESTS alcedo_tests_core
   OpenClRuntimeTest
   OpenClNnPrimitivesTest
   OpenClDemosaicNetTest
+  PlatformCompatTest
+  RawFormatCompatTest
 )
 
 alcedo_assign_test_category(image ALCEDO_BUILD_IMAGE_TESTS alcedo_tests_image
@@ -1571,3 +1573,9 @@ alcedo_assign_test_category(ci_metal ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_metal
   MetalRawStagePreviewTest
   MetalFullPipelinePreviewTest
 )
+
+# ==============================================================================
+# Compatibility Tests — platform-specific features and RAW format support
+# ==============================================================================
+option(ALCEDO_BUILD_COMPAT_TESTS "Enable cross-platform compatibility test targets." ON)
+add_subdirectory(compatibility)

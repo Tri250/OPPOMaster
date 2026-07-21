@@ -580,8 +580,12 @@ void ImageAnalysisJob::Cancel() {
   }
 
   // P1-9: Notify prefill queue waiters so they unblock immediately
-  if (prefill_queue_) {
-    prefill_queue_->NotifyCancel();
+  // Read prefill_queue_ under lock to avoid race with Finish() which clears it.
+  {
+    std::unique_lock lk(lock_);
+    if (prefill_queue_) {
+      prefill_queue_->NotifyCancel();
+    }
   }
 
   // Best-effort server-side cancel of THIS job's in-flight RPC. am_in_flight_ is true
@@ -877,7 +881,11 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       static_cast<size_t>(effective_prefetch));
 
   // P1-9: Store raw pointer so Cancel() can notify the queue directly.
-  job->prefill_queue_ = queue.get();
+  // Write under lock since Cancel() reads it under lock.
+  {
+    std::unique_lock lk(job->lock_);
+    job->prefill_queue_ = queue.get();
+  }
 
   // --- Producer thread (Phase 5e): overlaps local thumbnail/encode prep with the single
   // in-flight remote call. It prepares items in order, releases each ThumbnailGuard

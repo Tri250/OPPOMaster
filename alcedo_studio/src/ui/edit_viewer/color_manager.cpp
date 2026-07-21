@@ -347,15 +347,35 @@ auto ColorManager::ApplyWindowColorSpace(void*                      native_view_
   // On Windows 11 22H2+, DWM supports ICC profiles for SDR content when
   // Auto Color Management (ACM) is enabled.
 
-  // Detect the monitor ICC profile and cache it for preview rendering
+  // Detect the monitor ICC profile and cache it for preview rendering.
+  // On multi-monitor setups, each monitor may have a different ICC profile.
+  // When the window moves between monitors, the profile changes and we must
+  // invalidate cached transforms.
   auto profile = DetectMonitorIccProfile(native_view_or_window);
   if (profile.has_value()) {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     if (cached_display_profile_.profile_path != profile->profile_path ||
         cached_display_profile_.profile_hash != profile->profile_hash) {
+
+      // If we had a previous profile, the monitor changed — invalidate transforms
+      if (!cached_display_profile_.profile_path.empty() &&
+          cached_display_profile_.profile_path != profile->profile_path) {
+        qInfo("ColorManager: window moved to a different monitor — "
+              "invalidating color transforms.");
+        for (auto& [key, handle] : transform_cache_) {
+          ReleaseColorTransform(handle);
+        }
+        transform_cache_.clear();
+      }
+
       qInfo() << "ColorManager: display ICC profile detected:"
               << QString::fromWCharArray(profile->profile_path.c_str());
       cached_display_profile_ = std::move(*profile);
+
+      // Notify callback of the profile change
+      if (profile_change_callback_) {
+        profile_change_callback_(cached_display_profile_.profile_path);
+      }
     }
   }
 

@@ -28,6 +28,32 @@ Dialog {
     property int queuePreviewLimit: 36
     property bool hdrExportAvailable: false
     property bool exportTriggered: false
+
+    // Dialog enter/exit animation
+    property real animScale: 1.0
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animScale = 0.96
+        animOpacity = 0
+        exportEnterAnim.start()
+    }
+
+    Behavior on animScale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on animOpacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+    ParallelAnimation {
+        id: exportEnterAnim
+        NumberAnimation { target: root; property: "animScale"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+    }
+
+    ParallelAnimation {
+        id: exportExitAnim
+        NumberAnimation { target: root; property: "animScale"; to: 0.97; duration: 160; easing.type: Easing.InCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 0; duration: 160; easing.type: Easing.InCubic }
+        onFinished: root.close()
+    }
     property var exportPresetManager: null
 
     readonly property color panelColor: appTheme.bgPanelColor
@@ -240,6 +266,13 @@ Dialog {
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, 0.06)
         layer.enabled: true
+        opacity: root.animOpacity
+        transform: Scale {
+            origin.x: root.width / 2
+            origin.y: root.height / 2
+            xScale: root.animScale
+            yScale: root.animScale
+        }
     }
 
     contentItem: ColumnLayout {
@@ -1016,6 +1049,7 @@ Dialog {
                     value: albumBackend.exportTotal > 0
                            ? albumBackend.exportCompleted / albumBackend.exportTotal
                            : 0
+                    Behavior on value { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                 }
             }
 

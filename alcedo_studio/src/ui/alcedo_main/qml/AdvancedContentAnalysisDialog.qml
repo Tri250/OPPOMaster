@@ -23,6 +23,25 @@ Dialog {
     property var profileController: null
     property var backend: null
     property var selectionTargets: []
+
+    // Dialog enter/exit animation
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animOpacity = 0
+        acaEnterAnim.start()
+    }
+
+    Behavior on animOpacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+    NumberAnimation {
+        id: acaEnterAnim
+        target: root
+        property: "animOpacity"
+        to: 1.0
+        duration: 200
+        easing.type: Easing.OutCubic
+    }
     property bool backendInteractive: false
     // Phase 2: the interaction-policy controller. The Start button binds to its
     // canRunAnalysis Q_PROPERTY so a running analysis on the selected images
@@ -544,7 +563,9 @@ Dialog {
         }
     }
 
-    background: Item {}
+    background: Item {
+        opacity: root.animOpacity
+    }
 
     contentItem: Item {
         implicitWidth: root.width

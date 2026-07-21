@@ -147,24 +147,56 @@ auto RelinkService::RelinkFile(sl_element_id_t file_id,
     return result;
   }
 
-  // Look up the image_id for this file
+  // Look up the image_id for this file using parameterized query
   auto guard   = storage_service_.GetDBController().GetConnectionGuard();
   auto db_lock = guard.Lock();
 
   const std::string find_sql =
       "SELECT fi.image_id, i.image_path "
       "FROM FileImage fi JOIN Image i ON i.id = fi.image_id "
-      "WHERE fi.file_id = " +
-      std::to_string(file_id);
+      "WHERE fi.file_id = $1";
 
-  auto rows = RunSelectQuery(guard.conn_, find_sql);
-  if (rows.empty() || rows[0].size() < 2) {
-    result.error_message = "File not found in database: " + std::to_string(file_id);
+  duckdb_prepared_statement find_stmt = nullptr;
+  if (duckdb_prepare(guard.conn_, find_sql.c_str(), &find_stmt) != DuckDBSuccess) {
+    result.error_message = "Failed to prepare lookup query for file_id: " + std::to_string(file_id);
+    if (find_stmt) duckdb_destroy_prepare(&find_stmt);
     return result;
   }
 
-  const auto image_id = static_cast<image_id_t>(std::stoll(rows[0][0]));
-  result.old_path     = std::filesystem::path(conv::FromBytes(rows[0][1]));
+  if (duckdb_bind_int64(find_stmt, 1, static_cast<int64_t>(file_id)) != DuckDBSuccess) {
+    result.error_message = "Failed to bind file_id parameter";
+    duckdb_destroy_prepare(&find_stmt);
+    return result;
+  }
+
+  duckdb_result find_result;
+  if (duckdb_execute_prepared(find_stmt, &find_result) != DuckDBSuccess) {
+    result.error_message = "File not found in database: " + std::to_string(file_id);
+    duckdb_destroy_result(&find_result);
+    duckdb_destroy_prepare(&find_stmt);
+    return result;
+  }
+
+  // Extract row data from prepared statement result
+  auto row_count = duckdb_row_count(&find_result);
+  if (row_count == 0) {
+    result.error_message = "File not found in database: " + std::to_string(file_id);
+    duckdb_destroy_result(&find_result);
+    duckdb_destroy_prepare(&find_stmt);
+    return result;
+  }
+
+  char* img_id_val = duckdb_value_varchar(&find_result, 0, 0);
+  char* img_path_val = duckdb_value_varchar(&find_result, 1, 0);
+  std::string img_id_str = img_id_val ? img_id_val : "";
+  std::string img_path_str = img_path_val ? img_path_val : "";
+  duckdb_free(img_id_val);
+  duckdb_free(img_path_val);
+  duckdb_destroy_result(&find_result);
+  duckdb_destroy_prepare(&find_stmt);
+
+  const auto image_id = static_cast<image_id_t>(std::stoll(img_id_str));
+  result.old_path     = std::filesystem::path(conv::FromBytes(img_path_str));
 
   // Update the image path
   if (!UpdateImagePath(image_id, new_path)) {
@@ -373,23 +405,38 @@ auto RelinkService::ScoreCandidate(const MissingFileInfo& missing,
     auto guard   = storage_service_.GetDBController().GetConnectionGuard();
     auto db_lock = guard.Lock();
     const std::string sql =
-        "SELECT file_size FROM Image WHERE id = " + std::to_string(missing.image_id);
-    auto rows = RunSelectQuery(guard.conn_, sql);
-    if (!rows.empty() && !rows[0].empty()) {
-      try {
-        const auto original_size = std::stoll(rows[0][0]);
-        if (original_size > 0) {
-          const auto diff = std::llabs(
-              static_cast<long long>(candidate_size) - original_size);
-          const auto threshold =
-              original_size * kFuzzySizePercentThreshold / 100;
-          if (diff <= threshold) {
-            candidate.size_match = true;
-            candidate.score += 30;
+        "SELECT file_size FROM Image WHERE id = $1";
+
+    duckdb_prepared_statement stmt = nullptr;
+    if (duckdb_prepare(guard.conn_, sql.c_str(), &stmt) == DuckDBSuccess) {
+      if (duckdb_bind_int64(stmt, 1, static_cast<int64_t>(missing.image_id)) == DuckDBSuccess) {
+        duckdb_result res;
+        if (duckdb_execute_prepared(stmt, &res) == DuckDBSuccess && duckdb_row_count(&res) > 0) {
+          char* val = duckdb_value_varchar(&res, 0, 0);
+          std::string size_str = val ? val : "";
+          duckdb_free(val);
+          duckdb_destroy_result(&res);
+          if (!size_str.empty()) {
+            try {
+              const auto original_size = std::stoll(size_str);
+              if (original_size > 0) {
+                const auto diff = std::llabs(
+                    static_cast<long long>(candidate_size) - original_size);
+                const auto threshold =
+                    original_size * kFuzzySizePercentThreshold / 100;
+                if (diff <= threshold) {
+                  candidate.size_match = true;
+                  candidate.score += 30;
+                }
+              }
+            } catch (...) {
+            }
           }
+        } else {
+          duckdb_destroy_result(&res);
         }
-      } catch (...) {
       }
+      duckdb_destroy_prepare(&stmt);
     }
   }
 
@@ -400,11 +447,26 @@ auto RelinkService::ScoreCandidate(const MissingFileInfo& missing,
     auto guard   = storage_service_.GetDBController().GetConnectionGuard();
     auto db_lock = guard.Lock();
     const std::string sql =
-        "SELECT modified_at FROM Image WHERE id = " + std::to_string(missing.image_id);
-    auto rows = RunSelectQuery(guard.conn_, sql);
-    if (!rows.empty() && !rows[0].empty() && !rows[0][0].empty()) {
-      // DuckDB TIMESTAMP comparison: best-effort
-      candidate.score += 10;  // partial credit for having a timestamp
+        "SELECT modified_at FROM Image WHERE id = $1";
+
+    duckdb_prepared_statement stmt = nullptr;
+    if (duckdb_prepare(guard.conn_, sql.c_str(), &stmt) == DuckDBSuccess) {
+      if (duckdb_bind_int64(stmt, 1, static_cast<int64_t>(missing.image_id)) == DuckDBSuccess) {
+        duckdb_result res;
+        if (duckdb_execute_prepared(stmt, &res) == DuckDBSuccess && duckdb_row_count(&res) > 0) {
+          char* val = duckdb_value_varchar(&res, 0, 0);
+          std::string mtime_str = val ? val : "";
+          duckdb_free(val);
+          duckdb_destroy_result(&res);
+          if (!mtime_str.empty()) {
+            // DuckDB TIMESTAMP comparison: best-effort
+            candidate.score += 10;  // partial credit for having a timestamp
+          }
+        } else {
+          duckdb_destroy_result(&res);
+        }
+      }
+      duckdb_destroy_prepare(&stmt);
     }
   }
 
@@ -434,24 +496,80 @@ auto RelinkService::UpdateImagePath(image_id_t image_id,
   auto guard   = storage_service_.GetDBController().GetConnectionGuard();
   auto db_lock = guard.Lock();
 
+  // Use prepared statement with parameterized query to prevent SQL injection
   const std::string sql =
-      "UPDATE Image SET image_path = '" +
-      conv::ToBytes(new_path.wstring()) +
-      "' WHERE id = " + std::to_string(image_id);
+      "UPDATE Image SET image_path = $1 WHERE id = $2";
 
-  return RunExecQuery(guard.conn_, sql);
+  duckdb_prepared_statement stmt = nullptr;
+  if (duckdb_prepare(guard.conn_, sql.c_str(), &stmt) != DuckDBSuccess) {
+    qCWarning(diag::sleeveLog).noquote()
+        << QStringLiteral("RelinkService: prepare failed for UpdateImagePath");
+    if (stmt) duckdb_destroy_prepare(&stmt);
+    return false;
+  }
+
+  // Bind the path parameter ($1)
+  auto path_str = conv::ToBytes(new_path.wstring());
+  if (duckdb_bind_varchar(stmt, 1, path_str.c_str()) != DuckDBSuccess) {
+    qCWarning(diag::sleeveLog).noquote()
+        << QStringLiteral("RelinkService: bind path failed for UpdateImagePath");
+    duckdb_destroy_prepare(&stmt);
+    return false;
+  }
+
+  // Bind the image_id parameter ($2)
+  if (duckdb_bind_int64(stmt, 2, static_cast<int64_t>(image_id)) != DuckDBSuccess) {
+    qCWarning(diag::sleeveLog).noquote()
+        << QStringLiteral("RelinkService: bind id failed for UpdateImagePath");
+    duckdb_destroy_prepare(&stmt);
+    return false;
+  }
+
+  duckdb_result result;
+  bool success = (duckdb_execute_prepared(stmt, &result) == DuckDBSuccess);
+  if (!success) {
+    const char* err = duckdb_result_error(&result);
+    qCWarning(diag::sleeveLog).noquote()
+        << QStringLiteral("RelinkService: execute failed for UpdateImagePath: %1")
+               .arg(QString::fromUtf8(err ? err : "unknown"));
+  }
+  duckdb_destroy_result(&result);
+  duckdb_destroy_prepare(&stmt);
+  return success;
 }
 
 auto RelinkService::SetFileMissingFlag(sl_element_id_t file_id, bool missing) -> bool {
   auto guard   = storage_service_.GetDBController().GetConnectionGuard();
   auto db_lock = guard.Lock();
 
-  const std::string sql = std::format(
-      "UPDATE Element SET missing_file = {} WHERE id = {}",
-      missing ? "TRUE" : "FALSE", file_id);
+  // Use prepared statement to prevent SQL injection
+  const std::string sql =
+      "UPDATE Element SET missing_file = $1 WHERE id = $2";
 
+  duckdb_prepared_statement stmt = nullptr;
+  if (duckdb_prepare(guard.conn_, sql.c_str(), &stmt) != DuckDBSuccess) {
+    // This column may not exist in older databases; ignore failure silently
+    if (stmt) duckdb_destroy_prepare(&stmt);
+    return true;
+  }
+
+  // Bind the missing flag ($1)
+  if (duckdb_bind_boolean(stmt, 1, missing ? true : false) != DuckDBSuccess) {
+    duckdb_destroy_prepare(&stmt);
+    return true;
+  }
+
+  // Bind the file_id parameter ($2)
+  if (duckdb_bind_int64(stmt, 2, static_cast<int64_t>(file_id)) != DuckDBSuccess) {
+    duckdb_destroy_prepare(&stmt);
+    return true;
+  }
+
+  duckdb_result result;
   // This column may not exist in older databases; ignore failure silently
-  RunExecQuery(guard.conn_, sql);
+  duckdb_execute_prepared(stmt, &result);
+  duckdb_destroy_result(&result);
+  duckdb_destroy_prepare(&stmt);
   return true;
 }
 

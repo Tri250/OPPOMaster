@@ -121,7 +121,7 @@ class AiSidecarRuntimeService final : public QObject {
   auto GetOfflineService() const -> OfflineAiService* { return offline_service_.get(); }
 
   /// Whether the service is operating in offline (degraded) mode.
-  auto IsOfflineMode() const -> bool { return offline_mode_; }
+  auto IsOfflineMode() const -> bool { return offline_mode_.load(); }
 
   auto StateName() const -> QString;
   auto IssueName() const -> QString;
@@ -156,9 +156,9 @@ class AiSidecarRuntimeService final : public QObject {
   AiSidecarRuntimeOptions                 options_;
   AiSidecarRuntimeStatusSnapshot          status_;
   std::string                             endpoint_;
-  int                                     active_leases_ = 0;
+  std::atomic<int>                        active_leases_{0};
   std::unique_ptr<OfflineAiService>       offline_service_;
-  bool                                    offline_mode_ = false;
+  std::atomic<bool>                       offline_mode_{false};
   // Interactive-boot state. `interactive_starting_` is set for the duration of
   // a StartAndWaitInteractive boot so IsStartingInteractive() can report it;
   // `cancel_start_requested_` is the cancel flag checkpointed each poll.

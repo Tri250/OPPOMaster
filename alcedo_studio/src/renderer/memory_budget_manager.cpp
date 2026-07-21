@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -102,12 +103,40 @@ auto MemoryBudgetManager::IsUnifiedMemoryArchitecture() const -> bool {
 #ifndef _WIN32
 #ifndef __APPLE__
 #ifndef HAVE_CUDA
-  // Read from /proc/meminfo as a fallback for integrated GPUs on Linux.
-  // If there's no discrete GPU memory info available, assume unified.
-  std::ifstream meminfo("/proc/meminfo");
-  if (meminfo.is_open()) {
-    // If we can't detect any discrete GPU memory, assume unified.
-    is_unified = true;  // Conservative: assume unified if no GPU detected
+  // On Linux without CUDA, check for discrete GPU via /proc/driver/nvidia or
+  // OpenCL ICD vendor files. If none found, the system likely uses integrated
+  // or no GPU — conservatively assume unified memory.
+  bool has_discrete_gpu = false;
+
+  // Check for NVIDIA driver
+  {
+    std::ifstream nvidia_proc("/proc/driver/nvidia/version");
+    if (nvidia_proc.is_open()) {
+      has_discrete_gpu = true;
+    }
+  }
+
+  // Check for OpenCL ICD vendor files
+  if (!has_discrete_gpu) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/etc/OpenCL/vendors", ec)) {
+      if (entry.is_regular_file()) {
+        auto path_str = entry.path().string();
+        // Intel and AMD ICDs indicate discrete or integrated GPUs
+        if (path_str.find("intel") != std::string::npos ||
+            path_str.find("Intel") != std::string::npos ||
+            path_str.find("amdocl") != std::string::npos ||
+            path_str.find("AMD") != std::string::npos) {
+          has_discrete_gpu = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!has_discrete_gpu) {
+    is_unified = true;  // No discrete GPU detected; assume unified
   }
 #endif
 #endif

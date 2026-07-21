@@ -8,6 +8,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QRegularExpression>
 #include <QTimeZone>
 
@@ -95,7 +97,21 @@ void UpdateChecker::CheckForUpdate() {
   request.setHeader(QNetworkRequest::UserAgentHeader,
                     QStringLiteral("AlcedoStudio/%1").arg(CurrentVersion().ToString()));
 
+  // Enforce HTTPS with proper SSL certificate validation
+  QSslConfiguration ssl_config = QSslConfiguration::defaultConfiguration();
+  ssl_config.setProtocol(QSsl::TlsV1_2OrLater);
+  ssl_config.setPeerVerifyMode(QSslSocket::VerifyPeer);
+  // Do not allow ignoring SSL errors — reject connections with invalid certs
+  request.setSslConfiguration(ssl_config);
+
   QNetworkReply* reply = network_->get(request);
+  // Explicitly reject SSL errors (do not auto-ignore)
+  connect(reply, &QNetworkReply::sslErrors, this, [](const QList<QSslError>& errors) {
+    qCWarning(diag::appLog).noquote()
+        << QStringLiteral("UpdateChecker: SSL errors encountered, aborting: %1")
+               .arg(errors.isEmpty() ? QStringLiteral("unknown")
+                                     : errors.first().errorString());
+  });
   connect(reply, &QNetworkReply::finished, this, [this, reply]() {
     reply->deleteLater();
     checking_ = false;

@@ -423,7 +423,13 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
                                             ThumbnailResolution resolution) {
   auto st = state_;
   if (!st || !st->image_pool_service_ || !st->pipeline_service_ || !st->pipeline_scheduler_) {
-    throw std::runtime_error("[ERROR] ThumbnailService: Services not initialized.");
+    qCWarning(diag::thumbnailLog) << "ThumbnailService::GetThumbnailDetailed: services not initialized";
+    DispatchThumbnailResultCallback(callback, dispatcher,
+                                    ThumbnailRequestResult{.guard  = nullptr,
+                                                           .status = ThumbnailRequestStatus::kFailed,
+                                                           .message = "Services not initialized",
+                                                           .key     = ThumbnailCacheKey{id, resolution}});
+    return;
   }
 
   const ThumbnailCacheKey         cache_key{id, resolution};
@@ -858,7 +864,14 @@ void ThumbnailService::RequestAnalysisRendition(sl_element_id_t element_id, imag
                                                 ThumbnailResultCallback callback) {
   auto st = state_;
   if (!st || !st->image_pool_service_ || !st->pipeline_service_ || !st->pipeline_scheduler_) {
-    throw std::runtime_error("[ERROR] ThumbnailService: Services not initialized.");
+    qCWarning(diag::thumbnailLog) << "ThumbnailService::RequestAnalysisRendition: services not initialized";
+    if (callback) {
+      callback(ThumbnailRequestResult{.guard  = nullptr,
+                                      .status = ThumbnailRequestStatus::kFailed,
+                                      .message = "Services not initialized",
+                                      .key     = ThumbnailCacheKey{element_id, resolution}});
+    }
+    return;
   }
 
   const ThumbnailCacheKey cache_key{element_id, resolution};

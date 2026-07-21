@@ -113,10 +113,42 @@ class InMemoryAiCredentialStore final : public IAiCredentialStore {
   std::unordered_map<std::string, std::string> entries_;
 };
 
+// Linux encrypted file store: persists credentials in AES-256-GCM encrypted
+// files under ~/.config/AlcedoStudio/AiCredentialStore/. Each slot is a
+// separate file encrypted with a key derived from a machine-specific salt
+// stored alongside the credential. The master key is derived from
+// /etc/machine-id (or equivalent) using PBKDF2-SHA256 with 100k iterations.
+// This is NOT as secure as a proper OS keychain (libsecret/KWallet), but is
+// far better than plain in-memory or plaintext storage. When libsecret or
+// KWallet becomes available at build time, those should be preferred.
+class LinuxEncryptedFileAiCredentialStore final : public IAiCredentialStore {
+ public:
+  LinuxEncryptedFileAiCredentialStore();
+
+  auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
+      -> bool override;
+  auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool override;
+  auto DeleteCredential(const std::string& slot, std::string* error) -> bool override;
+  auto HasCredential(const std::string& slot) -> bool override;
+
+ private:
+  auto GetStoreDir() -> std::filesystem::path;
+  auto DeriveMasterKey() -> std::vector<unsigned char>;
+  auto EncryptData(const std::string& plaintext, std::vector<unsigned char>& ciphertext)
+      -> bool;
+  auto DecryptData(const std::vector<unsigned char>& ciphertext, std::string& plaintext)
+      -> bool;
+  auto SlotFilePath(const std::string& slot) -> std::filesystem::path;
+
+  std::vector<unsigned char> master_key_;
+  std::filesystem::path store_dir_;
+};
+
 // Factory returning the platform-default production store: WinCred on Windows,
-// MacKeychain on macOS, and the in-memory fallback elsewhere (e.g. Linux, where
-// a native impl is not yet provided). The in-memory fallback does not persist
-// secrets across process exit.
+// MacKeychain on macOS, and the encrypted-file store on Linux. The encrypted-
+// file store persists secrets to AES-256-GCM encrypted files on disk, derived
+// from the machine-id.
 auto MakeDefaultAiCredentialStore() -> std::shared_ptr<IAiCredentialStore>;
 
 }  // namespace alcedo

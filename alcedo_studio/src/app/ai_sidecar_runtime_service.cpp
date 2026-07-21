@@ -415,7 +415,7 @@ auto AiSidecarRuntimeService::AcquireLease() -> std::shared_ptr<void> {
     return lease;
   }
 
-  ++active_leases_;
+  active_leases_.fetch_add(1);
   QPointer<AiSidecarRuntimeService> self(this);
   return std::shared_ptr<void>(new int(0), [self](int* token) {
     delete token;
@@ -465,7 +465,7 @@ void AiSidecarRuntimeService::StopForProjectClose() {
         this, [this]() { StopForProjectClose(); }, Qt::BlockingQueuedConnection);
     return;
   }
-  active_leases_ = 0;
+  active_leases_.store(0);
   Stop();
 }
 
@@ -475,10 +475,10 @@ void AiSidecarRuntimeService::ReleaseLease() {
     return;
   }
 
-  if (active_leases_ > 0) {
-    --active_leases_;
+  if (active_leases_.load() > 0) {
+    active_leases_.fetch_sub(1);
   }
-  if (active_leases_ == 0 && IsRunning()) {
+  if (active_leases_.load() == 0 && IsRunning()) {
     Stop();
   }
 }
@@ -745,7 +745,7 @@ void AiSidecarRuntimeService::ReleaseChildTreeCleanup() {
 }
 
 void AiSidecarRuntimeService::TryInitializeOfflineService() {
-  if (offline_mode_ && offline_service_->IsAvailable()) {
+  if (offline_mode_.load() && offline_service_->IsAvailable()) {
     return;  // Already in offline mode
   }
 
@@ -761,7 +761,7 @@ void AiSidecarRuntimeService::TryInitializeOfflineService() {
   const auto device   = options_.device;
 
   if (offline_service_->Initialize(model_root, model_id, revision, device)) {
-    offline_mode_ = true;
+    offline_mode_.store(true);
     qCInfo(diag::semanticLog).noquote()
         << QStringLiteral("semantic.runtime.offline_fallback "
                           "Offline AI service initialized successfully. "

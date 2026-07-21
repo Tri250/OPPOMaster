@@ -18,6 +18,35 @@ Dialog {
         ? interactionPolicyController.canChangeSearchFieldFilters
         : true
     property var theme
+
+    // Dialog enter/exit animation
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animOpacity = 0
+        searchEnterAnim.start()
+    }
+
+    Behavior on animOpacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+    NumberAnimation {
+        id: searchEnterAnim
+        target: dialog
+        property: "animOpacity"
+        to: 1.0
+        duration: 180
+        easing.type: Easing.OutCubic
+    }
+
+    NumberAnimation {
+        id: searchExitAnim
+        target: dialog
+        property: "animOpacity"
+        to: 0
+        duration: 120
+        easing.type: Easing.InCubic
+        onFinished: dialog.close()
+    }
     property var recommendations: []
     property var results: []
     property var previewThumbs: ({})
@@ -553,7 +582,9 @@ Dialog {
         }
     }
 
-    background: Item {}
+    background: Item {
+        opacity: dialog.animOpacity
+    }
 
     contentItem: Item {
         implicitWidth: dialog.width

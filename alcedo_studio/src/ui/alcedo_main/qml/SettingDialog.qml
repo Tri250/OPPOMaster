@@ -39,6 +39,35 @@ Dialog {
     readonly property string dataFontFamily: appTheme.dataFontFamily
     property real cornerRadius: 0
 
+    // Dialog enter/exit animation (full-screen: use opacity fade)
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animOpacity = 0
+        settingsEnterAnim.start()
+    }
+
+    Behavior on animOpacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+    NumberAnimation {
+        id: settingsEnterAnim
+        target: dialog
+        property: "animOpacity"
+        to: 1.0
+        duration: 220
+        easing.type: Easing.OutCubic
+    }
+
+    NumberAnimation {
+        id: settingsExitAnim
+        target: dialog
+        property: "animOpacity"
+        to: 0
+        duration: 160
+        easing.type: Easing.InCubic
+        onFinished: dialog.close()
+    }
+
     property int currentCategory: 0
     property int pendingThemeIndex: appTheme.currentThemeIndex
     property string pendingLanguageCode: languageManager.currentLanguageCode
@@ -236,7 +265,9 @@ Dialog {
         }
     }
 
-    background: Item {}
+    background: Item {
+        opacity: dialog.animOpacity
+    }
 
     contentItem: Item {
         implicitWidth: dialog.width

@@ -28,6 +28,32 @@ Dialog {
     readonly property string headlineFontFamily: appTheme.headlineFontFamily
 
     property var missingFiles: []
+
+    // Dialog enter/exit animation
+    property real animScale: 1.0
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animScale = 0.96
+        animOpacity = 0
+        relinkEnterAnim.start()
+    }
+
+    Behavior on animScale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on animOpacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+    ParallelAnimation {
+        id: relinkEnterAnim
+        NumberAnimation { target: root; property: "animScale"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+    }
+
+    ParallelAnimation {
+        id: relinkExitAnim
+        NumberAnimation { target: root; property: "animScale"; to: 0.97; duration: 160; easing.type: Easing.InCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 0; duration: 160; easing.type: Easing.InCubic }
+        onFinished: root.close()
+    }
     property var relinkStatus: ({})  // path -> "found" | "not_found" | "searching"
     property bool autoSearching: false
 
@@ -65,6 +91,13 @@ Dialog {
         color: root.panelColor
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, 0.06)
+        opacity: root.animOpacity
+        transform: Scale {
+            origin.x: root.width / 2
+            origin.y: root.height / 2
+            xScale: root.animScale
+            yScale: root.animScale
+        }
     }
 
     contentItem: ColumnLayout {

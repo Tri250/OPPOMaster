@@ -18,6 +18,32 @@ Dialog {
     property var updateInfo: null
     property bool updateAvailable: false
 
+    // Dialog enter/exit animation
+    property real animScale: 1.0
+    property real animOpacity: 1.0
+
+    onAboutToShow: {
+        animScale = 0.96
+        animOpacity = 0
+        enterAnim.start()
+    }
+
+    Behavior on animScale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Behavior on animOpacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+    ParallelAnimation {
+        id: enterAnim
+        NumberAnimation { target: root; property: "animScale"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 1.0; duration: 220; easing.type: Easing.OutCubic }
+    }
+
+    ParallelAnimation {
+        id: exitAnim
+        NumberAnimation { target: root; property: "animScale"; to: 0.97; duration: 160; easing.type: Easing.InCubic }
+        NumberAnimation { target: root; property: "animOpacity"; to: 0; duration: 160; easing.type: Easing.InCubic }
+        onFinished: root.close()
+    }
+
     readonly property color panelColor: appTheme.bgPanelColor
     readonly property color cardColor: appTheme.bgBaseColor
     readonly property color textColor: appTheme.textColor
@@ -48,6 +74,13 @@ Dialog {
         color: root.panelColor
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, 0.06)
+        opacity: root.animOpacity
+        transform: Scale {
+            origin.x: root.width / 2
+            origin.y: root.height / 2
+            xScale: root.animScale
+            yScale: root.animScale
+        }
     }
 
     contentItem: ColumnLayout {
