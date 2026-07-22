@@ -1,0 +1,428 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ALCEDO_VERSION: ${{ inputs.version || '' }}
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ -n "${ALCEDO_VERSION}" ]]; then
+            version="${ALCEDO_VERSION}"
+            tag="v${version}"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            version="${tag#v}"
+          else
+            # Derive from git describe
+            version="$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")"
+            version="${version#v}"
+            tag="v${version}"
+          fi
+
+          is_prerelease="false"
+          if [[ "${version}" == *"-"* ]] || [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            is_prerelease="true"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=${is_prerelease}" >> "$GITHUB_OUTPUT"
+          echo "Releasing version: ${version} (tag: ${tag}, prerelease: ${is_prerelease})"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          set -euo pipefail
+          # Get the previous tag
+          prev_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")"
+
+          if [[ -n "${prev_tag}" ]]; then
+            changes="$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" --no-merges)"
+          else
+            changes="$(git log --pretty=format:"- %s (%h)" --no-merges -50)"
+          fi
+
+          # Write changelog to file for the release body
+          cat > RELEASE_NOTES.md <<HEREDOC
+          ## AlcedoStudio ${{ steps.version.outputs.version }}
+
+          ### Changes
+          ${changes}
+
+          ### Downloads
+          - **Windows**: AlcedoStudio-${{ steps.version.outputs.version }}-Windows-AMD64.exe
+          - **macOS**: AlcedoStudio-${{ steps.version.outputs.version }}-Darwin-arm64.dmg
+          - **Linux**: AlcedoStudio-${{ steps.version.outputs.version }}-Linux-x86_64.AppImage
+          - **Android**: AlcedoStudio-${{ steps.version.outputs.version }}-Android-arm64.apk
+
+          ### System Requirements
+          - Windows 10/11 (64-bit), GPU driver 570+
+          - macOS 13+ (Apple Silicon / Intel)
+          - Ubuntu 22.04+ / Fedora 38+ (x86_64)
+          - Android 7.0+ (API 24+, arm64-v8a)
+
+          ### SHA-256 Checksums
+          See SHA256SUMS.txt in the release assets.
+          HEREDOC
+
+          echo "Changelog generated with $(echo "${changes}" | wc -l) entries"
+
+      - name: Upload changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-15
+    needs: prepare
+    timeout-minutes: 120
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Prepare third-party source trees
+        run: bash scripts/ci_prepare_third_party.sh
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
+
+      - name: Pre-install DuckDB extensions
+        run: |
+          set -euo pipefail
+          duckdb_ext_dir="$(mktemp -d)"
+          duckdb -c "SET extension_directory='${duckdb_ext_dir}'; INSTALL vss; INSTALL fts;"
+          vss_path="$(find "${duckdb_ext_dir}" -name 'vss.duckdb_extension' -type f | head -n1)"
+          fts_path="$(find "${duckdb_ext_dir}" -name 'fts.duckdb_extension' -type f | head -n1)"
+          echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
+          echo "ALCEDO_DUCKDB_FTS_EXTENSION=${fts_path}" >> "$GITHUB_ENV"
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERT_BASE64: ${{ secrets.MACOS_CERT_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MACOS_CERT_BASE64}" ]]; then
+            echo "WARNING: MACOS_CERT_BASE64 not set; building unsigned package"
+            exit 0
+          fi
+          cert_path="$RUNNER_TEMP/build_cert.p12"
+          keychain_path="$RUNNER_TEMP/app-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 16)"
+          echo "${MACOS_CERT_BASE64}" | base64 --decode > "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path" 2>/dev/null || true
+          security list-keychain -d user -s "$keychain_path"
+          rm -f "$cert_path"
+
+      - name: Build & Package
+        env:
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          qt_prefix="$(brew --prefix qt)"
+          codesign_identity="${MACOS_CODESIGN_IDENTITY:--}"
+          bash scripts/package_macos.sh \
+            --qt-prefix "$qt_prefix" \
+            --codesign-identity "$codesign_identity" \
+            --codesign-options "--options;runtime" \
+            --codesign-timestamp
+
+      - name: Notarize
+        if: env.MACOS_NOTARIZE_APPLE_ID != ''
+        env:
+          MACOS_NOTARIZE_APPLE_ID: ${{ secrets.MACOS_NOTARIZE_APPLE_ID }}
+          MACOS_NOTARIZE_TEAM_ID: ${{ secrets.MACOS_NOTARIZE_TEAM_ID }}
+          MACOS_NOTARIZE_PASSWORD: ${{ secrets.MACOS_NOTARIZE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          app_path="$(find build/install -name 'AlcedoStudio.app' -type d | head -n1)"
+          if [[ -z "${app_path}" ]]; then
+            echo "WARNING: AlcedoStudio.app not found; skipping notarization"
+            exit 0
+          fi
+          bash scripts/notarize_macos.sh \
+            --app-path "$app_path" \
+            --identity "${MACOS_CODESIGN_IDENTITY:-Developer ID Application}" \
+            --apple-id "$MACOS_NOTARIZE_APPLE_ID" \
+            --team-id "$MACOS_NOTARIZE_TEAM_ID" \
+            --password "$MACOS_NOTARIZE_PASSWORD" \
+            --dmg-output "build/AlcedoStudio-${{ needs.prepare.outputs.version }}-Darwin-arm64.dmg"
+
+      - name: Rename DMG with version
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          # Find and rename DMG
+          dmg_path="$(find build -name '*.dmg' -type f | head -n1)"
+          if [[ -n "${dmg_path}" ]]; then
+            mv "${dmg_path}" "AlcedoStudio-${version}-Darwin-arm64.dmg"
+            echo "DMG ready: AlcedoStudio-${version}-Darwin-arm64.dmg"
+          else
+            echo "WARNING: No DMG found"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-package
+          path: |
+            AlcedoStudio-*.dmg
+          if-no-files-found: warn
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-22.04
+    needs: prepare
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build qt6-base-dev qt6-tools-dev \
+            libopencv-dev libeigen3-dev liblcms2-dev libxxhash-dev \
+            libexiv2-dev libopenimageio-dev libopencolorio-dev \
+            libduckdb-dev libomp-dev libgl-dev libvulkan-dev \
+            pkg-config python3
+
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          bash scripts/package_linux.sh \
+            --version "${version}" \
+            --format appimage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64-package
+          path: |
+            AlcedoStudio-*.AppImage
+          if-no-files-found: warn
+
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    needs: prepare
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26d
+
+      - name: Install Qt6 for Android
+        run: |
+          # Qt6 Android installation - use aqtinstall
+          pip install aqtinstall
+          aqt install-qt linux android 6.7.0 android_arm64_v8a -O /opt/qt-android
+
+      - name: Build APK
+        env:
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          bash scripts/package_android.sh \
+            --qt-dir /opt/qt-android/6.7.0/android_arm64_v8a \
+            --android-ndk "${ANDROID_NDK}" \
+            --sdk-path "${ANDROID_HOME}" \
+            --version "${version}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-package
+          path: |
+            AlcedoStudio-*.apk
+          if-no-files-found: warn
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [prepare, build-macos, build-linux, build-android]
+    if: always() && needs.prepare.result == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download changelog
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: .
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-arm64-package
+          path: release-assets
+        continue-on-error: true
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64-package
+          path: release-assets
+        continue-on-error: true
+
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-arm64-package
+          path: release-assets
+        continue-on-error: true
+
+      - name: Generate SHA-256 checksums
+        run: |
+          set -euo pipefail
+          if compgen -G "release-assets/*" > /dev/null; then
+            cd release-assets
+            sha256sum * > ../SHA256SUMS.txt
+            mv ../SHA256SUMS.txt .
+            echo "Checksums generated:"
+            cat SHA256SUMS.txt
+          else
+            echo "WARNING: No release assets found"
+            touch SHA256SUMS.txt
+          fi
+
+      - name: List release assets
+        run: |
+          echo "=== Release Assets ==="
+          ls -la release-assets/ 2>/dev/null || echo "No assets directory"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.prepare.outputs.tag }}"
+          version="${{ needs.prepare.outputs.version }}"
+          is_prerelease="${{ needs.prepare.outputs.is_prerelease }}"
+
+          # Delete existing release if exists (for re-runs)
+          gh release delete "${tag}" --yes --cleanup-tag 2>/dev/null || true
+
+          # Create release
+          prerelease_flag=""
+          if [[ "${is_prerelease}" == "true" ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          gh release create "${tag}" \
+            --title "AlcedoStudio ${version}" \
+            --notes-file RELEASE_NOTES.md \
+            ${prerelease_flag} \
+            release-assets/* 2>/dev/null || \
+          gh release create "${tag}" \
+            --title "AlcedoStudio ${version}" \
+            --notes-file RELEASE_NOTES.md \
+            ${prerelease_flag}
+
+          echo "Release created: ${tag}"
+
+      - name: Verify release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.prepare.outputs.tag }}"
+          echo "=== Verifying release ${tag} ==="
+          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}"
+          echo ""
+          echo "=== Download URLs ==="
+          gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" --output-dir /tmp/verify 2>/dev/null || true
+          ls -la /tmp/verify/ 2>/dev/null || echo "No assets to verify"
+
+  notify:
+    name: Release Notification
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: always()
+    steps:
+      - name: Release Status
+        run: |
+          echo "============================================"
+          echo "  AlcedoStudio Release Workflow Complete"
+          echo "============================================"
+          echo ""
+          echo "  Status: ${{ needs.release.result }}"
+          echo "  Repository: ${{ github.repository }}"
+          echo "  Tag: ${{ needs.prepare.outputs.tag || 'N/A' }}"
+          echo ""
+          if [[ "${{ needs.release.result }}" == "success" ]]; then
+            echo "  Release published successfully!"
+          else
+            echo "  Release encountered issues. Check the logs above."
+          fi
