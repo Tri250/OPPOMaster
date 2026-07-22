@@ -12,7 +12,11 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QThread>
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include <private/qzipwriter_p.h>
+#else
 #include <QZipWriter>
+#endif
 
 #include <algorithm>
 #include <cstdio>

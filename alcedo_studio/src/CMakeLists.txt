@@ -132,7 +132,7 @@ def_library(AppDiagnostics
     SOURCES
         utils/diagnostics/app_logging.cpp
         include/utils/diagnostics/app_logging.hpp
-    PUBLIC_DEPS Qt6::Core Qt6::Gui
+    PUBLIC_DEPS Qt6::Core Qt6::Gui Qt6::GuiPrivate
 )
 
 def_library(AppConfig
@@ -2015,6 +2015,7 @@ set(ALCEDO_TRANSLATION_TS_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/ui/alcedo_main/i18n/alcedo_main_zh_CN.ts
 )
 
+if(ALCEDO_HAVE_LINGUIST_TOOLS)
 qt_add_translations(TARGETS alcedo_main
     SOURCE_TARGETS
         alcedo_main
@@ -2027,6 +2028,7 @@ qt_add_translations(TARGETS alcedo_main
     QM_OUTPUT_DIRECTORY
         "${CMAKE_CURRENT_BINARY_DIR}"
 )
+endif()
 
 if(COMMAND qt_finalize_target)
     qt_finalize_target(alcedo_main)

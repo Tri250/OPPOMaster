@@ -211,7 +211,6 @@ endif()
 # Qt6
 set(ALCEDO_QT_COMPONENTS
     Core
-    LinguistTools
     Svg
     Widgets
     Quick
@@ -225,6 +224,15 @@ if(ALCEDO_BUILD_TESTS)
     list(APPEND ALCEDO_QT_COMPONENTS Test)
 endif()
 find_package(Qt6 REQUIRED COMPONENTS ${ALCEDO_QT_COMPONENTS})
+
+# LinguistTools is optional (not available on Android Qt)
+find_package(Qt6 COMPONENTS LinguistTools QUIET)
+if(Qt6LinguistTools_FOUND)
+    set(ALCEDO_HAVE_LINGUIST_TOOLS ON)
+else()
+    set(ALCEDO_HAVE_LINGUIST_TOOLS OFF)
+    message(STATUS "Qt6LinguistTools not found; i18n will be skipped")
+endif()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
