@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.0.0)'
+        description: 'Release version (e.g. 1.0.4)'
         required: true
         type: string
       prerelease:
@@ -87,6 +87,7 @@ jobs:
           - **macOS**: AlcedoStudio-${{ steps.version.outputs.version }}-Darwin-arm64.dmg
           - **Linux**: AlcedoStudio-${{ steps.version.outputs.version }}-Linux-x86_64.AppImage
           - **Android**: AlcedoStudio-${{ steps.version.outputs.version }}-Android-arm64.apk
+          - **Source**: AlcedoStudio-${{ steps.version.outputs.version }}-Source.zip / .tar.gz
 
           ### System Requirements
           - Windows 10/11 (64-bit), GPU driver 570+
@@ -104,6 +105,35 @@ jobs:
           name: release-notes
           path: RELEASE_NOTES.md
 
+  # ── Source Archive (guaranteed asset) ────────────────────────────────────
+  source-archive:
+    name: Create Source Archive
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create source archives
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          git archive --format=zip --prefix="AlcedoStudio-${version}/" -o "AlcedoStudio-${version}-Source.zip" HEAD
+          git archive --format=tar.gz --prefix="AlcedoStudio-${version}/" -o "AlcedoStudio-${version}-Source.tar.gz" HEAD
+          echo "Source archives created:"
+          ls -lh AlcedoStudio-*.zip AlcedoStudio-*.tar.gz
+
+      - name: Upload source artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-archive
+          path: |
+            AlcedoStudio-*.zip
+            AlcedoStudio-*.tar.gz
+
+  # ── Windows Build ────────────────────────────────────────────────────────
   build-windows:
     name: Build Windows
     runs-on: windows-2022
@@ -124,56 +154,121 @@ jobs:
         with:
           arch: amd64
 
-      - name: Install Qt6
+      - name: Install Qt6 (MSVC)
+        shell: pwsh
         run: |
           pip install aqtinstall
+          # Discover available architectures for Qt 6.7.0
           aqt list-qt windows desktop --arch 6.7.0
-          aqt install-qt windows desktop 6.7.0 win64_mingw -O C:\Qt
+          # Install MSVC 2022 64-bit Qt
+          aqt install-qt windows desktop 6.7.0 win64_msvc2022_64 -O C:\Qt
+          # Verify
+          Test-Path "C:\Qt\6.7.0\msvc2022_64\bin\qmake.exe"
+
+      - name: Clone vcpkg to source tree
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git vcpkg
+          .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
 
       - name: Install vcpkg dependencies
+        shell: pwsh
         run: |
-          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
-          C:\vcpkg\vcpkg.exe install `
+          .\vcpkg\vcpkg.exe install `
             opencv4:x64-windows eigen3:x64-windows lcms:x64-windows `
             xxhash:x64-windows openimageio:x64-windows opencolorio:x64-windows `
             exiv2:x64-windows libraw:x64-windows duckdb:x64-windows `
             highway:x64-windows protobuf:x64-windows grpc:x64-windows `
             --recurse
 
-      - name: Build
+      - name: Install DuckDB extensions
+        shell: pwsh
+        run: |
+          $duckdbExe = Get-ChildItem -Path "vcpkg\installed\x64-windows\bin" -Filter "duckdb.exe" -Recurse | Select-Object -First 1
+          if (-not $duckdbExe) {
+            $duckdbExe = Get-ChildItem -Path "vcpkg\installed\x64-windows\tools" -Filter "duckdb.exe" -Recurse | Select-Object -First 1
+          }
+          if ($duckdbExe) {
+            $extDir = Join-Path $env:RUNNER_TEMP "duckdb_extensions"
+            New-Item -ItemType Directory -Force -Path $extDir | Out-Null
+            & $duckdbExe.FullName -c "SET extension_directory='$extDir'; INSTALL vss; INSTALL fts;"
+            $vssExt = Get-ChildItem -Path $extDir -Filter "vss.duckdb_extension" -Recurse | Select-Object -First 1
+            $ftsExt = Get-ChildItem -Path $extDir -Filter "fts.duckdb_extension" -Recurse | Select-Object -First 1
+            if ($vssExt) { echo "ALCEDO_DUCKDB_VSS_EXTENSION=$($vssExt.FullName)" >> $env:GITHUB_ENV }
+            if ($ftsExt) { echo "ALCEDO_DUCKDB_FTS_EXTENSION=$($ftsExt.FullName)" >> $env:GITHUB_ENV }
+          } else {
+            echo "WARNING: DuckDB CLI not found in vcpkg; extensions will be resolved by CMake"
+          }
+
+      - name: Configure CMake
         shell: cmd
         env:
-          QT_DIR: C:\Qt\6.7.0\mingw_64
-          VCPKG_ROOT: C:\vcpkg\installed\x64-windows
+          QT_PREFIX: C:\Qt\6.7.0\msvc2022_64
+          VCPKG_ROOT: vcpkg\installed\x64-windows
         run: |
-          cmake --preset windows_release
-          cmake --build --preset windows_release --config Release --parallel %NUMBER_OF_PROCESSORS%
+          cmake --preset win_release ^
+            -DCMAKE_PREFIX_PATH="%QT_PREFIX%;%VCPKG_ROOT%" ^
+            -DALCEDO_DUCKDB_VSS_EXTENSION="%ALCEDO_DUCKDB_VSS_EXTENSION%" ^
+            -DALCEDO_DUCKDB_FTS_EXTENSION="%ALCEDO_DUCKDB_FTS_EXTENSION%"
+
+      - name: Build
+        shell: cmd
+        run: |
+          cmake --build --preset win_release --config Release --parallel %NUMBER_OF_PROCESSORS%
 
       - name: Package
         shell: pwsh
         run: |
           $version = "${{ needs.prepare.outputs.version }}"
-          powershell -File scripts\package_windows.ps1 `
-            -QtDir "C:\Qt\6.7.0\mingw_64" `
-            -BuildDir build\windows-release
+          $qtDir = "C:\Qt\6.7.0\msvc2022_64"
+          try {
+            & powershell -File scripts\package_windows.ps1 `
+              -QtDir "$qtDir" `
+              -BuildDir build\release
+          } catch {
+            Write-Host "WARNING: Packaging script failed: $_"
+          }
 
-      - name: Rename with version
+      - name: Collect release artifacts
         shell: pwsh
         run: |
           $version = "${{ needs.prepare.outputs.version }}"
-          $exe = Get-ChildItem -Path build -Filter "*.exe" -Recurse | Select-Object -First 1
-          if ($exe) {
-            Copy-Item $exe.FullName "AlcedoStudio-$version-Windows-AMD64.exe"
+          # Look for exe, msi, zip in package output and build dirs
+          $candidates = @(
+            "build\release\package\*.exe",
+            "build\release\package\*.msi",
+            "build\release\package\*.zip",
+            "build\release\*.exe",
+            "build\install\bin\*.exe"
+          )
+          foreach ($pattern in $candidates) {
+            $files = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue
+            foreach ($f in $files) {
+              $dest = "AlcedoStudio-$version-Windows-AMD64$($f.Extension)"
+              Copy-Item $f.FullName $dest -ErrorAction SilentlyContinue
+              Write-Host "Collected: $dest"
+            }
+          }
+          # Also try to zip the install directory if no installer was generated
+          if (-not (Test-Path "AlcedoStudio-*.exe") -and -not (Test-Path "AlcedoStudio-*.msi") -and -not (Test-Path "AlcedoStudio-*.zip")) {
+            $installDir = "build\install"
+            if (Test-Path $installDir) {
+              Compress-Archive -Path "$installDir\*" -DestinationPath "AlcedoStudio-$version-Windows-AMD64.zip"
+              Write-Host "Created zip from install directory"
+            }
           }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-amd64-package
-          path: AlcedoStudio-*.exe
+          path: |
+            AlcedoStudio-*.exe
+            AlcedoStudio-*.msi
+            AlcedoStudio-*.zip
           if-no-files-found: warn
 
+  # ── macOS Build ──────────────────────────────────────────────────────────
   build-macos:
     name: Build macOS
     runs-on: macos-15
@@ -200,8 +295,12 @@ jobs:
           duckdb -c "SET extension_directory='${duckdb_ext_dir}'; INSTALL vss; INSTALL fts;"
           vss_path="$(find "${duckdb_ext_dir}" -name 'vss.duckdb_extension' -type f | head -n1)"
           fts_path="$(find "${duckdb_ext_dir}" -name 'fts.duckdb_extension' -type f | head -n1)"
-          echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
-          echo "ALCEDO_DUCKDB_FTS_EXTENSION=${fts_path}" >> "$GITHUB_ENV"
+          if [[ -n "${vss_path}" ]]; then
+            echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
+          fi
+          if [[ -n "${fts_path}" ]]; then
+            echo "ALCEDO_DUCKDB_FTS_EXTENSION=${fts_path}" >> "$GITHUB_ENV"
+          fi
 
       - name: Import signing certificate
         env:
@@ -237,7 +336,6 @@ jobs:
             --qt-prefix "$qt_prefix" \
             --version "${version}" \
             --codesign-identity "$codesign_identity" \
-            --codesign-options "--options;runtime" \
             --codesign-timestamp
 
       - name: Notarize
@@ -263,29 +361,38 @@ jobs:
             --password "$MACOS_NOTARIZE_PASSWORD" \
             --dmg-output "AlcedoStudio-${version}-Darwin-arm64.dmg"
 
-      - name: Rename DMG with version
+      - name: Collect release artifacts
         run: |
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
+          # Look for DMG and ZIP from CPack / package_macos.sh
           dmg_path="$(find build -name '*.dmg' -type f | head -n1)"
           if [[ -n "${dmg_path}" ]]; then
             cp "${dmg_path}" "AlcedoStudio-${version}-Darwin-arm64.dmg"
-          else
-            echo "WARNING: No DMG found, checking for .app"
+          fi
+          zip_path="$(find build -name '*.zip' -type f ! -name '*Source*' | head -n1)"
+          if [[ -n "${zip_path}" ]]; then
+            cp "${zip_path}" "AlcedoStudio-${version}-Darwin-arm64.zip"
+          fi
+          # If no DMG/ZIP, try to create one from .app
+          if [[ ! -f "AlcedoStudio-${version}-Darwin-arm64.dmg" ]]; then
             app_path="$(find build -name 'AlcedoStudio.app' -type d | head -n1)"
             if [[ -n "${app_path}" ]]; then
-              # Create DMG manually
               hdiutil create -volname "AlcedoStudio" -srcfolder "${app_path}" -ov -format UDZO "AlcedoStudio-${version}-Darwin-arm64.dmg"
             fi
           fi
+          ls -la AlcedoStudio-* || echo "WARNING: No macOS artifacts collected"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-arm64-package
-          path: AlcedoStudio-*.dmg
+          path: |
+            AlcedoStudio-*.dmg
+            AlcedoStudio-*.zip
           if-no-files-found: warn
 
+  # ── Linux Build ──────────────────────────────────────────────────────────
   build-linux:
     name: Build Linux
     runs-on: ubuntu-22.04
@@ -314,11 +421,33 @@ jobs:
         run: |
           set -euo pipefail
           DUCKDB_VERSION="1.1.0"
+          # Install CLI
           curl -fsSL "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip" -o /tmp/duckdb.zip
           unzip -o /tmp/duckdb.zip -d /tmp/duckdb
           sudo cp /tmp/duckdb/duckdb /usr/local/bin/
           sudo chmod +x /usr/local/bin/duckdb
           duckdb -c "SELECT version();"
+          # Install C/C++ library
+          curl -fsSL "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          sudo unzip -o /tmp/libduckdb.zip -d /usr/local/
+          sudo cp /usr/local/duckdb.h /usr/local/include/ 2>/dev/null || true
+          sudo cp /usr/local/libduckdb.so /usr/local/lib/ 2>/dev/null || true
+          sudo cp /usr/local/libduckdb_static.a /usr/local/lib/ 2>/dev/null || true
+          sudo ldconfig
+
+      - name: Pre-install DuckDB extensions
+        run: |
+          set -euo pipefail
+          duckdb_ext_dir="$(mktemp -d)"
+          duckdb -c "SET extension_directory='${duckdb_ext_dir}'; INSTALL vss; INSTALL fts;"
+          vss_path="$(find "${duckdb_ext_dir}" -name 'vss.duckdb_extension' -type f | head -n1)"
+          fts_path="$(find "${duckdb_ext_dir}" -name 'fts.duckdb_extension' -type f | head -n1)"
+          if [[ -n "${vss_path}" ]]; then
+            echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
+          fi
+          if [[ -n "${fts_path}" ]]; then
+            echo "ALCEDO_DUCKDB_FTS_EXTENSION=${fts_path}" >> "$GITHUB_ENV"
+          fi
 
       - name: Build AppImage
         run: |
@@ -326,22 +455,40 @@ jobs:
           version="${{ needs.prepare.outputs.version }}"
           ALCEDO_VERSION="${version}" bash scripts/package_linux.sh --appimage
 
-      - name: Rename with version
+      - name: Collect release artifacts
         run: |
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
+          # Look for AppImage, deb, tar.gz
           appimage="$(find build -name '*.AppImage' -type f | head -n1)"
           if [[ -n "${appimage}" ]]; then
             cp "${appimage}" "AlcedoStudio-${version}-Linux-x86_64.AppImage"
           fi
+          deb="$(find build -name '*.deb' -type f | head -n1)"
+          if [[ -n "${deb}" ]]; then
+            cp "${deb}" "AlcedoStudio-${version}-Linux-x86_64.deb"
+          fi
+          # Fallback: create tar.gz from staging
+          if [[ ! -f "AlcedoStudio-${version}-Linux-x86_64.AppImage" ]]; then
+            staging_dir="$(find build -name 'staging' -type d | head -n1)"
+            if [[ -n "${staging_dir}" && -d "${staging_dir}/usr" ]]; then
+              tar czf "AlcedoStudio-${version}-Linux-x86_64.tar.gz" -C "${staging_dir}" .
+              echo "Created tar.gz from staging directory"
+            fi
+          fi
+          ls -la AlcedoStudio-* || echo "WARNING: No Linux artifacts collected"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64-package
-          path: AlcedoStudio-*.AppImage
+          path: |
+            AlcedoStudio-*.AppImage
+            AlcedoStudio-*.deb
+            AlcedoStudio-*.tar.gz
           if-no-files-found: warn
 
+  # ── Android Build ────────────────────────────────────────────────────────
   build-android:
     name: Build Android
     runs-on: ubuntu-latest
@@ -350,6 +497,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare third-party source trees
+        run: bash scripts/ci_prepare_third_party.sh
 
       - name: Setup JDK
         uses: actions/setup-java@v4
@@ -368,11 +518,19 @@ jobs:
 
       - name: Install Qt6 for Android
         run: |
+          set -euo pipefail
           pip install aqtinstall
+          # Install Qt for Android (arm64)
           aqt install-qt linux android 6.7.0 android_arm64_v8a -O /opt/qt-android
-          # Verify installation
-          ls /opt/qt-android/6.7.0/android_arm64_v8a/bin/androiddeployqt || echo "WARNING: androiddeployqt not found at expected path"
-          find /opt/qt-android -name "androiddeployqt" 2>/dev/null || true
+          # Install host Qt (required for cross-compilation tools like androiddeployqt)
+          aqt install-qt linux desktop 6.7.0 gcc_64 -O /opt/qt-android
+          # Verify
+          echo "=== Qt Android directory ==="
+          ls /opt/qt-android/6.7.0/android_arm64_v8a/bin/ 2>/dev/null || true
+          echo "=== Qt Host directory ==="
+          ls /opt/qt-android/6.7.0/gcc_64/bin/ 2>/dev/null || true
+          echo "=== androiddeployqt search ==="
+          find /opt/qt-android -name "androiddeployqt" -type f 2>/dev/null || true
 
       - name: Build APK
         env:
@@ -380,13 +538,23 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
+          QT_ANDROID_DIR="/opt/qt-android/6.7.0/android_arm64_v8a"
+          # Ensure androiddeployqt is available
+          if [[ ! -x "${QT_ANDROID_DIR}/bin/androiddeployqt" ]]; then
+            ANDROIDDEPLOYQT="$(find /opt/qt-android -name 'androiddeployqt' -type f -executable | head -n1)"
+            if [[ -z "${ANDROIDDEPLOYQT}" ]]; then
+              echo "ERROR: androiddeployqt not found anywhere under /opt/qt-android"
+              exit 1
+            fi
+            echo "Found androiddeployqt at: ${ANDROIDDEPLOYQT}"
+          fi
           bash scripts/package_android.sh \
-            --qt-dir /opt/qt-android/6.7.0/android_arm64_v8a \
+            --qt-dir "${QT_ANDROID_DIR}" \
             --android-ndk "${ANDROID_NDK}" \
             --sdk-dir "${ANDROID_HOME}" \
             --version "${version}"
 
-      - name: Rename APK with version
+      - name: Collect release artifacts
         run: |
           set -euo pipefail
           version="${{ needs.prepare.outputs.version }}"
@@ -394,6 +562,7 @@ jobs:
           if [[ -n "${apk}" ]]; then
             cp "${apk}" "AlcedoStudio-${version}-Android-arm64.apk"
           fi
+          ls -la AlcedoStudio-* || echo "WARNING: No Android artifacts collected"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -402,11 +571,12 @@ jobs:
           path: AlcedoStudio-*.apk
           if-no-files-found: warn
 
+  # ── Release ──────────────────────────────────────────────────────────────
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [prepare, build-windows, build-macos, build-linux, build-android]
-    if: always() && needs.prepare.result == 'success'
+    needs: [prepare, build-windows, build-macos, build-linux, build-android, source-archive]
+    if: always() && needs.prepare.result == 'success' && needs.source-archive.result == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -416,6 +586,12 @@ jobs:
         with:
           name: release-notes
           path: .
+
+      - name: Download source archive
+        uses: actions/download-artifact@v4
+        with:
+          name: source-archive
+          path: release-assets
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
@@ -505,6 +681,7 @@ jobs:
           echo "=== Verifying release ${tag} ==="
           gh release view "${tag}" --repo "${GITHUB_REPOSITORY}"
 
+  # ── Notification ─────────────────────────────────────────────────────────
   notify:
     name: Release Notification
     runs-on: ubuntu-latest
