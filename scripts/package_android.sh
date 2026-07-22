@@ -173,7 +173,7 @@ cd "${BUILD_DIR}"
 cmake "${PROJECT_ROOT}" \
   -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="${QT_ANDROID_TOOLCHAIN}" \
-  -DQT_HOST_PATH="${QT_DIR}/../gcc_64" \
+  -DQT_HOST_PATH="${QT_DIR}/../linux_gcc_64" \
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
   -DANDROID_ABI="${ABI}" \
   -DCMAKE_SYSTEM_NAME=Android \

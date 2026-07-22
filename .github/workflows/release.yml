@@ -160,10 +160,10 @@ jobs:
           pip install aqtinstall
           # Discover available architectures for Qt 6.7.0
           aqt list-qt windows desktop --arch 6.7.0
-          # Install MSVC 2022 64-bit Qt
-          aqt install-qt windows desktop 6.7.0 win64_msvc2022_64 -O C:\Qt
+          # Install MSVC 2019 64-bit Qt (compatible with MSVC 2022 toolchain)
+          aqt install-qt windows desktop 6.7.0 win64_msvc2019_64 -O C:\Qt
           # Verify
-          Test-Path "C:\Qt\6.7.0\msvc2022_64\bin\qmake.exe"
+          Test-Path "C:\Qt\6.7.0\msvc2019_64\bin\qmake.exe"
 
       - name: Clone vcpkg to source tree
         shell: pwsh
@@ -203,7 +203,7 @@ jobs:
       - name: Configure CMake
         shell: cmd
         env:
-          QT_PREFIX: C:\Qt\6.7.0\msvc2022_64
+          QT_PREFIX: C:\Qt\6.7.0\msvc2019_64
           VCPKG_ROOT: vcpkg\installed\x64-windows
         run: |
           cmake --preset win_release ^
@@ -220,7 +220,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.prepare.outputs.version }}"
-          $qtDir = "C:\Qt\6.7.0\msvc2022_64"
+          $qtDir = "C:\Qt\6.7.0\msvc2019_64"
           try {
             & powershell -File scripts\package_windows.ps1 `
               -QtDir "$qtDir" `
@@ -412,6 +412,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake ninja-build qt6-base-dev qt6-tools-dev \
+            qt6-linguist-tools-dev \
             libopencv-dev libeigen3-dev liblcms2-dev libxxhash-dev \
             libexiv2-dev libopenimageio-dev libopencolorio-dev \
             libomp-dev libgl-dev libvulkan-dev \
@@ -523,7 +524,7 @@ jobs:
           # Install Qt for Android (arm64)
           aqt install-qt linux android 6.7.0 android_arm64_v8a -O /opt/qt-android
           # Install host Qt (required for cross-compilation tools like androiddeployqt)
-          aqt install-qt linux desktop 6.7.0 gcc_64 -O /opt/qt-android
+          aqt install-qt linux desktop 6.7.0 linux_gcc_64 -O /opt/qt-android
           # Verify
           echo "=== Qt Android directory ==="
           ls /opt/qt-android/6.7.0/android_arm64_v8a/bin/ 2>/dev/null || true
