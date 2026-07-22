@@ -1398,7 +1398,9 @@ void PopulateMetadataRuntimeContext(LibRaw& raw_processor, RawRuntimeColorContex
   }
   if (!IsFinitePositive(ctx.focal_length_mm_)) {
     // Canon MakerNote: FocalLength tag (0x920A in Canon MakerNote)
+#if LIBRAW_VERSION >= LIBRAW_MAKE_VERSION(0, 21, 0)
     ctx.focal_length_mm_ = raw_processor.imgdata.lens.makernotes.FocalLength;
+#endif
   }
   if (!IsFinitePositive(ctx.focal_length_mm_)) {
     // Canon MakerNote: FocalType + FocalPlaneXResolution/YResolution inference
@@ -1407,10 +1409,18 @@ void PopulateMetadataRuntimeContext(LibRaw& raw_processor, RawRuntimeColorContex
     const float focal_35 = static_cast<float>(
         raw_processor.imgdata.lens.FocalLengthIn35mmFormat > 0
             ? raw_processor.imgdata.lens.FocalLengthIn35mmFormat
-            : raw_processor.imgdata.lens.makernotes.FocalLengthIn35mmFormat);
+#if LIBRAW_VERSION >= LIBRAW_MAKE_VERSION(0, 21, 0)
+            : raw_processor.imgdata.lens.makernotes.FocalLengthIn35mmFormat
+#else
+            : 0.0f
+#endif
+            );
     if (IsFinitePositive(focal_35)) {
       // Derive from 35mm-equivalent if we know (or can estimate) the crop factor.
-      float crop = raw_processor.imgdata.lens.makernotes.CropFactor;
+      float crop = 0;
+#if LIBRAW_VERSION >= LIBRAW_MAKE_VERSION(0, 21, 0)
+      crop = raw_processor.imgdata.lens.makernotes.CropFactor;
+#endif
       if (!IsFinitePositive(crop)) {
         // Estimate crop factor from sensor dimensions if available
         const float sensor_w = static_cast<float>(raw_processor.imgdata.sizes.raw_width);
@@ -1444,7 +1454,13 @@ void PopulateMetadataRuntimeContext(LibRaw& raw_processor, RawRuntimeColorContex
   ctx.focal_35mm_mm_ = 0.0f;
   if (raw_processor.imgdata.lens.FocalLengthIn35mmFormat > 0) {
     ctx.focal_35mm_mm_ = static_cast<float>(raw_processor.imgdata.lens.FocalLengthIn35mmFormat);
-  } else if (raw_processor.imgdata.lens.makernotes.FocalLengthIn35mmFormat > 0) {
+  } else if (
+#if LIBRAW_VERSION >= LIBRAW_MAKE_VERSION(0, 21, 0)
+             raw_processor.imgdata.lens.makernotes.FocalLengthIn35mmFormat > 0
+#else
+             false
+#endif
+             ) {
     ctx.focal_35mm_mm_ =
         static_cast<float>(raw_processor.imgdata.lens.makernotes.FocalLengthIn35mmFormat);
   }
