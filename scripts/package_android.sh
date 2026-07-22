@@ -132,9 +132,18 @@ fi
 # Locate androiddeployqt
 ANDROIDDEPLOYQT="${QT_DIR}/bin/androiddeployqt"
 if [[ ! -x "${ANDROIDDEPLOYQT}" ]]; then
-  echo "ERROR: androiddeployqt not found at: ${ANDROIDDEPLOYQT}" >&2
+  # Try to find it in the Qt installation tree
+  ANDROIDDEPLOYQT="$(find "${QT_DIR}" -name "androiddeployqt" -type f -executable 2>/dev/null | head -n1)" || true
+fi
+if [[ ! -x "${ANDROIDDEPLOYQT}" ]]; then
+  # Search broader path
+  ANDROIDDEPLOYQT="$(find /opt/qt-android -name "androiddeployqt" -type f -executable 2>/dev/null | head -n1)" || true
+fi
+if [[ ! -x "${ANDROIDDEPLOYQT}" ]]; then
+  echo "ERROR: androiddeployqt not found. Searched in ${QT_DIR}/bin and /opt/qt-android" >&2
   exit 1
 fi
+echo "Found androiddeployqt at: ${ANDROIDDEPLOYQT}"
 
 # Locate apksigner
 APKSIGNER="${SDK_DIR}/build-tools/$(ls "${SDK_DIR}/build-tools/" 2>/dev/null | sort -V | tail -1)/apksigner"

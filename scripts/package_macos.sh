@@ -105,6 +105,10 @@ while [[ $# -gt 0 ]]; do
       require_metal_assets=0
       shift
       ;;
+    --version)
+      ALCEDO_VERSION="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0

@@ -127,7 +127,8 @@ jobs:
       - name: Install Qt6
         run: |
           pip install aqtinstall
-          aqt install-qt windows desktop 6.7.0 win64_msvc2022_64 -O C:\Qt
+          aqt list-qt windows desktop --arch 6.7.0
+          aqt install-qt windows desktop 6.7.0 win64_mingw -O C:\Qt
 
       - name: Install vcpkg dependencies
         run: |
@@ -143,7 +144,7 @@ jobs:
       - name: Build
         shell: cmd
         env:
-          QT_DIR: C:\Qt\6.7.0\msvc2022_64
+          QT_DIR: C:\Qt\6.7.0\mingw_64
           VCPKG_ROOT: C:\vcpkg\installed\x64-windows
         run: |
           cmake --preset windows_release
@@ -154,7 +155,7 @@ jobs:
         run: |
           $version = "${{ needs.prepare.outputs.version }}"
           powershell -File scripts\package_windows.ps1 `
-            -QtDir "C:\Qt\6.7.0\msvc2022_64" `
+            -QtDir "C:\Qt\6.7.0\mingw_64" `
             -BuildDir build\windows-release
 
       - name: Rename with version
@@ -369,6 +370,9 @@ jobs:
         run: |
           pip install aqtinstall
           aqt install-qt linux android 6.7.0 android_arm64_v8a -O /opt/qt-android
+          # Verify installation
+          ls /opt/qt-android/6.7.0/android_arm64_v8a/bin/androiddeployqt || echo "WARNING: androiddeployqt not found at expected path"
+          find /opt/qt-android -name "androiddeployqt" 2>/dev/null || true
 
       - name: Build APK
         env:
