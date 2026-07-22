@@ -165,6 +165,25 @@ jobs:
           # Verify
           Test-Path "C:\Qt\6.7.0\msvc2019_64\bin\qmake.exe"
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          # Download and install NSIS 3.09 for Windows installer (.exe) generation
+          $nsisUrl = "https://sourceforge.net/projects/nsis/files/NSIS%203/3.09/nsis-3.09-setup.exe/download"
+          $nsisInstaller = "$env:RUNNER_TEMP\nsis-setup.exe"
+          curl -fsSL $nsisUrl -o $nsisInstaller
+          Start-Process -Wait -FilePath $nsisInstaller -ArgumentList '/S'
+          # Add NSIS to PATH
+          $nsisDir = "C:\Program Files (x86)\NSIS"
+          if (Test-Path $nsisDir) {
+            echo "$nsisDir" >> $env:GITHUB_PATH
+            Write-Host "NSIS installed at: $nsisDir"
+            & "$nsisDir\makensis.exe" /VERSION
+          } else {
+            Write-Error "NSIS installation failed - directory not found"
+            exit 1
+          }
+
       - name: Clone vcpkg to source tree
         shell: pwsh
         run: |
@@ -205,8 +224,10 @@ jobs:
         env:
           QT_PREFIX: C:\Qt\6.7.0\msvc2019_64
           VCPKG_ROOT: vcpkg\installed\x64-windows
+          VCPKG_TOOLCHAIN: vcpkg\scripts\buildsystems\vcpkg.cmake
         run: |
           cmake --preset win_release ^
+            -DCMAKE_TOOLCHAIN_FILE="%VCPKG_TOOLCHAIN%" ^
             -DCMAKE_PREFIX_PATH="%QT_PREFIX%;%VCPKG_ROOT%" ^
             -DALCEDO_DUCKDB_VSS_EXTENSION="%ALCEDO_DUCKDB_VSS_EXTENSION%" ^
             -DALCEDO_DUCKDB_FTS_EXTENSION="%ALCEDO_DUCKDB_FTS_EXTENSION%"
@@ -216,23 +237,34 @@ jobs:
         run: |
           cmake --build --preset win_release --config Release --parallel %NUMBER_OF_PROCESSORS%
 
+      - name: Deploy Qt runtime (windeployqt)
+        shell: pwsh
+        run: |
+          $qtDir = "C:\Qt\6.7.0\msvc2019_64"
+          $installBinDir = "build\install\bin"
+          $mainExe = Join-Path $installBinDir "alcedo_main.exe"
+          if (Test-Path $mainExe) {
+            $windeployqt = Join-Path $qtDir "bin\windeployqt.exe"
+            & $windeployqt --release --no-translations --no-opengl-sw --dir $installBinDir $mainExe
+            Write-Host "windeployqt completed successfully"
+          } else {
+            Write-Host "WARNING: alcedo_main.exe not found at $mainExe; skipping windeployqt"
+          }
+
       - name: Package
         shell: pwsh
         run: |
           $version = "${{ needs.prepare.outputs.version }}"
           $qtDir = "C:\Qt\6.7.0\msvc2019_64"
-          try {
-            & powershell -File scripts\package_windows.ps1 `
-              -QtDir "$qtDir" `
-              -BuildDir build\release
-          } catch {
-            Write-Host "WARNING: Packaging script failed: $_"
-          }
+          & powershell -File scripts\package_windows.ps1 `
+            -QtDir "$qtDir" `
+            -BuildDir build\release
 
       - name: Collect release artifacts
         shell: pwsh
         run: |
           $version = "${{ needs.prepare.outputs.version }}"
+          $foundInstaller = $false
           # Look for exe, msi, zip in package output and build dirs
           $candidates = @(
             "build\release\package\*.exe",
@@ -247,6 +279,9 @@ jobs:
               $dest = "AlcedoStudio-$version-Windows-AMD64$($f.Extension)"
               Copy-Item $f.FullName $dest -ErrorAction SilentlyContinue
               Write-Host "Collected: $dest"
+              if ($f.Extension -eq ".exe" -or $f.Extension -eq ".msi") {
+                $foundInstaller = $true
+              }
             }
           }
           # Also try to zip the install directory if no installer was generated
@@ -254,8 +289,34 @@ jobs:
             $installDir = "build\install"
             if (Test-Path $installDir) {
               Compress-Archive -Path "$installDir\*" -DestinationPath "AlcedoStudio-$version-Windows-AMD64.zip"
-              Write-Host "Created zip from install directory"
+              Write-Host "Created zip from install directory (fallback - no installer produced)"
             }
+          }
+
+      - name: Verify Windows installer
+        shell: pwsh
+        run: |
+          $version = "${{ needs.prepare.outputs.version }}"
+          $hasExe = Test-Path "AlcedoStudio-$version-Windows-AMD64.exe"
+          $hasMsi = Test-Path "AlcedoStudio-$version-Windows-AMD64.msi"
+          $hasZip = Test-Path "AlcedoStudio-$version-Windows-AMD64.zip"
+          if ($hasExe) {
+            Write-Host "PASS: Windows .exe installer found" -ForegroundColor Green
+          } elseif ($hasMsi) {
+            Write-Host "PASS: Windows .msi installer found" -ForegroundColor Green
+          } elseif ($hasZip) {
+            Write-Host "WARN: Only .zip archive found (no .exe/.msi installer)" -ForegroundColor Yellow
+          } else {
+            Write-Error "FAIL: No Windows installer or archive was produced!"
+            exit 1
+          }
+          # Verify the install tree has the main executable
+          $mainExe = "build\install\bin\alcedo_main.exe"
+          if (Test-Path $mainExe) {
+            Write-Host "PASS: alcedo_main.exe present in install tree" -ForegroundColor Green
+          } else {
+            Write-Error "FAIL: alcedo_main.exe missing from install tree"
+            exit 1
           }
 
       - name: Upload artifact
@@ -266,7 +327,7 @@ jobs:
             AlcedoStudio-*.exe
             AlcedoStudio-*.msi
             AlcedoStudio-*.zip
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ── macOS Build ──────────────────────────────────────────────────────────
   build-macos:
@@ -334,13 +395,13 @@ jobs:
 
       - name: Build & Package
         env:
-          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          MACOSCODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
         run: |
           set -euo pipefail
           qt_prefix="$(brew --prefix qt)"
           opencv_prefix="${ALCEDO_OPENCV_PREFIX:-}"
           version="${{ needs.prepare.outputs.version }}"
-          codesign_identity="${MACOS_CODESIGN_IDENTITY:--}"
+          codesign_identity="${MACOSCODESIGN_IDENTITY:--}"
           # Set CMAKE_PREFIX_PATH to include OpenCV
           if [[ -n "${opencv_prefix}" ]]; then
             export CMAKE_PREFIX_PATH="${opencv_prefix}:${CMAKE_PREFIX_PATH:-}"
@@ -591,10 +652,22 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: [prepare, build-windows, build-macos, build-linux, build-android, source-archive]
-    if: always() && needs.prepare.result == 'success' && needs.source-archive.result == 'success'
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.source-archive.result == 'success' &&
+      needs.build-windows.result == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check platform build results
+        run: |
+          echo "=== Platform Build Results ==="
+          echo "  Windows:  ${{ needs.build-windows.result }}"
+          echo "  macOS:    ${{ needs.build-macos.result }}"
+          echo "  Linux:    ${{ needs.build-linux.result }}"
+          echo "  Android:  ${{ needs.build-android.result }}"
 
       - name: Download changelog
         uses: actions/download-artifact@v4
@@ -613,7 +686,6 @@ jobs:
         with:
           name: windows-amd64-package
           path: release-assets
-        continue-on-error: true
 
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
@@ -653,6 +725,15 @@ jobs:
 
       - name: List release assets
         run: ls -la release-assets/ 2>/dev/null || echo "No assets directory"
+
+      - name: Verify Windows installer present
+        run: |
+          set -euo pipefail
+          if ! compgen -G "release-assets/AlcedoStudio-*-Windows-AMD64.*" > /dev/null 2>&1; then
+            echo "ERROR: No Windows installer/package found in release assets!"
+            exit 1
+          fi
+          echo "Windows installer verified in release assets"
 
       - name: Create GitHub Release
         env:
