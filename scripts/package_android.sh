@@ -46,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --abi)             ABI="$2"; shift 2 ;;
     --model-dir)       MODEL_DIR="$2"; shift 2 ;;
     --opencv-libs)     OPENCV_LIBS="$2"; shift 2 ;;
+    --version)         ALCEDO_VERSION="$2"; shift 2 ;;
     --help)
       echo "Usage: $0 [options]"
       echo ""

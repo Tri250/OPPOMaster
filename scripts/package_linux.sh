@@ -18,6 +18,8 @@ while [[ $# -gt 0 ]]; do
     --deb)      MAKE_APPIMAGE=false; shift ;;
     --build-dir) BUILD_DIR="$2"; shift 2 ;;
     --vcpkg-root) VCPKG_ROOT="$2"; shift 2 ;;
+    --version)  ALCEDO_VERSION="$2"; shift 2 ;;
+    --format)   if [[ "$2" == "appimage" ]]; then MAKE_DEB=false; elif [[ "$2" == "deb" ]]; then MAKE_APPIMAGE=false; fi; shift 2 ;;
     --help)
       echo "Usage: $0 [--appimage|--deb] [--build-dir <dir>] [--vcpkg-root <dir>]"
       exit 0 ;;

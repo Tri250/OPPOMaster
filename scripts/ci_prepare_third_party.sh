@@ -42,13 +42,33 @@ clone_if_missing \
   "https://github.com/lensfun/lensfun.git"
 
 if [[ ! -e "alcedo_studio/src/third_party/libultrahdr/third_party/image_io/includes/image_io/base/data_segment_data_source.h" ]]; then
-  git submodule sync -- "alcedo_studio/src/third_party/libultrahdr"
-  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libultrahdr"
+  if git -C "${repo_root}" config --file .gitmodules --get "submodule.alcedo_studio/src/third_party/libultrahdr.url" &>/dev/null; then
+    git submodule sync -- "alcedo_studio/src/third_party/libultrahdr" 2>/dev/null || true
+    git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libultrahdr" 2>/dev/null || true
+  fi
+  # Fallback: clone directly if submodule not registered
+  if [[ ! -e "alcedo_studio/src/third_party/libultrahdr/CMakeLists.txt" ]]; then
+    clone_if_missing \
+      "alcedo_studio/src/third_party/libultrahdr" \
+      "CMakeLists.txt" \
+      "https://github.com/zidage/libultrahdr.git" \
+      --branch alcedo-v1.4.0-dither
+  fi
 fi
 
 if [[ ! -e "alcedo_studio/src/third_party/libraw/libraw/libraw.h" ]]; then
-  git submodule sync -- "alcedo_studio/src/third_party/libraw"
-  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libraw"
+  if git -C "${repo_root}" config --file .gitmodules --get "submodule.alcedo_studio/src/third_party/libraw.url" &>/dev/null; then
+    git submodule sync -- "alcedo_studio/src/third_party/libraw" 2>/dev/null || true
+    git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libraw" 2>/dev/null || true
+  fi
+  # Fallback: clone directly if submodule not registered
+  if [[ ! -e "alcedo_studio/src/third_party/libraw/CMakeLists.txt" ]]; then
+    clone_if_missing \
+      "alcedo_studio/src/third_party/libraw" \
+      "CMakeLists.txt" \
+      "https://github.com/zidage/LibRaw.git" \
+      --branch codex/merge-pr-825-826
+  fi
 fi
 
 # The CI preset forces PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON, so gRPC and protobuf
