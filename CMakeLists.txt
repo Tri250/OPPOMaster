@@ -223,7 +223,27 @@ set(ALCEDO_QT_COMPONENTS
 if(ALCEDO_BUILD_TESTS)
     list(APPEND ALCEDO_QT_COMPONENTS Test)
 endif()
-find_package(Qt6 REQUIRED COMPONENTS ${ALCEDO_QT_COMPONENTS})
+# First try finding all components; some may not be available on all platforms
+find_package(Qt6 COMPONENTS ${ALCEDO_QT_COMPONENTS} QUIET)
+
+# Separate required vs optional components
+set(ALCEDO_QT_REQUIRED_COMPONENTS Core Widgets Quick Qml QuickControls2 Network)
+set(ALCEDO_QT_OPTIONAL_COMPONENTS Svg QuickDialogs2 QuickEffects)
+
+if(ALCEDO_BUILD_TESTS)
+    list(APPEND ALCEDO_QT_REQUIRED_COMPONENTS Test)
+endif()
+
+find_package(Qt6 REQUIRED COMPONENTS ${ALCEDO_QT_REQUIRED_COMPONENTS})
+
+# Check which optional components were found
+foreach(_comp ${ALCEDO_QT_OPTIONAL_COMPONENTS})
+    if(Qt6${_comp}_FOUND)
+        message(STATUS "Qt6::${_comp} found")
+    else()
+        message(STATUS "Qt6::${_comp} not found (optional)")
+    endif()
+endforeach()
 
 # LinguistTools is optional (not available on Android Qt)
 find_package(Qt6 COMPONENTS LinguistTools QUIET)

@@ -11,6 +11,16 @@
 #include <sstream>
 #include <chrono>
 
+namespace {
+
+// Portable thread-id to integer conversion (std::thread::id is not
+// reinterpret_cast-able on all platforms, e.g. macOS libc++)
+quintptr ThreadIdToUintptr(std::thread::id tid) {
+  return static_cast<quintptr>(std::hash<std::thread::id>{}(tid));
+}
+
+} // namespace
+
 namespace alcedo::concurrency {
 
 DeadlockDetector& DeadlockDetector::Instance() {
@@ -111,7 +121,7 @@ void DeadlockDetector::TrackReleaseImpl(const std::string& lock_name) {
                             "Long lock hold times may indicate performance issues.")
                  .arg(QString::fromStdString(lock_name),
                       QString::number(held_duration.count()),
-                      QString::number(reinterpret_cast<quintptr>(tid), 16));
+                      QString::number(ThreadIdToUintptr(tid), 16));
     }
     active_locks_.erase(it);
   }
@@ -136,7 +146,7 @@ void DeadlockDetector::TrackContentionImpl(const std::string& lock_name,
   qCInfo(diag::pipelineLog).noquote()
       << QStringLiteral("pipeline.deadlock.contention "
                         "Thread %1 waiting for lock '%2' (timeout=%3 ms)")
-             .arg(QString::number(reinterpret_cast<quintptr>(tid), 16),
+             .arg(QString::number(ThreadIdToUintptr(tid), 16),
                   QString::fromStdString(lock_name),
                   QString::number(static_cast<qint64>(timeout.count())));
 }
@@ -157,7 +167,7 @@ void DeadlockDetector::DumpStateImpl() {
     qCInfo(diag::pipelineLog).noquote()
         << QStringLiteral("pipeline.deadlock.dump   Lock '%1' held by thread %2 for %3 ms")
                .arg(QString::fromStdString(name),
-                    QString::number(reinterpret_cast<quintptr>(info.owning_thread), 16),
+                    QString::number(ThreadIdToUintptr(info.owning_thread), 16),
                     QString::number(held_ms.count()));
   }
 
@@ -173,7 +183,7 @@ void DeadlockDetector::DumpStateImpl() {
     }
     qCInfo(diag::pipelineLog).noquote()
         << QStringLiteral("pipeline.deadlock.dump   Thread %1: held=[%2] waiting='%3'")
-               .arg(QString::number(reinterpret_cast<quintptr>(tid), 16),
+               .arg(QString::number(ThreadIdToUintptr(tid), 16),
                     QString::fromStdString(locks.str()),
                     QString::fromStdString(info.waiting_for));
   }
