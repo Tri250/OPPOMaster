@@ -194,6 +194,10 @@ configure_args=(
 if [[ -n "$qt_prefix" ]]; then
   configure_args+=("-DALCEDO_QT_PREFIX=${qt_prefix}")
 fi
+# Add CMAKE_PREFIX_PATH from environment (for OpenCV etc.)
+if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then
+  configure_args+=("-DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}")
+fi
 
 echo "Configuring CMake with preset '${preset}' ..."
 printf '> cmake'

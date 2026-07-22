@@ -286,7 +286,15 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
+          # Install OpenCV 4 (not 5 which has split modules) with all contrib modules
+          brew install opencv@4 || brew install opencv
+          brew install cmake ninja qt opencolorio duckdb exiv2 glib little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
+
+      - name: Set OpenCV prefix for CMake
+        run: |
+          OPENCV_PREFIX="$(brew --prefix opencv@4 2>/dev/null || brew --prefix opencv)"
+          echo "OpenCV prefix: ${OPENCV_PREFIX}"
+          echo "ALCEDO_OPENCV_PREFIX=${OPENCV_PREFIX}" >> "$GITHUB_ENV"
 
       - name: Pre-install DuckDB extensions
         run: |
@@ -330,8 +338,13 @@ jobs:
         run: |
           set -euo pipefail
           qt_prefix="$(brew --prefix qt)"
+          opencv_prefix="${ALCEDO_OPENCV_PREFIX:-}"
           version="${{ needs.prepare.outputs.version }}"
           codesign_identity="${MACOS_CODESIGN_IDENTITY:--}"
+          # Set CMAKE_PREFIX_PATH to include OpenCV
+          if [[ -n "${opencv_prefix}" ]]; then
+            export CMAKE_PREFIX_PATH="${opencv_prefix}:${CMAKE_PREFIX_PATH:-}"
+          fi
           bash scripts/package_macos.sh \
             --qt-prefix "$qt_prefix" \
             --version "${version}" \
